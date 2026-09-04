@@ -1,0 +1,343 @@
+/* ===== Page reset (was inline in <head>) ===== */
+  html, body { margin: 0; padding: 0; background: #26232C; min-height: 100%; }
+  body { padding: 12px; }
+  @media (min-width: 900px) { body { padding: 28px 20px; } }
+
+/* ===== App styles (was the #soft-app <style> block) ===== */
+  #soft-app {
+    --bg: #2C2932;
+    --raise: #383441;
+    --line: #474250;
+    --text: #EFEAE5;
+    --dim: #A9A1A8;
+    --ghost: #6E6774;
+    --live: #E5A87E;
+    --live-soft: #413229;
+
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+
+    background: linear-gradient(178deg, #35313D 0%, #2C2932 300px);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.5;
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 22px 18px 52px;
+    border-radius: 18px;
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+  }
+  #soft-app *, #soft-app *::before, #soft-app *::after { box-sizing: border-box; }
+  #soft-app .boot { color: var(--dim); text-align: center; padding: 40px 0; }
+
+  #soft-app .greet {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 18px; padding-bottom: 16px;
+  }
+  #soft-app .greet .gtxt { flex: 1; min-width: 0; }
+  #soft-app .motif {
+    flex: 0 0 auto; width: 62px; height: 62px;
+    opacity: .17; margin-top: -3px; pointer-events: none;
+  }
+  #soft-app .motif svg { width: 100%; height: 100%; display: block; }
+  #soft-app .greet h1 {
+    font-family: var(--serif); font-size: 25px; font-weight: 400;
+    margin: 0; letter-spacing: -0.01em; line-height: 1.2;
+  }
+  #soft-app .greet p {
+    margin: 6px 0 0; font-size: 13px; color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  #soft-app .quote {
+    background: rgba(229,168,126,.08);
+    border-radius: 16px; padding: 20px 22px; margin-bottom: 24px;
+  }
+  #soft-app .quote p {
+    font-family: var(--serif); font-size: 18px; line-height: 1.45;
+    margin: 0; color: var(--text);
+  }
+  #soft-app .quote p::before { content: '\201C'; color: var(--live); margin-right: 1px; }
+  #soft-app .quote p::after { content: '\201D'; color: var(--live); }
+  #soft-app .slack { font-size: 13.5px; color: var(--dim); padding: 2px 0 14px; line-height: 1.55; }
+  #soft-app .slack b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+  /* balance strip */
+  #soft-app .balbar { display: flex; height: 7px; border-radius: 4px; overflow: hidden; background: var(--line); gap: 2px; }
+  #soft-app .balbar i { display: block; height: 100%; }
+  #soft-app .balkey { display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 0 20px; font-size: 12.5px; color: var(--dim); }
+  #soft-app .balkey span { display: flex; align-items: center; gap: 6px; }
+  #soft-app .balkey b { width: 8px; height: 8px; border-radius: 2px; display: block; }
+
+  /* rail */
+  #soft-app .item { display: flex; min-height: 56px; }
+  #soft-app .clock {
+    flex: 0 0 58px; text-align: right; padding: 13px 13px 0 0;
+    font-size: 13px; color: var(--ghost); font-variant-numeric: tabular-nums;
+  }
+  #soft-app .item.future .clock { color: var(--dim); }
+  #soft-app .item.live .clock { color: var(--live); }
+
+  #soft-app .track { flex: 0 0 22px; position: relative; }
+  #soft-app .track::before {
+    content: ''; position: absolute; left: 10px; top: 0; bottom: 0;
+    width: 1.5px; background: var(--line); opacity: .7;
+  }
+  #soft-app .item:first-child .track::before { top: 19px; }
+  #soft-app .item:last-child .track::before { bottom: calc(100% - 19px); }
+  #soft-app .item.gap .track::before { opacity: .35; }
+  #soft-app .dot {
+    position: absolute; left: 4px; top: 13px;
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 1.5px solid var(--ghost); background: var(--bg);
+    display: grid; place-items: center;
+  }
+  #soft-app .dot svg { width: 8px; height: 8px; opacity: 0; }
+  #soft-app .item.done .dot svg { opacity: 1; }
+
+  #soft-app .card {
+    flex: 1; min-width: 0; padding: 10px 0 16px 6px;
+    background: none; border: 0; font: inherit; color: inherit;
+    text-align: left; cursor: pointer; border-radius: 12px;
+  }
+  #soft-app .card .t { font-size: 15.5px; line-height: 1.35; }
+  #soft-app .card .n { font-size: 13px; color: var(--dim); margin-top: 4px; max-width: 42ch; line-height: 1.5; }
+  #soft-app .item.past .card .t, #soft-app .item.done .card .t { color: var(--ghost); }
+
+  #soft-app .item.live .card {
+    background: var(--live-soft); border-radius: 14px;
+    padding: 15px 16px; margin: 0 0 14px 4px;
+  }
+  #soft-app .item.live .card .t {
+    font-family: var(--serif); font-size: 23px; font-weight: 400; line-height: 1.22;
+  }
+  #soft-app .item.live.done .card .t { color: var(--text); }
+  #soft-app .meter { height: 3px; background: rgba(255,255,255,.12); border-radius: 3px; margin-top: 14px; overflow: hidden; }
+  #soft-app .meter i { display: block; height: 100%; background: var(--live); border-radius: 3px; }
+  #soft-app .left { font-size: 12.5px; color: var(--live); margin-top: 8px; font-variant-numeric: tabular-nums; }
+
+  #soft-app .item.gap .card { padding: 12px 0 16px 6px; cursor: default; }
+  #soft-app .item.gap .card .t { font-size: 13.5px; color: var(--ghost); font-variant-numeric: tabular-nums; }
+  #soft-app .item.gap.live .card { background: none; padding: 12px 0 16px 6px; margin: 0; }
+  #soft-app .item.gap.live .card .t { color: var(--live); font-size: 15px; }
+  #soft-app .item.gap .dot { display: none; }
+
+  /* park */
+  #soft-app .park { margin: 26px 0 8px; }
+  #soft-app .park-row { display: flex; gap: 9px; }
+  #soft-app .park input {
+    flex: 1; min-width: 0; font: inherit; font-size: 15px;
+    background: var(--raise); color: var(--text);
+    border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px;
+  }
+  #soft-app .park input::placeholder { color: var(--dim); }
+  #soft-app .park input:focus { outline: 2px solid var(--live); outline-offset: 1px; }
+  #soft-app .park-row > button {
+    font: inherit; font-size: 15px; background: var(--raise); color: var(--text);
+    border: 1px solid var(--line); border-radius: 12px; padding: 13px 17px; cursor: pointer;
+  }
+  #soft-app .parked { list-style: none; margin: 12px 0 0; padding: 0; }
+  #soft-app .parked li {
+    display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px;
+    padding: 10px 2px; border-bottom: 1px solid var(--line);
+  }
+  #soft-app .parked li:last-child { border-bottom: 0; }
+  #soft-app .parked li span { flex: 1; }
+  #soft-app .parked li button { background: none; border: 0; color: var(--dim); font-size: 19px; line-height: 1; padding: 0 6px; cursor: pointer; }
+  #soft-app .park-empty { font-size: 13.5px; color: var(--dim); padding-top: 12px; line-height: 1.55; max-width: 44ch; }
+
+  /* chips */
+  #soft-app .chips { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 8px 0 4px; }
+  #soft-app .chip {
+    display: flex; align-items: center; gap: 9px;
+    background: var(--raise); border: 1px solid var(--line); border-radius: 13px;
+    padding: 13px; font: inherit; font-size: 14px; color: var(--text);
+    text-align: left; cursor: pointer; min-height: 50px;
+  }
+  #soft-app .chip.on .cl { color: var(--dim); }
+  #soft-app .chip .cl { flex: 1; line-height: 1.25; }
+  #soft-app .chip .mark { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--dim); flex: 0 0 auto; }
+  #soft-app .chip .pips { display: flex; gap: 4px; }
+  #soft-app .chip .pip { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--dim); }
+
+  /* folders */
+  #soft-app h2 {
+    font-size: 11.5px; font-weight: 600; color: var(--ghost);
+    letter-spacing: .1em; text-transform: uppercase; margin: 32px 0 12px;
+  }
+  #soft-app .folder {
+    width: 100%; display: flex; align-items: center; gap: 13px;
+    background: var(--raise); border: 1px solid var(--line); border-radius: 14px;
+    padding: 15px 16px; margin-bottom: 9px;
+    font: inherit; color: var(--text); text-align: left; cursor: pointer;
+  }
+  #soft-app .folder .swatch { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+  #soft-app .folder .fl { flex: 1; font-size: 15.5px; }
+  #soft-app .folder .fl small { display: block; font-size: 12.5px; color: var(--dim); margin-top: 2px; }
+  #soft-app .folder .bar { flex: 0 0 54px; height: 4px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  #soft-app .folder .bar i { display: block; height: 100%; border-radius: 3px; }
+  #soft-app .folder .val { font-size: 12.5px; color: var(--dim); font-variant-numeric: tabular-nums; min-width: 46px; text-align: right; }
+  #soft-app .drawer { padding: 2px 4px 18px; }
+  #soft-app .drawer[hidden] { display: none; }
+  #soft-app .drawer h3 { font-size: 12.5px; font-weight: 500; color: var(--ghost); margin: 14px 0 4px; }
+  #soft-app .mini {
+    display: flex; gap: 11px; align-items: center; width: 100%;
+    background: none; border: 0; padding: 11px 2px; font: inherit;
+    color: var(--text); font-size: 14px; text-align: left; cursor: pointer;
+    border-bottom: 1px solid var(--line);
+  }
+  #soft-app .mini:last-child { border-bottom: 0; }
+  #soft-app .mini .mark { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--dim); flex: 0 0 auto; }
+  #soft-app .mini.on span { color: var(--ghost); }
+  #soft-app .mini span { flex: 1; }
+  #soft-app .mini .day { flex: 0 0 auto; color: var(--ghost); font-size: 12px; }
+  #soft-app .mini .day.due { color: var(--live); }
+
+
+  /* view toggle */
+  #soft-app .seg {
+    display: inline-flex; background: var(--raise); border: 1px solid var(--line);
+    border-radius: 11px; padding: 3px; gap: 3px; margin: 8px 0 18px;
+  }
+  #soft-app .seg button {
+    font: inherit; font-size: 13.5px; padding: 7px 18px; border: 0;
+    border-radius: 8px; background: none; color: var(--dim); cursor: pointer;
+  }
+  #soft-app .seg button.on { background: var(--bg); color: var(--text); }
+
+  #soft-app.wide { max-width: 1180px; }
+  #soft-app .segrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  #soft-app .habhead { display: flex; justify-content: flex-end; padding-bottom: 8px; }
+  #soft-app .hdow, #soft-app .hgrid { display: grid; grid-template-columns: repeat(7, 11px); gap: 3px; }
+  #soft-app .hdow span { font-size: 9px; color: var(--ghost); text-align: center; line-height: 1; }
+  #soft-app .hab {
+    display: flex; gap: 16px; align-items: flex-start;
+    padding: 14px 2px; border-bottom: 1px solid var(--line);
+  }
+  #soft-app .hab:last-child { border-bottom: 0; }
+  #soft-app .hab .hl { flex: 1; min-width: 0; }
+  #soft-app .hab .hl b { display: block; font-size: 15px; font-weight: 500; }
+  #soft-app .hab .hl small { display: block; font-size: 12.5px; color: var(--dim); margin-top: 4px; }
+  #soft-app .hab .hl em { font-style: normal; color: var(--live); }
+  #soft-app .hgrid i {
+    width: 11px; height: 11px; border-radius: 3px;
+    border: 1px solid var(--line); display: block;
+  }
+  #soft-app .hgrid i.fut { opacity: .3; }
+  #soft-app .hgrid i.td { box-shadow: 0 0 0 1.5px var(--live); }
+  #soft-app .seg button { padding: 7px 13px; }
+  #soft-app .goal { margin-bottom: 9px; }
+  #soft-app .ghead {
+    width: 100%; display: flex; align-items: center; gap: 13px;
+    background: var(--raise); border: 1px solid var(--line); border-radius: 14px;
+    padding: 15px 16px; font: inherit; color: var(--text); text-align: left; cursor: pointer;
+  }
+  #soft-app .ghead .gl { flex: 1; min-width: 0; }
+  #soft-app .ghead .gl b { display: block; font-size: 15.5px; font-weight: 500; }
+  #soft-app .ghead .gl small { display: block; font-size: 12.5px; color: var(--dim); margin-top: 3px; }
+  #soft-app .ghead .gl small.late { color: var(--live); }
+  #soft-app .gbody { padding: 6px 4px 16px; }
+  #soft-app .grow2 { display: flex; align-items: center; gap: 6px; }
+  #soft-app .grow2 .mini { flex: 1; }
+  #soft-app .del {
+    background: none; border: 0; color: var(--ghost); font: inherit;
+    font-size: 19px; line-height: 1; padding: 4px 8px; cursor: pointer;
+  }
+  #soft-app .del.wide {
+    display: block; width: 100%; font-size: 13px; text-align: left;
+    padding: 12px 2px 0; color: var(--dim); text-decoration: underline; text-underline-offset: 3px;
+  }
+  #soft-app .gform {
+    background: var(--raise); border: 1px solid var(--line);
+    border-radius: 14px; padding: 13px; margin-top: 12px;
+  }
+  #soft-app .gform input, #soft-app .gform select {
+    font: inherit; font-size: 14.5px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px;
+    width: 100%; margin-bottom: 8px;
+  }
+  #soft-app .gform select { -webkit-appearance: none; appearance: none; }
+  #soft-app .gform input:focus, #soft-app .gform select:focus {
+    outline: 2px solid var(--live); outline-offset: 1px;
+  }
+  #soft-app .gform input::placeholder { color: var(--dim); }
+  #soft-app .frow { display: flex; gap: 8px; }
+  #soft-app .frow > * { flex: 1; min-width: 0; }
+  #soft-app .gform .go {
+    font: inherit; font-size: 14.5px; background: var(--live); color: #2C2932;
+    border: 0; border-radius: 10px; padding: 12px; width: 100%;
+    margin-bottom: 0; cursor: pointer; font-weight: 500;
+  }
+  #soft-app .reset {
+    font: inherit; font-size: 13px; background: none; border: 0;
+    color: var(--live); cursor: pointer; text-decoration: underline;
+    text-underline-offset: 3px; padding: 0;
+  }
+  #soft-app .expand {
+    font: inherit; font-size: 13px; background: none; border: 0;
+    color: var(--dim); cursor: pointer; text-decoration: underline;
+    text-underline-offset: 3px; padding: 0;
+  }
+
+  /* expanded calendar grid */
+  #soft-app .calhead { display: flex; padding-bottom: 7px; }
+  #soft-app .calhead .sp { flex: 0 0 46px; }
+  #soft-app .calhead .hs { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  #soft-app .calhead .hs span { text-align: center; font-size: 12.5px; color: var(--dim); }
+  #soft-app .calhead .hs span.td { color: var(--live); font-weight: 600; }
+  #soft-app .cal { display: flex; }
+  #soft-app .calhrs { flex: 0 0 46px; position: relative; }
+  #soft-app .calhrs u {
+    position: absolute; right: 9px; font-style: normal; font-size: 11px;
+    color: var(--ghost); transform: translateY(-50%); font-variant-numeric: tabular-nums;
+  }
+  #soft-app .calcols { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  #soft-app .calcol { position: relative; background: var(--raise); border-radius: 9px; }
+  #soft-app .calcol.td { background: var(--live-soft); }
+  #soft-app .gl { position: absolute; left: 0; right: 0; height: 1px; background: var(--line); opacity: .45; }
+  #soft-app .cb {
+    position: absolute; left: 3px; right: 3px; border: 0; border-left: 3px solid;
+    border-radius: 6px; padding: 5px 6px; font: inherit; font-size: 11.5px;
+    line-height: 1.25; color: var(--text); text-align: left; overflow: hidden; cursor: pointer;
+  }
+  #soft-app .cb.done { opacity: .42; }
+  #soft-app .cb b { display: block; font-weight: 500; }
+  #soft-app .cb em { display: block; font-style: normal; font-size: 10.5px; opacity: .7; font-variant-numeric: tabular-nums; }
+  #soft-app .cb { touch-action: none; }
+  #soft-app .cb.dragging { z-index: 20; box-shadow: 0 8px 22px rgba(0,0,0,.45); opacity: .95; }
+  #soft-app .rz { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: ns-resize; }
+  #soft-app .cbnow { position: absolute; left: 0; right: 0; height: 2px; background: var(--live); z-index: 3; }
+
+  /* week grid */
+  #soft-app .axis { display: flex; padding-left: 54px; font-size: 11px; color: var(--ghost); margin-bottom: 7px; }
+  #soft-app .axis span { flex: 1; }
+  #soft-app .axis span:last-child { flex: 0 0 auto; }
+  #soft-app .wrow { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  #soft-app .wday { flex: 0 0 46px; font-size: 12.5px; color: var(--dim); }
+  #soft-app .wrow.today .wday { color: var(--live); font-weight: 600; }
+  #soft-app .wbar {
+    flex: 1; position: relative; height: 28px; background: var(--raise);
+    border: 0; border-radius: 7px; overflow: hidden; cursor: pointer; padding: 0;
+  }
+  #soft-app .wrow.today .wbar { background: var(--live-soft); }
+  #soft-app .wbar i { position: absolute; top: 4px; bottom: 4px; border-radius: 3px; }
+  #soft-app .wnow { position: absolute; top: 0; bottom: 0; width: 1.5px; background: var(--live); }
+  #soft-app .wlist { padding: 4px 0 14px 54px; }
+  #soft-app .wlist .wl {
+    display: flex; gap: 10px; align-items: center; width: 100%;
+    background: none; border: 0; border-bottom: 1px solid var(--line);
+    padding: 10px 2px; font: inherit; font-size: 14px; color: var(--text);
+    text-align: left; cursor: pointer;
+  }
+  #soft-app .wlist .wl:last-child { border-bottom: 0; }
+  #soft-app .wlist .wl .sw { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  #soft-app .wlist .wl span { flex: 1; }
+  #soft-app .wlist .wl.on span { color: var(--ghost); }
+  #soft-app .wlist .wl em {
+    flex: 0 0 auto; font-style: normal; font-size: 12px; color: var(--ghost);
+    font-variant-numeric: tabular-nums;
+  }
+  #soft-app .wtot { margin-top: 22px; }
+
+  #soft-app footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--dim); line-height: 1.55; }
