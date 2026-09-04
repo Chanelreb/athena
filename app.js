@@ -136,6 +136,9 @@
   let openGoal = null;
   let expanded = (typeof window !== 'undefined' && window.innerWidth >= 900);
   let editing = null;                 // event-editor state, or null
+  // The full 7-column grid needs real width; below this we always show strips.
+  const canGrid = () => (typeof window !== 'undefined' && window.innerWidth >= 700);
+  const gridShown = () => expanded && canGrid();
 
   function firstRun(){
     // Seed a fresh install so it isn't empty. Marks onboarded so we don't reseed.
@@ -271,7 +274,7 @@
     const tot = {};
     let h = '';
 
-    if (expanded){
+    if (gridShown()){
       const H = 680, px = m => (m - DS) / SPAN * H;
       h += '<div class="calhead"><span class="sp"></span><span class="hs">' +
         ORDER.map((d,pos) => '<span'+(pos===todayPos?' class="td"':'')+'>'+LBL[d]+'</span>').join('') + '</span></div>';
@@ -707,9 +710,9 @@
       ['day','week','habits','goals'].map(v =>
         '<button data-view="'+v+'"'+(view===v?' class="on"':'')+'>'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>').join('')+
       '</div>'+
-      (view==='week' ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
+      (view==='week' && canGrid() ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
       '</div>';
-    app.classList.toggle('wide', view==='week' && expanded);
+    app.classList.toggle('wide', view==='week' && gridShown());
 
     if (view === 'day')    h += dayRail(now);
     else if (view === 'week')  h += weekView(now);
@@ -893,6 +896,24 @@
     if (e.key === 'Escape' && (editing || settingsOpen)){ editing = null; settingsOpen = false; clearModalDrafts(); render(); }
   });
 
+  // Re-flow the layout when the screen size or orientation changes, so views
+  // expand and contract live (strips <-> grid, wide <-> narrow). Debounced, and
+  // skipped while typing so it never yanks focus mid-edit.
+  let rzt = null;
+  function onResize(){
+    clearTimeout(rzt);
+    rzt = setTimeout(() => {
+      const ae = document.activeElement;
+      if (ae && app.contains && app.contains(ae) &&
+          (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) return;
+      render();
+    }, 150);
+  }
+  if (typeof window !== 'undefined'){
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+  }
+
   load().then(() => {
     render();
     keepDrafts();
@@ -904,4 +925,11 @@
       render();
     }, 60000);
   });
+
+  // Register the service worker (installable + offline). Harmless where unsupported.
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator){
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
 })();
