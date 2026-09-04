@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "mesh-dashboard",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8000"],
+      "name": "athena",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["serve.js", "8000"],
       "port": 8000
     }
   ]

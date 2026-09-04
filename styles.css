@@ -341,3 +341,66 @@
   #soft-app .wtot { margin-top: 22px; }
 
   #soft-app footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--dim); line-height: 1.55; }
+
+/* ===== Athena additions: editing, event-editor modal, settings, all-day ===== */
+
+  /* greeting motif is now a Settings button */
+  #soft-app .motif { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; pointer-events: auto; transition: opacity .15s; }
+  #soft-app .motif:hover { opacity: .4; }
+
+  /* day-rail card with an edit affordance */
+  #soft-app .card.cardrow { display: flex; align-items: flex-start; gap: 8px; }
+  #soft-app .cardmain { flex: 1; min-width: 0; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; padding: 0; }
+  #soft-app .editdot { flex: 0 0 auto; background: none; border: 0; color: var(--ghost); font-size: 18px; line-height: 1; padding: 2px 7px; cursor: pointer; border-radius: 8px; opacity: .55; }
+  #soft-app .editdot:hover { opacity: 1; background: rgba(255,255,255,.06); }
+  #soft-app .item.live .editdot { color: var(--live); opacity: .8; }
+
+  /* all-day chips */
+  #soft-app .allday { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 16px; }
+  #soft-app .adchip { display: inline-flex; align-items: center; gap: 7px; background: var(--raise); border: 1px solid var(--line); color: var(--text); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13.5px; cursor: pointer; }
+  #soft-app .adchip .sw { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* inline "add" affordances */
+  #soft-app .dayadd { margin-top: 18px; }
+  #soft-app .dayadd button, #soft-app .wl-add { width: 100%; background: var(--raise); border: 1px dashed var(--line); color: var(--dim); border-radius: 12px; padding: 11px; font: inherit; cursor: pointer; }
+  #soft-app .dayadd button:hover, #soft-app .wl-add:hover { color: var(--text); border-color: var(--ghost); }
+  #soft-app .linkish { background: none; border: 0; color: var(--live); font: inherit; cursor: pointer; padding: 0; text-decoration: underline; }
+
+  /* modal */
+  #soft-app .modal-back { position: fixed; inset: 0; background: rgba(20,18,24,.55); z-index: 40; }
+  #soft-app .modal {
+    position: fixed; z-index: 41; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: min(420px, calc(100vw - 28px)); max-height: calc(100vh - 40px); overflow: auto;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 18px; padding: 20px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  }
+  #soft-app .modal-h { font-family: var(--serif); font-size: 20px; margin-bottom: 14px; }
+  #soft-app .fld { display: block; margin-bottom: 12px; }
+  #soft-app .fld > span { display: block; font-size: 12.5px; color: var(--dim); margin-bottom: 5px; }
+  #soft-app .fld input, #soft-app .fld select {
+    width: 100%; background: var(--raise); border: 1px solid var(--line); color: var(--text);
+    border-radius: 10px; padding: 10px 12px; font: inherit; -webkit-appearance: none; appearance: none;
+  }
+  #soft-app .fld input:focus, #soft-app .fld select:focus { outline: none; border-color: var(--ghost); }
+  #soft-app .fld.two { display: flex; gap: 10px; }
+  #soft-app .fld.two label { flex: 1; display: block; }
+  #soft-app .fld.chk { display: flex; align-items: center; gap: 9px; }
+  #soft-app .fld.chk input { width: auto; }
+  #soft-app .fld.chk span { margin: 0; font-size: 14px; color: var(--text); }
+
+  /* weekday picker */
+  #soft-app .wdrow { display: flex; gap: 6px; }
+  #soft-app .wdbtn { flex: 1; background: var(--raise); border: 1px solid var(--line); color: var(--dim); border-radius: 9px; padding: 9px 0; font: inherit; font-size: 13px; cursor: pointer; }
+  #soft-app .wdbtn.on { background: var(--live-soft); border-color: var(--live); color: var(--live); }
+
+  /* modal actions */
+  #soft-app .modal-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  #soft-app .modal .go { background: var(--live); color: #2C2932; border: 0; border-radius: 10px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+  #soft-app .modal .ghost { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 10px; padding: 10px 14px; font: inherit; cursor: pointer; }
+  #soft-app .modal .del { align-self: center; }
+
+  /* settings categories */
+  #soft-app .catlist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  #soft-app .catrow { display: flex; align-items: center; gap: 8px; }
+  #soft-app .catrow input[type="color"] { flex: 0 0 40px; width: 40px; height: 38px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); cursor: pointer; }
+  #soft-app .catrow input[type="text"] { flex: 1; background: var(--raise); border: 1px solid var(--line); color: var(--text); border-radius: 9px; padding: 8px 10px; font: inherit; }
