@@ -1401,6 +1401,34 @@
     return h;
   }
 
+  // Open the user's assistant with the whole prompt (schema plus their request)
+  // already filled in, so they never have to copy anything on the way out.
+  function aiLaunch(which){
+    const ask = ((document.getElementById('ai_ask') || {}).value || '').trim();
+    const full = aiPrompt() + ask;
+    const enc = encodeURIComponent(full);
+    const url = which === 'claude'
+      ? 'https://claude.ai/new?q=' + enc
+      : 'https://chatgpt.com/?q=' + enc;
+    if (S.profile){ S.profile.preferredAI = which; save(); }   // remember for next time
+    try { window.open(url, '_blank', 'noopener'); }
+    catch(_){ aiError = 'Could not open your assistant. Copy the prompt instead.'; render(); }
+  }
+  // Read the reply straight off the clipboard and go straight to the preview.
+  async function aiPasteClip(){
+    try {
+      const txt = await navigator.clipboard.readText();
+      if (!txt || !txt.trim()){ aiError = 'The clipboard looks empty. Copy your assistant\'s reply first.'; render(); return; }
+      const ta = document.getElementById('ai_paste');
+      if (ta) ta.value = txt;
+      drafts['ai_paste'] = txt;
+      aiBuildPreview();
+    } catch(e){
+      aiError = 'This browser wouldn\'t let me read the clipboard. Paste into the box instead.';
+      render();
+    }
+  }
+
   function aiHTML(){
     let h = '<div class="modal-back" data-aiclose></div><div class="modal"><div class="modal-h">Ask your AI</div>';
     if (aiStep === 'preview' && aiPreview){
@@ -1408,9 +1436,18 @@
       h += aiPreviewHTML();
       h += '<div class="modal-actions"><button class="ghost" data-aiback>Back</button><span style="flex:1"></span><button class="go" data-aiapply>Add to my week</button></div>';
     } else {
-      h += '<p class="ai-intro">Use ChatGPT, Claude, or any assistant. Copy this, tell it what you want on the last line, then paste the reply back.</p>';
-      h += '<div class="ai-prompt"><pre>'+esc(aiPrompt())+'</pre><button class="copybtn" data-aicopy>Copy prompt</button></div>';
-      h += '<label class="fld"><span>Paste your assistant\'s reply</span><textarea id="ai_paste" rows="5" placeholder="Paste the JSON your AI gave you…"></textarea></label>';
+      const pref = (S.profile && S.profile.preferredAI) || 'chatgpt';
+      const launch = [['chatgpt','ChatGPT'], ['claude','Claude']];
+      launch.sort((a,b) => (a[0] === pref ? -1 : 0) - (b[0] === pref ? -1 : 0));
+      h += '<p class="ai-intro">Say what you want, open it in your assistant (the whole prompt goes with you), then bring the reply back.</p>';
+      h += '<label class="fld"><span>What should Athena add?</span>'+
+        '<textarea id="ai_ask" rows="3" placeholder="e.g. chase the invoice, book the dentist, and a weekly SEO check on Fridays"></textarea></label>';
+      h += '<div class="ai-launch">' + launch.map((l,i) =>
+        '<button class="'+(i===0?'go':'ghost')+'" data-ailaunch="'+l[0]+'">Open in '+l[1]+'</button>').join('') + '</div>';
+      h += '<button class="linkish ai-alt" data-aicopy>Using something else? Copy the prompt</button>';
+      h += '<label class="fld"><span>Then paste the reply back</span>'+
+        '<textarea id="ai_paste" rows="4" placeholder="Paste what your assistant gave you…"></textarea></label>';
+      h += '<button class="ghost ai-clip" data-aipasteclip>Paste from clipboard and preview</button>';
       if (aiError) h += '<p class="ai-error">'+esc(aiError)+'</p>';
       h += '<div class="modal-actions"><button class="ghost" data-aiclose>Cancel</button><span style="flex:1"></span><button class="go" data-aipreview>Preview</button></div>';
     }
@@ -1527,8 +1564,10 @@
     if (t('[data-obskip]')){ obSkip(); return; }
 
     // ask your AI
-    if (t('[data-aiopen]')){ aiOpen = true; aiStep = 'input'; aiPreview = null; aiError = ''; clearDraft('ai_paste'); render(); return; }
-    if (t('[data-aiclose]')){ aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; clearDraft('ai_paste'); render(); return; }
+    if (t('[data-aiopen]')){ aiOpen = true; aiStep = 'input'; aiPreview = null; aiError = ''; clearDraft('ai_paste'); clearDraft('ai_ask'); render(); return; }
+    if (t('[data-aiclose]')){ aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; clearDraft('ai_paste'); clearDraft('ai_ask'); render(); return; }
+    if ((m = t('[data-ailaunch]'))){ aiLaunch(m.dataset.ailaunch); return; }
+    if (t('[data-aipasteclip]')){ aiPasteClip(); return; }
     if (t('[data-aipreview]')){ aiBuildPreview(); return; }
     if (t('[data-aiback]')){ aiStep = 'input'; aiError = ''; render(); return; }
     if (t('[data-aiapply]')){ aiApply(); return; }
@@ -1690,7 +1729,7 @@
       if (v){ S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
     }
     if (e.key === 'Enter' && e.target.id === 'tk_title'){ e.preventDefault(); const b = app.querySelector('[data-addtask]'); if (b) b.click(); return; }
-    if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit)){ editing = null; taskEdit = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input'; clearModalDrafts(); render(); }
+    if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit)){ editing = null; taskEdit = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input'; clearDraft('ai_ask'); clearModalDrafts(); render(); }
   });
 
   // Re-flow the layout when the screen size or orientation changes, so views

@@ -632,3 +632,12 @@
     border-radius: 10px; padding: 10px 6px; font: inherit; font-size: 13px; cursor: pointer;
   }
   #soft-app .themebtn.on { border-color: var(--live); color: var(--live); background: var(--live-soft); }
+
+  /* ===== Ask your AI: launch row ===== */
+  #soft-app .ai-launch { display: flex; gap: 8px; margin-bottom: 8px; }
+  #soft-app .ai-launch button { flex: 1; border-radius: 10px; padding: 11px 10px; font: inherit; font-size: 13.5px; cursor: pointer; }
+  #soft-app .ai-launch .go { background: var(--live); color: var(--on-live); border: 0; font-weight: 600; }
+  #soft-app .ai-launch .ghost { background: none; border: 1px solid var(--line); color: var(--dim); }
+  #soft-app .ai-alt { display: block; margin: 0 0 16px; font-size: 12.5px; }
+  #soft-app .ai-clip { display: block; width: 100%; background: none; border: 1px dashed var(--line); color: var(--dim); border-radius: 10px; padding: 10px; font: inherit; font-size: 13px; cursor: pointer; margin-bottom: 4px; }
+  #soft-app .ai-clip:hover { color: var(--text); border-color: var(--ghost); }
