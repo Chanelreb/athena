@@ -161,6 +161,9 @@
     events: [],
     habits: [],
     goals: [],
+    // Things to do. A task has no time of its own — it surfaces inside whichever
+    // block shares its category. { id, title, note, cat, priority, due, repeat, doneAt }
+    tasks: [],
     parked: [],
     completions: {}   // { 'YYYY-MM-DD': { <itemId>: true | <number> } }
   });
@@ -170,6 +173,7 @@
   let view = 'day';
   let openDay = null;                 // week strips: which day is expanded
   let openGoal = null;
+  let openBlockTasks = null;          // which block has its task list expanded
   let expanded = (typeof window !== 'undefined' && window.innerWidth >= 900);
   let editing = null;                 // event-editor state, or null
   // Which day/week you're looking at, as an offset in days from today. Day view
@@ -473,6 +477,35 @@
     if (!Object.keys(m).length) delete S.completions[dk];
   }
 
+  /* ---------- tasks ----------
+     A one-off task is finished once (doneAt). A recurring one is finished per
+     period, on the same completions map habits and goal steps use. */
+  const PRIOS = [['high','High'], ['normal','Normal'], ['low','Low']];
+  const prioRank = p => (p === 'high' ? 0 : p === 'low' ? 2 : 1);
+  const periodKeyFor = (freq, d) => freq === 'daily' ? dayKey(d) : freq === 'monthly' ? monKey(d) : weekKey(d);
+
+  function taskDone(tk, d){
+    if (!tk.repeat) return !!tk.doneAt;
+    return isDone('t:' + tk.id, periodKeyFor(tk.repeat.freq, d));
+  }
+  function toggleTask(tk, d){
+    if (!tk.repeat) tk.doneAt = tk.doneAt ? null : dayKey(d);
+    else toggleDone('t:' + tk.id, periodKeyFor(tk.repeat.freq, d));
+  }
+  const findTask = id => (S.tasks || []).find(x => x.id === id);
+  // Ordering everywhere: priority first, then soonest due, then oldest.
+  function taskSort(a, b){
+    const p = prioRank(a.priority) - prioRank(b.priority);
+    if (p) return p;
+    if (a.due && b.due && a.due !== b.due) return a.due < b.due ? -1 : 1;
+    if (a.due && !b.due) return -1;
+    if (!a.due && b.due) return 1;
+    return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+  }
+  const openTasks = d => (S.tasks || []).filter(tk => !taskDone(tk, d));
+  // The tasks a block should offer: same category, still outstanding.
+  const tasksForCat = (catId, d) => openTasks(d).filter(tk => tk.cat === catId).sort(taskSort);
+
   /* ==========================================================================
      Views
      ========================================================================== */
@@ -633,7 +666,7 @@
       h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+'">'+
         '<div class="clock">'+clockOf(b.s)+'</div>'+
         '<div class="track"><span class="dot" style="'+dotStyle+'">'+TICK+'</span></div>'+
-        '<div class="card cardrow">'+
+        '<div class="card"><div class="cardrow">'+
         '<button class="cardmain" '+doneAct+'>'+
         '<div class="t">'+esc(b.t)+'</div>'+
         (b.n?'<div class="n">'+esc(b.n)+'</div>':'');
@@ -645,7 +678,17 @@
       h += '</button>'+
         (isStep ? '<button class="editdot" data-gotogoal="'+b.step.gid+'" aria-label="Open goal">›</button>'
                 : '<button class="editdot" data-editinst="'+b.id+'|'+dk+'" aria-label="Edit">⋯</button>')+
-        '</div></div>';
+        '</div>';
+      // Tasks waiting in this block's category
+      const bt = isStep ? [] : tasksForCat(b.c, vd);
+      if (bt.length){
+        const openHere = openBlockTasks === b.uid;
+        h += '<div class="btasks"><button class="taskchip'+(openHere?' on':'')+'" data-blocktasks="'+b.uid+'">'+
+          bt.length+' task'+(bt.length !== 1 ? 's' : '')+'<em>'+(openHere ? '▴' : '▾')+'</em></button>';
+        if (openHere) h += '<div class="tlist inblock">'+bt.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
+        h += '</div>';
+      }
+      h += '</div></div>';
     });
 
     h += '<div class="dayadd"><button data-newon="'+dk+'">+ New event</button>'+
@@ -793,6 +836,126 @@
   }
 
   /* ---------- parked thoughts ---------- */
+  /* ---------- tasks view ---------- */
+  let showDone = false;
+
+  function repeatLabel(rep){ return rep ? (rep.freq === 'daily' ? 'Daily' : rep.freq === 'monthly' ? 'Monthly' : 'Weekly') : ''; }
+  function dueLabel(due, d){
+    const diff = daysBetween(dayKey(d), due);
+    if (diff < 0) return { text: Math.abs(diff) + (Math.abs(diff) === 1 ? ' day over' : ' days over'), late: true };
+    if (diff === 0) return { text: 'Today', soon: true };
+    if (diff === 1) return { text: 'Tomorrow' };
+    const x = parseDay(due);
+    return { text: x.getDate() + ' ' + SHORT[x.getMonth()] };
+  }
+
+  function taskRow(tk, d, compact){
+    const done = taskDone(tk, d);
+    const col = catColor(tk.cat);
+    const bits = [];
+    if (tk.priority === 'high') bits.push('<i class="prio-high">High</i>');
+    if (!compact) bits.push('<i class="tcat"><b style="background:'+col+'"></b>'+esc(catOf(tk.cat).label)+'</i>');
+    if (tk.due){ const dl = dueLabel(tk.due, d); bits.push('<i class="'+(dl.late?'due-late':dl.soon?'due-soon':'')+'">'+esc(dl.text)+'</i>'); }
+    if (tk.repeat) bits.push('<i>'+repeatLabel(tk.repeat)+'</i>');
+    return '<div class="trow'+(done?' done':'')+'">'+
+      '<button class="tcheck" data-tasktoggle="'+tk.id+'|'+dayKey(d)+'" aria-label="Mark done">'+
+        '<span class="mark" style="'+(done ? 'background:'+col+';border-color:'+col : 'border-color:'+col)+'">'+TICK+'</span></button>'+
+      '<button class="tmain" data-taskedit="'+tk.id+'">'+
+        '<span class="tt">'+esc(tk.title)+'</span>'+
+        (bits.length ? '<span class="tmeta">'+bits.join('')+'</span>' : '')+
+      '</button>'+
+      (compact ? '' : '<button class="del" data-deltask="'+tk.id+'" aria-label="Remove task">×</button>')+
+      '</div>';
+  }
+
+  function tasksView(now){
+    const today = dayKey(now);
+    const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'>"+esc(c.label)+"</option>").join('');
+    const open = openTasks(now).sort(taskSort);
+
+    let h = '<div class="gform taskadd">'+
+      '<input id="tk_title" type="text" placeholder="What needs doing?" autocomplete="off">'+
+      '<div class="frow">'+
+        '<select id="tk_cat">'+CATOPTS+'</select>'+
+        '<select id="tk_prio">'+PRIOS.map(p => "<option value='"+p[0]+"'"+(p[0]==='normal'?' selected':'')+">"+p[1]+"</option>").join('')+'</select>'+
+      '</div>'+
+      '<div class="frow">'+
+        '<input id="tk_due" type="date">'+
+        '<select id="tk_rep"><option value="once" selected>One-off</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>'+
+      '</div>'+
+      '<button class="go" data-addtask>Add task</button>'+
+      '<small class="gform-hint">Only the name is required. Tasks appear inside whichever block shares their category.</small></div>';
+
+    h += '<div class="dayadd" style="margin-top:14px"><button class="ai-btn" data-aiopen>✦ Dump a list with your AI</button></div>';
+
+    const groups = [
+      ['Overdue',   open.filter(t => t.due && t.due < today)],
+      ['Today',     open.filter(t => t.due === today)],
+      ['Coming up', open.filter(t => t.due && t.due > today)],
+      ['Repeating', open.filter(t => !t.due && t.repeat)],
+      ['Anytime',   open.filter(t => !t.due && !t.repeat)]
+    ];
+    const any = groups.some(g => g[1].length);
+    if (!any){
+      h += '<p class="park-empty">No tasks yet. Dump anything on your mind above — a name is enough — and it\'ll show up in the block that matches its category.</p>';
+    }
+    groups.forEach(g => {
+      if (!g[1].length) return;
+      h += '<h2>'+g[0]+' <span class="tcount">'+g[1].length+'</span></h2>';
+      h += '<div class="tlist">' + g[1].map(tk => taskRow(tk, now)).join('') + '</div>';
+    });
+
+    const doneList = (S.tasks || []).filter(tk => taskDone(tk, now));
+    if (doneList.length){
+      h += '<h2><button class="linkish" data-toggledone>'+(showDone ? 'Hide' : 'Show')+' completed ('+doneList.length+')</button></h2>';
+      if (showDone) h += '<div class="tlist">' + doneList.map(tk => taskRow(tk, now)).join('') + '</div>';
+    }
+    return h;
+  }
+
+  /* ---------- task editor ---------- */
+  let taskEdit = null;
+  function openTaskEditor(id){
+    const tk = findTask(id); if (!tk) return;
+    clearModalDrafts();
+    taskEdit = { id: tk.id, title: tk.title, note: tk.note || '', cat: tk.cat,
+      priority: tk.priority || 'normal', due: tk.due || '',
+      repeat: tk.repeat ? tk.repeat.freq : 'once' };
+    render();
+  }
+  function taskEditorHTML(){
+    const e = taskEdit;
+    const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'"+(c.id===e.cat?' selected':'')+">"+esc(c.label)+"</option>").join('');
+    const REPS = [['once','One-off'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly']];
+    let h = '<div class="modal-back" data-closetask></div><div class="modal"><div class="modal-h">Edit task</div>';
+    h += '<label class="fld"><span>Task</span><input id="te_title" type="text" value="'+esc(e.title)+'" autocomplete="off"></label>';
+    h += '<label class="fld"><span>Note</span><input id="te_note" type="text" placeholder="Optional" value="'+esc(e.note)+'" autocomplete="off"></label>';
+    h += '<label class="fld"><span>Category</span><select id="te_cat">'+CATOPTS+'</select></label>';
+    h += '<div class="fld two">'+
+      '<label><span>Priority</span><select id="te_prio">'+PRIOS.map(p=>"<option value='"+p[0]+"'"+(p[0]===e.priority?' selected':'')+">"+p[1]+"</option>").join('')+'</select></label>'+
+      '<label><span>Repeat</span><select id="te_rep">'+REPS.map(r=>"<option value='"+r[0]+"'"+(r[0]===e.repeat?' selected':'')+">"+r[1]+"</option>").join('')+'</select></label></div>';
+    h += '<label class="fld"><span>Due (optional)</span><input id="te_due" type="date" value="'+esc(e.due)+'"></label>';
+    h += '<div class="modal-actions"><button class="del" data-deltask="'+e.id+'">Delete</button>'+
+      '<span style="flex:1"></span><button class="ghost" data-closetask>Cancel</button>'+
+      '<button class="go" data-savetask>Save</button></div></div>';
+    return h;
+  }
+  function commitTask(){
+    const g = id => document.getElementById(id);
+    const tk = findTask(taskEdit.id);
+    if (!tk){ taskEdit = null; render(); return; }
+    const title = (g('te_title') || {}).value || '';
+    if (!title.trim()){ if (g('te_title')) g('te_title').focus(); return; }
+    tk.title = title.trim().slice(0,140);
+    tk.note = (((g('te_note') || {}).value) || '').trim().slice(0,200);
+    tk.cat = (g('te_cat') || {}).value || tk.cat;
+    tk.priority = (g('te_prio') || {}).value || 'normal';
+    tk.due = (g('te_due') || {}).value || null;
+    const rep = (g('te_rep') || {}).value || 'once';
+    tk.repeat = rep === 'once' ? null : { freq: rep, interval: 1 };
+    taskEdit = null; clearModalDrafts(); save(); render();
+  }
+
   function parkHTML(dk){
     let h = '<div class="park"><div class="park-row">'+
       '<input id="sk" type="text" placeholder="Park a stray thought…" autocomplete="off">'+
@@ -930,7 +1093,8 @@
     app.addEventListener('change', e => { if (e.target.id) drafts[e.target.id] = e.target.type==='checkbox'?e.target.checked:e.target.value; });
   }
   const clearDraft = id => { delete drafts[id]; };
-  const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name'];
+  const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
+    'te_title','te_note','te_cat','te_prio','te_rep','te_due'];
   const clearModalDrafts = () => MODAL_IDS.forEach(clearDraft);
 
   function paint(h){
@@ -993,7 +1157,7 @@
     h += '<div class="quote"><p>'+esc(LINES[doy % LINES.length])+'</p></div>';
 
     h += '<div class="segrow"><div class="seg">'+
-      ['day','week','habits','goals'].map(v =>
+      ['day','week','tasks','habits','goals'].map(v =>
         '<button data-view="'+v+'"'+(view===v?' class="on"':'')+'>'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>').join('')+
       '</div>'+
       (view==='week' && canGrid() ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
@@ -1004,6 +1168,7 @@
 
     if (view === 'day')    h += dayRail(vd, now);
     else if (view === 'week')  h += weekView(vd, now);
+    else if (view === 'tasks')  h += tasksView(now);
     else if (view === 'habits') h += habitsView(now);
     else if (view === 'goals')  h += goalsView(now);
 
@@ -1017,6 +1182,7 @@
 
     if (undoState) h += '<div class="undobar"><span>'+esc(undoState.label)+'</span><button data-undo>Undo</button></div>';
     if (editing) h += editorHTML();
+    if (taskEdit) h += taskEditorHTML();
     if (settingsOpen) h += settingsHTML();
     if (aiOpen) h += aiHTML();
 
@@ -1061,9 +1227,11 @@
       'Reply with ONLY a JSON object in this exact shape — no other words:',
       '{',
       '  "events": [ { "title": "", "category": "'+cats+'", "start": "HH:MM", "end": "HH:MM", "repeat": "once|daily|weekdays|weekly|fortnightly|monthly", "weekdays": [0,1,2,3,4,5,6], "date": "YYYY-MM-DD", "note": "" } ],',
+      '  "tasks":  [ { "title": "", "category": "'+cats+'", "priority": "high|normal|low", "due": "YYYY-MM-DD", "repeat": "once|daily|weekly|monthly", "note": "" } ],',
       '  "habits": [ { "label": "", "category": "'+cats+'", "timesPerDay": 1 } ],',
       '  "goals":  [ { "title": "", "targetDate": "YYYY-MM-DD", "category": "'+cats+'", "steps": [ { "label": "", "freq": "daily|weekly|monthly" } ] } ]',
       '}',
+      'Events are things with a time. Tasks are things to get done — give each a category and priority; "due" and "repeat" are optional.',
       'Rules: weekdays are 0=Sun … 6=Sat. Use "date" only when repeat is "once". Omit "start"/"end" for an all-day item. Skip any field you don\'t need. Today is '+dayKey(new Date())+'.',
       'Here is what I want: '
     ].join('\n');
@@ -1120,6 +1288,17 @@
     try { obj = aiParse(raw); }
     catch(e){ aiError = "That didn't look like valid JSON. Paste the whole reply, or ask your AI to send JSON only."; render(); return; }
     const events = (Array.isArray(obj.events) ? obj.events : []).filter(e => e && e.title).map(aiImportEvent);
+    const tasks = (Array.isArray(obj.tasks) ? obj.tasks : []).filter(x => x && x.title).map(x => {
+      const rep = String(x.repeat || 'once');
+      return {
+        id:'tk_'+uid8(), title:String(x.title).slice(0,140), note:String(x.note || '').slice(0,200),
+        cat: matchCat(x.category),
+        priority: (['high','normal','low'].indexOf(x.priority) >= 0 ? x.priority : 'normal'),
+        due: (typeof x.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.due)) ? x.due : null,
+        repeat: (['daily','weekly','monthly'].indexOf(rep) >= 0) ? { freq: rep, interval: 1 } : null,
+        createdAt: new Date().toISOString(), doneAt: null
+      };
+    });
     const habits = (Array.isArray(obj.habits) ? obj.habits : []).filter(h => h && h.label).map(h => ({
       id:'hb_'+uid8(), label:String(h.label).slice(0,80), cat:matchCat(h.category),
       target: Math.max(1, Math.min(6, parseInt(h.timesPerDay, 10) || 1))
@@ -1131,15 +1310,17 @@
         freq:(['daily','weekly','monthly'].indexOf(s.freq) >= 0 ? s.freq : 'weekly')
       }))
     }));
-    if (!events.length && !habits.length && !goals.length){
-      aiError = "I couldn't find any events, habits or goals in that reply. Check it and try again."; render(); return;
+    if (!events.length && !tasks.length && !habits.length && !goals.length){
+      aiError = "I couldn't find any events, tasks, habits or goals in that reply. Check it and try again."; render(); return;
     }
-    aiPreview = { events, habits, goals }; aiError = ''; aiStep = 'preview'; render();
+    aiPreview = { events, tasks, habits, goals }; aiError = ''; aiStep = 'preview'; render();
   }
 
   function aiApply(){
     if (!aiPreview) return;
+    S.tasks = S.tasks || [];
     S.events.push.apply(S.events, aiPreview.events);
+    S.tasks.push.apply(S.tasks, aiPreview.tasks || []);
     S.habits.push.apply(S.habits, aiPreview.habits);
     S.goals.push.apply(S.goals, aiPreview.goals);
     aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; clearDraft('ai_paste');
@@ -1156,6 +1337,11 @@
       '<div class="ai-row"><span class="cd" style="background:'+catColor(e.cat)+'"></span>'+
       '<span class="pt">'+esc(e.title)+(e.note ? '<small>'+esc(e.note)+'</small>' : '')+'</span>'+
       '<span class="when">'+esc(aiWhen(e))+'</span></div>'));
+    const tks = p.tasks || [];
+    h += grp(tks.length+' task'+(tks.length !== 1 ? 's' : ''), tks.map(x =>
+      '<div class="ai-row"><span class="cd" style="background:'+catColor(x.cat)+'"></span>'+
+      '<span class="pt">'+esc(x.title)+(x.priority === 'high' ? '<small>High priority</small>' : '')+'</span>'+
+      '<span class="when">'+(x.due ? esc(niceBy(x.due)) : (x.repeat ? repeatLabel(x.repeat) : 'anytime'))+'</span></div>'));
     h += grp(p.habits.length+' habit'+(p.habits.length !== 1 ? 's' : ''), p.habits.map(x =>
       '<div class="ai-row"><span class="cd" style="background:'+catColor(x.cat)+'"></span>'+
       '<span class="pt">'+esc(x.label)+'</span><span class="when">'+(x.target > 1 ? x.target+'× daily' : 'daily')+'</span></div>'));
@@ -1308,6 +1494,42 @@
     if (t('[data-closeeditor]')){ editing = null; clearModalDrafts(); render(); return; }
     if (t('[data-saveevent]')){ commitEvent(); return; }
     if (t('[data-undo]')){ doUndo(); return; }
+
+    // tasks
+    if (t('[data-closetask]')){ taskEdit = null; clearModalDrafts(); render(); return; }
+    if (t('[data-savetask]')){ commitTask(); return; }
+    if ((m = t('[data-taskedit]'))){ openTaskEditor(m.dataset.taskedit); return; }
+    if ((m = t('[data-tasktoggle]'))){
+      const [id, dk2] = m.dataset.tasktoggle.split('|');
+      const tk = findTask(id);
+      if (tk) toggleTask(tk, dk2 ? parseDay(dk2) : now);
+      save(); render(); return;
+    }
+    if ((m = t('[data-deltask]'))){
+      markUndo('Task deleted');
+      S.tasks = (S.tasks || []).filter(x => x.id !== m.dataset.deltask);
+      taskEdit = null; clearModalDrafts(); save(); render(); return;
+    }
+    if ((m = t('[data-blocktasks]'))){ openBlockTasks = (openBlockTasks === m.dataset.blocktasks) ? null : m.dataset.blocktasks; render(); return; }
+    if (t('[data-toggledone]')){ showDone = !showDone; render(); return; }
+    if (t('[data-addtask]')){
+      const ti = (document.getElementById('tk_title') || {}).value || '';
+      if (!ti.trim()) return;
+      const rep = (document.getElementById('tk_rep') || {}).value || 'once';
+      S.tasks = S.tasks || [];
+      S.tasks.push({
+        id: 'tk_'+uid8(), title: ti.trim().slice(0,140), note: '',
+        cat: (document.getElementById('tk_cat') || {}).value || (S.categories[0]||{}).id,
+        priority: (document.getElementById('tk_prio') || {}).value || 'normal',
+        due: (document.getElementById('tk_due') || {}).value || null,
+        repeat: rep === 'once' ? null : { freq: rep, interval: 1 },
+        createdAt: new Date().toISOString(), doneAt: null
+      });
+      clearDraft('tk_title'); clearDraft('tk_due');
+      save(); render();
+      const i = document.getElementById('tk_title'); if (i) i.focus();   // keep dumping
+      return;
+    }
     if ((m = t('[data-delevent]'))){ markUndo('Event deleted'); S.events = S.events.filter(x => x.id !== m.dataset.delevent); editing = null; clearModalDrafts(); save(); render(); return; }
     if ((m = t('[data-wd]'))){ syncEditor(); const d = +m.dataset.wd; const i = editing.weekdays.indexOf(d); if (i===-1) editing.weekdays.push(d); else editing.weekdays.splice(i,1); render(); return; }
     if (t('[data-settings]')){ clearModalDrafts(); settingsOpen = true; render(); return; }
@@ -1417,7 +1639,8 @@
       e.preventDefault(); const v = e.target.value.trim();
       if (v){ S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
     }
-    if (e.key === 'Escape' && (editing || settingsOpen || aiOpen)){ editing = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input'; clearModalDrafts(); render(); }
+    if (e.key === 'Enter' && e.target.id === 'tk_title'){ e.preventDefault(); const b = app.querySelector('[data-addtask]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit)){ editing = null; taskEdit = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input'; clearModalDrafts(); render(); }
   });
 
   // Re-flow the layout when the screen size or orientation changes, so views
@@ -1485,7 +1708,7 @@
       render();
       setInterval(() => {
         const ae = document.activeElement;
-        if (editing || settingsOpen || aiOpen) return;
+        if (editing || settingsOpen || aiOpen || taskEdit) return;
         if (ae && app.contains && app.contains(ae) &&
             (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) return;
         render();
@@ -1523,7 +1746,7 @@
 
   function userBusy(){
     const ae = document.activeElement;
-    return !!(editing || settingsOpen || aiOpen || ob ||
+    return !!(editing || settingsOpen || aiOpen || ob || taskEdit ||
       (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
   }
   function applyUpdate(){
