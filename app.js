@@ -552,17 +552,22 @@
     habitList().forEach(hb => { total++; if (isDone(hb.id, dk, hb.target)) done++; });
     return { done, total };
   }
-  function progressRing(){
+  // The ring lives on the Day view with its number beside it, not crammed inside
+  // a badge in the header where it fought the motif and wrapped.
+  function dayProgressHTML(){
     const p = dayProgress();
     if (!p.total) return '';
     const pct = p.done / p.total;
-    const R = 15, C = 2 * Math.PI * R;
-    return '<div class="ring" title="'+p.done+' of '+p.total+' kept today">'+
-      '<svg viewBox="0 0 36 36">'+
-        '<circle class="rbg" cx="18" cy="18" r="'+R+'"></circle>'+
-        '<circle class="rfg" cx="18" cy="18" r="'+R+'" stroke-dasharray="'+C.toFixed(1)+'" '+
+    const R = 22, C = 2 * Math.PI * R;
+    const all = p.done === p.total;
+    return '<div class="dayprog'+(all ? ' full' : '')+'">'+
+      '<div class="pring"><svg viewBox="0 0 52 52" aria-hidden="true">'+
+        '<circle class="rbg" cx="26" cy="26" r="'+R+'"></circle>'+
+        '<circle class="rfg" cx="26" cy="26" r="'+R+'" stroke-dasharray="'+C.toFixed(1)+'" '+
           'stroke-dashoffset="'+(C * (1 - pct)).toFixed(1)+'"></circle>'+
-      '</svg><b>'+p.done+'<i>/'+p.total+'</i></b></div>';
+      '</svg></div>'+
+      '<div class="dptxt"><b>'+(all ? 'All ' + p.total : p.done + ' of ' + p.total)+'</b>'+
+      '<small>'+(all ? 'kept today' : 'kept today')+'</small></div></div>';
   }
   // Called after any tick. Fires once per day, only on the transition to done.
   function maybeCelebrate(){
@@ -766,6 +771,7 @@
     timed.forEach(b => { split[b.c] = (split[b.c]||0) + (mins(b.e)-mins(b.s)); });
 
     let h = '';
+    if (isToday) h += dayProgressHTML();   // progress is about today, not a day you're browsing
     if (booked){
       h += '<p class="slack">Today asks for <b>'+dur(booked)+'</b>, and leaves <b>'+dur(openTotal)+'</b> open in between. There is room.</p>';
       h += '<div class="balbar">' + S.categories.map(c =>
@@ -1295,7 +1301,6 @@
     h += '<div class="greet"><div class="gtxt"><h1>'+greet+name+'</h1>'+
       '<p>'+DAYS[now.getDay()]+' '+now.getDate()+' '+MON[now.getMonth()]+' · '+
       clockOf(pad(now.getHours())+':'+pad(now.getMinutes()))+'</p></div>'+
-      progressRing()+
       '<button class="motif" data-settings aria-label="Settings">'+(hr >= 20 || hr < 5 ? MOON : MOTIFS[doy % MOTIFS.length])+'</button></div>';
     h += '<div class="quote"><p>'+esc(LINES[doy % LINES.length])+'</p></div>';
 
