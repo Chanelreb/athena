@@ -371,9 +371,12 @@
   #soft-app .adchip .sw { width: 8px; height: 8px; border-radius: 50%; }
 
   /* inline "add" affordances */
-  #soft-app .dayadd { margin-top: 18px; }
+  #soft-app .dayadd { margin-top: 18px; display: flex; gap: 8px; }
   #soft-app .dayadd button, #soft-app .wl-add { width: 100%; background: var(--raise); border: 1px dashed var(--line); color: var(--dim); border-radius: 12px; padding: 11px; font: inherit; cursor: pointer; }
+  #soft-app .dayadd button { flex: 1; }
   #soft-app .dayadd button:hover, #soft-app .wl-add:hover { color: var(--text); border-color: var(--ghost); }
+  #soft-app .ai-btn { border-style: solid !important; border-color: var(--live-soft) !important; color: var(--live) !important; }
+  #soft-app .ai-btn:hover { border-color: var(--live) !important; }
   #soft-app .linkish { background: none; border: 0; color: var(--live); font: inherit; cursor: pointer; padding: 0; text-decoration: underline; }
 
   /* modal */
@@ -442,3 +445,22 @@
   #soft-app .login-box .go[disabled] { opacity: .6; cursor: default; }
   #soft-app .login-msg { color: var(--text); font-size: 14px; line-height: 1.5; margin: 16px auto 0; max-width: 36ch; background: var(--live-soft); padding: 12px 14px; border-radius: 12px; }
   #soft-app .login-fine { color: var(--ghost); font-size: 12.5px; margin-top: 18px; }
+
+  /* ===== Ask your AI ===== */
+  #soft-app .ai-intro { color: var(--dim); font-size: 13.5px; line-height: 1.5; margin: 0 0 14px; }
+  #soft-app .ai-prompt { background: var(--raise); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 14px; }
+  #soft-app .ai-prompt pre { margin: 0 0 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.55; color: #D9D2DC; white-space: pre-wrap; word-break: break-word; max-height: 156px; overflow: auto; }
+  #soft-app .copybtn { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--live); color: #2C2932; border: 0; border-radius: 9px; padding: 8px 14px; }
+  #soft-app .copybtn:hover { opacity: .9; }
+  #soft-app .fld textarea { width: 100%; background: var(--raise); border: 1px solid var(--line); color: var(--text); border-radius: 10px; padding: 11px 12px; font: inherit; font-size: 14px; line-height: 1.5; resize: vertical; }
+  #soft-app .fld textarea:focus { outline: none; border-color: var(--ghost); }
+  #soft-app .ai-error { color: #E8A487; font-size: 13px; line-height: 1.45; margin: 10px 0 0; }
+  #soft-app .ai-group { padding: 11px 0; border-bottom: 1px solid var(--line); }
+  #soft-app .ai-group:last-of-type { border-bottom: 0; }
+  #soft-app .ai-glabel { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ghost); margin-bottom: 8px; }
+  #soft-app .ai-row { display: flex; align-items: baseline; gap: 9px; padding: 4px 0; }
+  #soft-app .ai-row .cd { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; position: relative; top: 3px; }
+  #soft-app .ai-row .pt { flex: 1; min-width: 0; font-size: 14px; }
+  #soft-app .ai-row .pt small { display: block; color: var(--dim); font-size: 12px; margin-top: 1px; }
+  #soft-app .ai-row .when { color: var(--dim); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  @media (pointer: coarse) { #soft-app .fld textarea { font-size: 16px; } }

@@ -443,7 +443,8 @@
         '</div></div>';
     });
 
-    h += '<div class="dayadd"><button data-newon="'+dk+'">+ New event</button></div>';
+    h += '<div class="dayadd"><button data-newon="'+dk+'">+ New event</button>'+
+      '<button class="ai-btn" data-aiopen>✦ Ask your AI</button></div>';
     return h;
   }
 
@@ -770,6 +771,7 @@
 
     if (editing) h += editorHTML();
     if (settingsOpen) h += settingsHTML();
+    if (aiOpen) h += aiHTML();
 
     paint(h);
   }
@@ -801,6 +803,139 @@
     return h;
   }
 
+  /* ---------- Ask your AI — bring-your-own-assistant import ----------
+     No connection to any AI: Athena hands the user a prompt, they paste the
+     assistant's JSON reply back, and we preview then merge it (add-only). */
+  let aiOpen = false, aiStep = 'input', aiPreview = null, aiError = '';
+
+  function aiPrompt(){
+    const cats = S.categories.map(c => c.label).join(' | ');
+    return [
+      'Reply with ONLY a JSON object in this exact shape — no other words:',
+      '{',
+      '  "events": [ { "title": "", "category": "'+cats+'", "start": "HH:MM", "end": "HH:MM", "repeat": "once|daily|weekdays|weekly|fortnightly|monthly", "weekdays": [0,1,2,3,4,5,6], "date": "YYYY-MM-DD", "note": "" } ],',
+      '  "habits": [ { "label": "", "category": "'+cats+'", "timesPerDay": 1 } ],',
+      '  "goals":  [ { "title": "", "targetDate": "YYYY-MM-DD", "category": "'+cats+'", "steps": [ { "label": "", "freq": "daily|weekly|monthly" } ] } ]',
+      '}',
+      'Rules: weekdays are 0=Sun … 6=Sat. Use "date" only when repeat is "once". Omit "start"/"end" for an all-day item. Skip any field you don\'t need. Today is '+dayKey(new Date())+'.',
+      'Here is what I want: '
+    ].join('\n');
+  }
+
+  const matchCat = (name) => {
+    if (!name) return (S.categories[0]||{}).id;
+    const n = String(name).trim().toLowerCase();
+    const c = S.categories.find(x => x.label.toLowerCase() === n || x.id === n);
+    return c ? c.id : (S.categories[0]||{}).id;
+  };
+
+  function aiImportEvent(spec){
+    const todayK = dayKey(new Date());
+    const cat = matchCat(spec.category);
+    const allDay = !spec.start;
+    const rep = String(spec.repeat || 'weekly');
+    const wds = Array.isArray(spec.weekdays) && spec.weekdays.length
+      ? spec.weekdays.map(Number).filter(n => n >= 0 && n <= 6) : null;
+    let rrule = null, date = null;
+    if (rep === 'once') date = spec.date || todayK;
+    else if (rep === 'daily') rrule = { freq:'daily', interval:1, from:todayK };
+    else if (rep === 'weekdays') rrule = { freq:'weekly', interval:1, weekdays:[1,2,3,4,5], from:weekKey(new Date()) };
+    else if (rep === 'monthly') rrule = { freq:'monthly', interval:1, monthday:(spec.monthday || (spec.date ? parseDay(spec.date).getDate() : new Date().getDate())), from:todayK };
+    else rrule = { freq:'weekly', interval:(rep === 'fortnightly' ? 2 : 1), weekdays:(wds || [new Date().getDay()]), from:weekKey(new Date()) };
+    return {
+      id:'ev_'+uid8(), title:String(spec.title).slice(0,120), note:String(spec.note || '').slice(0,200),
+      cat, allDay, start: allDay ? null : String(spec.start),
+      end: allDay ? null : String(spec.end || fmtM(mins(String(spec.start)) + 60)),
+      rrule, date, ex:{}, skip:[]
+    };
+  }
+
+  function aiParse(text){
+    let t = String(text || '').trim();
+    const a = t.indexOf('{'), b = t.lastIndexOf('}');   // tolerate code fences / stray prose
+    if (a !== -1 && b !== -1 && b > a) t = t.slice(a, b + 1);
+    return JSON.parse(t);
+  }
+
+  function aiWhen(ev){
+    const time = ev.allDay ? 'All day' : clockOf(ev.start);
+    if (!ev.rrule){ const x = parseDay(ev.date); return x.getDate()+' '+SHORT[x.getMonth()]+' · '+time; }
+    const r = ev.rrule;
+    if (r.freq === 'daily') return 'Daily · '+time;
+    if (r.freq === 'monthly') return 'Monthly · '+time;
+    const days = (r.weekdays||[]).slice().sort().map(d => SD[d]).join(' & ');
+    return (r.interval === 2 ? 'Fortnightly, ' : '') + days + ' · ' + time;
+  }
+
+  function aiBuildPreview(){
+    const raw = (document.getElementById('ai_paste') || {}).value || '';
+    let obj;
+    try { obj = aiParse(raw); }
+    catch(e){ aiError = "That didn't look like valid JSON. Paste the whole reply, or ask your AI to send JSON only."; render(); return; }
+    const events = (Array.isArray(obj.events) ? obj.events : []).filter(e => e && e.title).map(aiImportEvent);
+    const habits = (Array.isArray(obj.habits) ? obj.habits : []).filter(h => h && h.label).map(h => ({
+      id:'hb_'+uid8(), label:String(h.label).slice(0,80), cat:matchCat(h.category),
+      target: Math.max(1, Math.min(6, parseInt(h.timesPerDay, 10) || 1))
+    }));
+    const goals = (Array.isArray(obj.goals) ? obj.goals : []).filter(g => g && g.title).map(g => ({
+      id:'g_'+uid8(), title:String(g.title).slice(0,120), by:(g.targetDate || ''), cat:matchCat(g.category),
+      steps:(Array.isArray(g.steps) ? g.steps : []).filter(s => s && s.label).map(s => ({
+        id:'st_'+uid8(), label:String(s.label).slice(0,120),
+        freq:(['daily','weekly','monthly'].indexOf(s.freq) >= 0 ? s.freq : 'weekly')
+      }))
+    }));
+    if (!events.length && !habits.length && !goals.length){
+      aiError = "I couldn't find any events, habits or goals in that reply. Check it and try again."; render(); return;
+    }
+    aiPreview = { events, habits, goals }; aiError = ''; aiStep = 'preview'; render();
+  }
+
+  function aiApply(){
+    if (!aiPreview) return;
+    S.events.push.apply(S.events, aiPreview.events);
+    S.habits.push.apply(S.habits, aiPreview.habits);
+    S.goals.push.apply(S.goals, aiPreview.goals);
+    aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; clearDraft('ai_paste');
+    view = 'day';
+    save(); render();
+  }
+
+  function aiPreviewHTML(){
+    const p = aiPreview;
+    const grp = (label, rows) => rows.length ? '<div class="ai-group"><div class="ai-glabel">'+label+'</div>'+rows.join('')+'</div>' : '';
+    const niceBy = k => { const x = parseDay(k); return x.getDate()+' '+SHORT[x.getMonth()]; };
+    let h = '';
+    h += grp(p.events.length+' event'+(p.events.length !== 1 ? 's' : ''), p.events.map(e =>
+      '<div class="ai-row"><span class="cd" style="background:'+catColor(e.cat)+'"></span>'+
+      '<span class="pt">'+esc(e.title)+(e.note ? '<small>'+esc(e.note)+'</small>' : '')+'</span>'+
+      '<span class="when">'+esc(aiWhen(e))+'</span></div>'));
+    h += grp(p.habits.length+' habit'+(p.habits.length !== 1 ? 's' : ''), p.habits.map(x =>
+      '<div class="ai-row"><span class="cd" style="background:'+catColor(x.cat)+'"></span>'+
+      '<span class="pt">'+esc(x.label)+'</span><span class="when">'+(x.target > 1 ? x.target+'× daily' : 'daily')+'</span></div>'));
+    h += grp(p.goals.length+' goal'+(p.goals.length !== 1 ? 's' : ''), p.goals.map(g =>
+      '<div class="ai-row"><span class="cd" style="background:'+catColor(g.cat)+'"></span>'+
+      '<span class="pt">'+esc(g.title)+(g.steps.length ? '<small>'+g.steps.length+' step'+(g.steps.length !== 1 ? 's' : '')+'</small>' : '')+'</span>'+
+      '<span class="when">'+(g.by ? 'by '+niceBy(g.by) : 'no date')+'</span></div>'));
+    return h;
+  }
+
+  function aiHTML(){
+    let h = '<div class="modal-back" data-aiclose></div><div class="modal"><div class="modal-h">Ask your AI</div>';
+    if (aiStep === 'preview' && aiPreview){
+      h += '<p class="ai-intro">Here\'s what your assistant suggests. Nothing is added until you tap the button.</p>';
+      h += aiPreviewHTML();
+      h += '<div class="modal-actions"><button class="ghost" data-aiback>Back</button><span style="flex:1"></span><button class="go" data-aiapply>Add to my week</button></div>';
+    } else {
+      h += '<p class="ai-intro">Use ChatGPT, Claude, or any assistant. Copy this, tell it what you want on the last line, then paste the reply back.</p>';
+      h += '<div class="ai-prompt"><pre>'+esc(aiPrompt())+'</pre><button class="copybtn" data-aicopy>Copy prompt</button></div>';
+      h += '<label class="fld"><span>Paste your assistant\'s reply</span><textarea id="ai_paste" rows="5" placeholder="Paste the JSON your AI gave you…"></textarea></label>';
+      if (aiError) h += '<p class="ai-error">'+esc(aiError)+'</p>';
+      h += '<div class="modal-actions"><button class="ghost" data-aiclose>Cancel</button><span style="flex:1"></span><button class="go" data-aipreview>Preview</button></div>';
+    }
+    h += '</div>';
+    return h;
+  }
+
   /* ==========================================================================
      Events / interaction
      ========================================================================== */
@@ -809,7 +944,7 @@
   const GH = 680, GSPAN = SPAN;
   let drag = null, noClick = false;
   app.addEventListener('pointerdown', e => {
-    if (view !== 'week' || !expanded || editing) return;
+    if (view !== 'week' || !expanded || editing || aiOpen) return;
     const cb = e.target.closest('.cb'); if (!cb) return;
     e.preventDefault();
     drag = {
@@ -856,6 +991,19 @@
     // auth
     if (t('[data-sendlink]')){ sendMagicLink(); return; }
     if (t('[data-signout]')){ if (sb) sb.auth.signOut().catch(()=>{}); settingsOpen = false; return; }
+
+    // ask your AI
+    if (t('[data-aiopen]')){ aiOpen = true; aiStep = 'input'; aiPreview = null; aiError = ''; clearDraft('ai_paste'); render(); return; }
+    if (t('[data-aiclose]')){ aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; clearDraft('ai_paste'); render(); return; }
+    if (t('[data-aipreview]')){ aiBuildPreview(); return; }
+    if (t('[data-aiback]')){ aiStep = 'input'; aiError = ''; render(); return; }
+    if (t('[data-aiapply]')){ aiApply(); return; }
+    if ((m = t('[data-aicopy]'))){
+      const txt = aiPrompt();
+      const done = () => { m.textContent = 'Copied ✓'; setTimeout(() => { if (m) m.textContent = 'Copy prompt'; }, 1500); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, done); else done();
+      return;
+    }
 
     // editor / settings dismissal
     if (t('[data-closeeditor]')){ editing = null; clearModalDrafts(); render(); return; }
@@ -947,7 +1095,7 @@
       e.preventDefault(); const v = e.target.value.trim();
       if (v){ S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
     }
-    if (e.key === 'Escape' && (editing || settingsOpen)){ editing = null; settingsOpen = false; clearModalDrafts(); render(); }
+    if (e.key === 'Escape' && (editing || settingsOpen || aiOpen)){ editing = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input'; clearModalDrafts(); render(); }
   });
 
   // Re-flow the layout when the screen size or orientation changes, so views
@@ -1015,7 +1163,7 @@
       render();
       setInterval(() => {
         const ae = document.activeElement;
-        if (editing || settingsOpen) return;
+        if (editing || settingsOpen || aiOpen) return;
         if (ae && app.contains && app.contains(ae) &&
             (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) return;
         render();
