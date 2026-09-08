@@ -1,8 +1,9 @@
-/* Athena service worker — makes the app installable and usable offline.
-   Strategy: stale-while-revalidate for same-origin GETs. The app shell serves
-   instantly from cache and refreshes in the background; bump CACHE on release to
-   evict old files. All user data lives in localStorage (Phase B: Supabase), not here. */
-const CACHE = 'athena-shell-v2';
+/* Athena service worker — installable + offline, and never stale online.
+   Strategy: NETWORK-FIRST for same-origin GETs. When online you always get the
+   freshest file and we refresh the cache; when offline we serve the last good
+   copy (falling back to the app shell for navigations). All user data lives in
+   localStorage / Supabase, never here. */
+const CACHE = 'athena-shell-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -33,12 +34,11 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
   e.respondWith(
-    caches.open(CACHE).then(async (cache) => {
-      const cached = await cache.match(req);
-      const network = fetch(req)
-        .then((res) => { if (res && res.ok) cache.put(req, res.clone()); return res; })
-        .catch(() => null);
-      return cached || (await network) || cache.match('./index.html');
-    })
+    fetch(req)
+      .then((res) => {
+        if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
+        return res;
+      })
+      .catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html')))
   );
 });

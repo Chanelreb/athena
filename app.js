@@ -1300,4 +1300,51 @@
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     });
   }
+
+  // ----- keep the app fresh: notice a new deploy and update, gently -----
+  // When a new version ships, an already-open app keeps running the old code
+  // until it reloads. We watch app.js's ETag; on a change we reload if the user
+  // is idle, or show an unobtrusive "Refresh" pill if they're mid-task.
+  let bootTag = null, updatePending = false, reloadingForUpdate = false;
+
+  function userBusy(){
+    const ae = document.activeElement;
+    return !!(editing || settingsOpen || aiOpen || ob ||
+      (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
+  }
+  function applyUpdate(){
+    if (reloadingForUpdate) return;
+    reloadingForUpdate = true;
+    window.location.reload();
+  }
+  function showUpdatePill(){
+    if (document.getElementById('ath-update')) return;
+    const el = document.createElement('div');
+    el.id = 'ath-update';
+    const span = document.createElement('span'); span.textContent = 'Athena just updated.';
+    const btn = document.createElement('button'); btn.textContent = 'Refresh';
+    btn.addEventListener('click', applyUpdate);
+    el.appendChild(span); el.appendChild(btn);
+    document.body.appendChild(el);
+  }
+  function onUpdateReady(){
+    updatePending = true;
+    if (userBusy()) showUpdatePill(); else applyUpdate();
+  }
+  async function checkForUpdate(){
+    try {
+      const r = await fetch('./app.js', { cache: 'no-store' });
+      if (!r || !r.ok) return;
+      const tag = r.headers.get('etag') || r.headers.get('last-modified') || String(r.headers.get('content-length') || '');
+      if (!tag) return;
+      if (bootTag === null){ bootTag = tag; return; }   // record baseline once
+      if (tag !== bootTag && !updatePending) onUpdateReady();
+    } catch(_){ /* offline — try again later */ }
+  }
+  if (typeof window !== 'undefined'){
+    checkForUpdate();                              // record the baseline now
+    setInterval(checkForUpdate, 5 * 60 * 1000);    // and watch every 5 minutes
+    // If a deferred update is pending, apply it as soon as the user goes idle.
+    setInterval(() => { if (updatePending && !userBusy()) applyUpdate(); }, 15 * 1000);
+  }
 })();
