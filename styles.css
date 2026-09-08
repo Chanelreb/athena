@@ -646,3 +646,60 @@
   #soft-app .ai-primary { display: block; width: 100%; background: var(--live); color: var(--on-live); border: 0; border-radius: 11px; padding: 13px; font: inherit; font-weight: 600; cursor: pointer; }
   #soft-app .ai-primary[disabled] { opacity: .6; cursor: default; }
   #soft-app .ai-manual { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 4px; }
+
+  /* ===== Blocks manager (the whole rhythm) ===== */
+  #soft-app .blist { display: flex; flex-direction: column; }
+  #soft-app .brow { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+  #soft-app .brow:last-child { border-bottom: 0; }
+  #soft-app .brow .cd { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+  #soft-app .bmain { flex: 1; min-width: 0; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; padding: 0; }
+  #soft-app .bmain .bt { display: block; font-size: 15px; line-height: 1.35; }
+  #soft-app .bmain .bw { display: block; color: var(--dim); font-size: 12.5px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+  /* ===== Day progress ring ===== */
+  #soft-app .ring { flex: 0 0 auto; position: relative; width: 44px; height: 44px; margin-top: 4px; }
+  #soft-app .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); display: block; }
+  #soft-app .ring circle { fill: none; stroke-width: 3; }
+  #soft-app .ring .rbg { stroke: var(--line); }
+  #soft-app .ring .rfg { stroke: var(--live); stroke-linecap: round; transition: stroke-dashoffset .55s cubic-bezier(.22,1,.36,1); }
+  #soft-app .ring b {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-size: 12px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums;
+  }
+  #soft-app .ring b i { font-style: normal; color: var(--ghost); font-weight: 400; font-size: 10px; }
+
+  /* ===== The tick ===== */
+  @keyframes athPop { 0% { transform: scale(1); } 38% { transform: scale(1.28); } 100% { transform: scale(1); } }
+  @keyframes athDraw { from { stroke-dashoffset: 14; } to { stroke-dashoffset: 0; } }
+  @keyframes athGlow { 0% { box-shadow: 0 0 0 0 var(--live); opacity: .55; } 100% { box-shadow: 0 0 0 14px transparent; opacity: 0; } }
+  #soft-app .item.just .dot,
+  #soft-app .chip.just .mark,
+  #soft-app .trow.just .tcheck .mark { animation: athPop .42s cubic-bezier(.34,1.56,.64,1); }
+  #soft-app .item.just .dot::after,
+  #soft-app .trow.just .tcheck .mark::after {
+    content: ''; position: absolute; inset: 0; border-radius: 50%; animation: athGlow .55s ease-out forwards;
+  }
+  #soft-app .item.just .dot svg path,
+  #soft-app .trow.just .tcheck .mark svg path {
+    stroke-dasharray: 14; animation: athDraw .34s .06s ease-out backwards;
+  }
+  #soft-app .trow.just .tt { text-decoration: line-through; color: var(--ghost); transition: color .3s; }
+  #soft-app .chip.just { animation: athPop .38s cubic-bezier(.34,1.56,.64,1); }
+
+  /* ===== Earned moment ===== */
+  @keyframes athRise { from { opacity: 0; transform: translate(-50%, 14px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  #soft-app .celebrate {
+    position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%); z-index: 50;
+    background: var(--live-soft); border: 1px solid var(--live); color: var(--live);
+    border-radius: 999px; padding: 12px 22px; font-family: var(--serif); font-size: 17px;
+    box-shadow: 0 14px 40px rgba(0,0,0,.35); animation: athRise .5s cubic-bezier(.22,1,.36,1);
+    pointer-events: none; white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #soft-app .item.just .dot, #soft-app .chip.just, #soft-app .chip.just .mark,
+    #soft-app .trow.just .tcheck .mark, #soft-app .item.just .dot::after,
+    #soft-app .trow.just .tcheck .mark::after, #soft-app .item.just .dot svg path,
+    #soft-app .trow.just .tcheck .mark svg path, #soft-app .celebrate { animation: none; }
+    #soft-app .ring .rfg { transition: none; }
+  }

@@ -174,6 +174,7 @@
   let openDay = null;                 // week strips: which day is expanded
   let openGoal = null;
   let openBlockTasks = null;          // which block has its task list expanded
+  let manageBlocks = false;           // Week view: showing the whole-rhythm editor
   let expanded = (typeof window !== 'undefined' && window.innerWidth >= 900);
   let editing = null;                 // event-editor state, or null
   // Which day/week you're looking at, as an offset in days from today. Day view
@@ -521,6 +522,61 @@
     if (!Object.keys(m).length) delete S.completions[dk];
   }
 
+  /* ---------- the satisfying bit ----------
+     Ticking something should feel good. One item at a time gets the "just done"
+     treatment, a ring shows the day closing, and finishing the lot earns a
+     moment. All of it respects prefers-reduced-motion via CSS. */
+  let justDone = null, justDoneTimer = null;
+  let celebrate = null, celebrateTimer = null, celebratedFor = null;
+
+  function buzz(ms){
+    try { if (navigator.vibrate) navigator.vibrate(ms); } catch(_){}
+  }
+  // Flag one item so only it animates, and let a task linger a beat before it
+  // clears out of the open list.
+  function markJustDone(id){
+    justDone = id;
+    clearTimeout(justDoneTimer);
+    justDoneTimer = setTimeout(() => { justDone = null; render(); }, 620);
+  }
+  // What "the day" means for the ring: today's blocks plus today's habits.
+  // Tasks are deliberately excluded, an open task list never empties and a ring
+  // that can't fill is discouraging rather than motivating.
+  function dayProgress(){
+    const now = new Date(), dk = dayKey(now);
+    let total = 0, done = 0;
+    blocksForDate(now).filter(b => !b.allDay).forEach(b => {
+      total++;
+      if (b.step ? isDone('w:' + b.step.sid, weekKey(now)) : isDone(b.id, dk)) done++;
+    });
+    habitList().forEach(hb => { total++; if (isDone(hb.id, dk, hb.target)) done++; });
+    return { done, total };
+  }
+  function progressRing(){
+    const p = dayProgress();
+    if (!p.total) return '';
+    const pct = p.done / p.total;
+    const R = 15, C = 2 * Math.PI * R;
+    return '<div class="ring" title="'+p.done+' of '+p.total+' kept today">'+
+      '<svg viewBox="0 0 36 36">'+
+        '<circle class="rbg" cx="18" cy="18" r="'+R+'"></circle>'+
+        '<circle class="rfg" cx="18" cy="18" r="'+R+'" stroke-dasharray="'+C.toFixed(1)+'" '+
+          'stroke-dashoffset="'+(C * (1 - pct)).toFixed(1)+'"></circle>'+
+      '</svg><b>'+p.done+'<i>/'+p.total+'</i></b></div>';
+  }
+  // Called after any tick. Fires once per day, only on the transition to done.
+  function maybeCelebrate(){
+    const p = dayProgress();
+    const dk = dayKey(new Date());
+    if (p.total > 0 && p.done === p.total && celebratedFor !== dk){
+      celebratedFor = dk;
+      celebrate = 'That is the day, kept.';
+      buzz([14, 60, 24]);
+      clearTimeout(celebrateTimer);
+      celebrateTimer = setTimeout(() => { celebrate = null; render(); }, 4200);
+    }
+  }
+
   /* ---------- tasks ----------
      A one-off task is finished once (doneAt). A recurring one is finished per
      period, on the same completions map habits and goal steps use. */
@@ -546,7 +602,9 @@
     if (!a.due && b.due) return 1;
     return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
   }
-  const openTasks = d => (S.tasks || []).filter(tk => !taskDone(tk, d));
+  // A just-ticked task lingers for a beat so you see it strike through before
+  // it clears out of the list.
+  const openTasks = d => (S.tasks || []).filter(tk => !taskDone(tk, d) || tk.id === justDone);
   // The tasks a block should offer: same category, still outstanding.
   const tasksForCat = (catId, d) => openTasks(d).filter(tk => tk.cat === catId).sort(taskSort);
 
@@ -647,6 +705,45 @@
     return h;
   }
 
+  /* ---------- the whole rhythm: every block in one place ----------
+     Blocks are otherwise only reachable on the day they fall on, so this is
+     where you see and reshape the shape of your week. */
+  function blocksManagerHTML(now){
+    const today = dayKey(now);
+    const all = S.events || [];
+    const byTime = (a,b) => mins(a.start || '00:00') - mins(b.start || '00:00');
+    const repeating = all.filter(e => e.rrule).slice().sort(byTime);
+    const oneoff = all.filter(e => !e.rrule && e.date && e.date >= today)
+      .slice().sort((a,b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : byTime(a,b)));
+    const past = all.filter(e => !e.rrule && e.date && e.date < today).length;
+
+    const row = (e, dateCtx) =>
+      '<div class="brow">'+
+        '<span class="cd" style="background:'+catColor(e.cat)+'"></span>'+
+        '<button class="bmain" data-editinst="'+e.id+'|'+dateCtx+'">'+
+          '<span class="bt">'+esc(e.title)+'</span>'+
+          '<span class="bw">'+esc(aiWhen(e))+'</span>'+
+        '</button>'+
+        '<button class="del" data-delevent="'+e.id+'" aria-label="Remove block">×</button>'+
+      '</div>';
+
+    let h = '<p class="slack">Everything that shapes your week. Tap one to change it, or add another.</p>';
+    if (!all.length){
+      h += '<p class="park-empty">No blocks yet. Add the things that give your day its shape, like a morning routine or a focus block.</p>';
+    }
+    if (repeating.length){
+      h += '<h2>Repeating <span class="tcount">'+repeating.length+'</span></h2>';
+      h += '<div class="blist">' + repeating.map(e => row(e, today)).join('') + '</div>';
+    }
+    if (oneoff.length){
+      h += '<h2>Coming up once <span class="tcount">'+oneoff.length+'</span></h2>';
+      h += '<div class="blist">' + oneoff.map(e => row(e, e.date)).join('') + '</div>';
+    }
+    h += '<div class="dayadd" style="margin-top:18px"><button data-newon="'+today+'">+ Add a block</button></div>';
+    if (past) h += '<p class="slack" style="padding-top:14px">'+past+' one-off '+(past === 1 ? 'block has' : 'blocks have')+' already passed and are hidden here.</p>';
+    return h;
+  }
+
   function dayRail(vd, now){
     const isToday = dayKey(vd) === dayKey(now);
     // Only "today" has a live moment; other days render as plain, unstyled time.
@@ -707,7 +804,7 @@
       else if (live) dotStyle = 'background:var(--live);border-color:var(--live)';
       else if (!past) dotStyle = 'border-color:'+col;
       const doneAct = isStep ? 'data-stepweek="'+b.step.gid+':'+b.step.sid+'|'+dk+'"' : 'data-done="'+b.id+'|'+dk+'"';
-      h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+'">'+
+      h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+((justDone === (isStep ? b.step.sid : b.id))?' just':'')+'">'+
         '<div class="clock">'+clockOf(b.s)+'</div>'+
         '<div class="track"><span class="dot" style="'+dotStyle+'">'+TICK+'</span></div>'+
         '<div class="card"><div class="cardrow">'+
@@ -757,10 +854,10 @@
       if (d.target){
         const v = compVal(d.id, dk) || 0;
         let p=''; for (let i=0;i<d.target;i++) p += '<span class="pip'+(i<v?' on':'')+'" style="'+(i<v?'background:'+col+';border-color:'+col:'')+'"></span>';
-        h += '<button class="chip'+(v>=d.target?' on':'')+'" style="'+(v>=d.target?tint:'')+'" data-pip="'+d.id+':'+d.target+'"><span class="cl">'+esc(d.l)+'</span><span class="pips">'+p+'</span></button>';
+        h += '<button class="chip'+(v>=d.target?' on':'')+(justDone===d.id?' just':'')+'" style="'+(v>=d.target?tint:'')+'" data-pip="'+d.id+':'+d.target+'"><span class="cl">'+esc(d.l)+'</span><span class="pips">'+p+'</span></button>';
       } else {
         const on = isDone(d.id, dk);
-        h += '<button class="chip'+(on?' on':'')+'" style="'+(on?tint:'')+'" data-done="'+d.id+'"><span class="cl">'+esc(d.l)+'</span>'+
+        h += '<button class="chip'+(on?' on':'')+(justDone===d.id?' just':'')+'" style="'+(on?tint:'')+'" data-done="'+d.id+'"><span class="cl">'+esc(d.l)+'</span>'+
           '<span class="mark" style="'+(on?'background:'+col+';border-color:'+col:'')+'"></span></button>';
       }
     });
@@ -901,7 +998,7 @@
     if (!compact) bits.push('<i class="tcat"><b style="background:'+col+'"></b>'+esc(catOf(tk.cat).label)+'</i>');
     if (tk.due){ const dl = dueLabel(tk.due, d); bits.push('<i class="'+(dl.late?'due-late':dl.soon?'due-soon':'')+'">'+esc(dl.text)+'</i>'); }
     if (tk.repeat) bits.push('<i>'+repeatLabel(tk.repeat)+'</i>');
-    return '<div class="trow'+(done?' done':'')+'">'+
+    return '<div class="trow'+(done?' done':'')+(justDone===tk.id?' just':'')+'">'+
       '<button class="tcheck" data-tasktoggle="'+tk.id+'|'+dayKey(d)+'" aria-label="Mark done">'+
         '<span class="mark" style="'+(done ? 'background:'+col+';border-color:'+col : 'border-color:'+col)+'">'+TICK+'</span></button>'+
       '<button class="tmain" data-taskedit="'+tk.id+'">'+
@@ -1162,6 +1259,7 @@
   // Prev / next / back-to-today for the Day and Week views.
   function dateNav(vd, now){
     if (view !== 'day' && view !== 'week') return '';
+    if (manageBlocks) return '';        // the rhythm editor is not tied to a date
     const step = view === 'week' ? 7 : 1;
     let label, rel = '';
     if (view === 'day'){
@@ -1197,6 +1295,7 @@
     h += '<div class="greet"><div class="gtxt"><h1>'+greet+name+'</h1>'+
       '<p>'+DAYS[now.getDay()]+' '+now.getDate()+' '+MON[now.getMonth()]+' · '+
       clockOf(pad(now.getHours())+':'+pad(now.getMinutes()))+'</p></div>'+
+      progressRing()+
       '<button class="motif" data-settings aria-label="Settings">'+(hr >= 20 || hr < 5 ? MOON : MOTIFS[doy % MOTIFS.length])+'</button></div>';
     h += '<div class="quote"><p>'+esc(LINES[doy % LINES.length])+'</p></div>';
 
@@ -1204,14 +1303,15 @@
       ['day','week','tasks','habits','goals'].map(v =>
         '<button data-view="'+v+'"'+(view===v?' class="on"':'')+'>'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>').join('')+
       '</div>'+
-      (view==='week' && canGrid() ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
+      (view==='week' && canGrid() && !manageBlocks ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
+      (view==='week' ? '<button class="expand" data-manageblocks="1">'+(manageBlocks?'Back to calendar':'Manage blocks')+'</button>' : '')+
       '</div>';
     app.classList.toggle('wide', view==='week' && gridShown());
 
     h += dateNav(vd, now);
 
     if (view === 'day')    h += dayRail(vd, now);
-    else if (view === 'week')  h += weekView(vd, now);
+    else if (view === 'week')  h += manageBlocks ? blocksManagerHTML(now) : weekView(vd, now);
     else if (view === 'tasks')  h += tasksView(now);
     else if (view === 'habits') h += habitsView(now);
     else if (view === 'goals')  h += goalsView(now);
@@ -1224,6 +1324,7 @@
       : 'Everything saves as you go, on this device.';
     h += '<footer>'+savedLine+'</footer>';
 
+    if (celebrate) h += '<div class="celebrate"><span>'+esc(celebrate)+'</span></div>';
     if (undoState) h += '<div class="undobar"><span>'+esc(undoState.label)+'</span><button data-undo>Undo</button></div>';
     if (editing) h += editorHTML();
     if (taskEdit) h += taskEditorHTML();
@@ -1327,7 +1428,14 @@
     const r = ev.rrule;
     if (r.freq === 'daily') return 'Daily · '+time;
     if (r.freq === 'monthly') return 'Monthly · '+time;
-    const days = (r.weekdays||[]).slice().sort().map(d => SD[d]).join(' & ');
+    // Read it the way a person would, not as a list of seven day names.
+    const wd = (r.weekdays || []).slice().sort();
+    const has = d => wd.indexOf(d) !== -1;
+    let days;
+    if (wd.length === 7) days = 'Every day';
+    else if (wd.length === 5 && !has(0) && !has(6)) days = 'Weekdays';
+    else if (wd.length === 2 && has(0) && has(6)) days = 'Weekends';
+    else days = wd.map(d => SD[d]).join(' & ');
     return (r.interval === 2 ? 'Fortnightly, ' : '') + days + ' · ' + time;
   }
 
@@ -1637,7 +1745,11 @@
     if ((m = t('[data-tasktoggle]'))){
       const [id, dk2] = m.dataset.tasktoggle.split('|');
       const tk = findTask(id);
-      if (tk) toggleTask(tk, dk2 ? parseDay(dk2) : now);
+      if (tk){
+        const ref = dk2 ? parseDay(dk2) : now;
+        toggleTask(tk, ref);
+        if (taskDone(tk, ref)){ markJustDone(id); buzz(12); }
+      }
       save(); render(); return;
     }
     if ((m = t('[data-deltask]'))){
@@ -1682,17 +1794,39 @@
     if ((m = t('[data-view]'))){ view = m.dataset.view; openDay = null; render(); return; }
     if ((m = t('[data-shift]'))){ dayShift += +m.dataset.shift; openDay = null; render(); return; }
     if (t('[data-today]')){ dayShift = 0; openDay = null; render(); return; }
+    if (t('[data-manageblocks]')){ manageBlocks = !manageBlocks; render(); return; }
     if (t('[data-expand]')){ expanded = !expanded; render(); return; }
     if ((m = t('[data-day]'))){ const d = +m.dataset.day; openDay = (openDay === d) ? null : d; render(); return; }
     if ((m = t('[data-goal]'))){ const id = m.dataset.goal; openGoal = (openGoal === id) ? null : id; render(); return; }
 
-    if ((m = t('[data-done]'))){ const [id, dk] = m.dataset.done.split('|'); toggleDone(id, dk || today); save(); render(); return; }
-    if ((m = t('[data-pip]'))){ const [id, tg] = m.dataset.pip.split(':'); bumpCount(id, today, +tg); save(); render(); return; }
-    if ((m = t('[data-step]'))){ const [gid, sid] = m.dataset.step.split(':'); toggleStep(gid, sid, now); save(); render(); return; }
+    if ((m = t('[data-done]'))){
+      const [id, dk] = m.dataset.done.split('|');
+      const on = dk || today;
+      toggleDone(id, on);
+      if (isDone(id, on)){ markJustDone(id); buzz(12); }
+      save(); maybeCelebrate(); render(); return;
+    }
+    if ((m = t('[data-pip]'))){
+      const [id, tg] = m.dataset.pip.split(':');
+      bumpCount(id, today, +tg); buzz(10);
+      if (isDone(id, today, +tg)) markJustDone(id);
+      save(); maybeCelebrate(); render(); return;
+    }
+    if ((m = t('[data-step]'))){
+      const [gid, sid] = m.dataset.step.split(':');
+      toggleStep(gid, sid, now); buzz(12);
+      const g = S.goals.find(x => x.id === gid), st = g && g.steps.find(s => s.id === sid);
+      if (st && stepDone(st, now)) markJustDone(sid);
+      save(); maybeCelebrate(); render(); return;
+    }
     if ((m = t('[data-stepweek]'))){
       const [ids, dk] = m.dataset.stepweek.split('|');
       const [gid, sid] = ids.split(':');
-      toggleStep(gid, sid, dk ? parseDay(dk) : now); save(); render(); return;
+      const ref = dk ? parseDay(dk) : now;
+      toggleStep(gid, sid, ref); buzz(12);
+      const g = S.goals.find(x => x.id === gid), st = g && g.steps.find(s => s.id === sid);
+      if (st && stepDone(st, ref)) markJustDone(sid);
+      save(); maybeCelebrate(); render(); return;
     }
 
     if (t('[data-addhabit]')){
