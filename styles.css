@@ -1,3 +1,6 @@
+/* ===== Theme tokens that must live above #soft-app ===== */
+  :root { --on-live: #2C2932; }
+
 /* ===== Page reset (was inline in <head>) ===== */
   html, body { margin: 0; padding: 0; background: #26232C; min-height: 100%; }
   body { padding: 12px; }
@@ -275,7 +278,7 @@
   #soft-app .frow { display: flex; gap: 8px; }
   #soft-app .frow > * { flex: 1; min-width: 0; }
   #soft-app .gform .go {
-    font: inherit; font-size: 14.5px; background: var(--live); color: #2C2932;
+    font: inherit; font-size: 14.5px; background: var(--live); color: var(--on-live);
     border: 0; border-radius: 10px; padding: 12px; width: 100%;
     margin-bottom: 0; cursor: pointer; font-weight: 500;
   }
@@ -418,7 +421,7 @@
 
   /* modal actions */
   #soft-app .modal-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-  #soft-app .modal .go { background: var(--live); color: #2C2932; border: 0; border-radius: 10px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+  #soft-app .modal .go { background: var(--live); color: var(--on-live); border: 0; border-radius: 10px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
   #soft-app .modal .ghost { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 10px; padding: 10px 14px; font: inherit; cursor: pointer; }
   #soft-app .modal .del { align-self: center; }
 
@@ -441,7 +444,7 @@
   #soft-app .login-box { display: flex; flex-direction: column; gap: 10px; text-align: left; }
   #soft-app .login-box input { width: 100%; background: var(--raise); border: 1px solid var(--line); color: var(--text); border-radius: 12px; padding: 13px 14px; font: inherit; font-size: 16px; }
   #soft-app .login-box input:focus { outline: none; border-color: var(--ghost); }
-  #soft-app .login-box .go { background: var(--live); color: #2C2932; border: 0; border-radius: 12px; padding: 13px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+  #soft-app .login-box .go { background: var(--live); color: var(--on-live); border: 0; border-radius: 12px; padding: 13px 16px; font: inherit; font-weight: 600; cursor: pointer; }
   #soft-app .login-box .go[disabled] { opacity: .6; cursor: default; }
   #soft-app .login-msg { color: var(--text); font-size: 14px; line-height: 1.5; margin: 16px auto 0; max-width: 36ch; background: var(--live-soft); padding: 12px 14px; border-radius: 12px; }
   #soft-app .login-fine { color: var(--ghost); font-size: 12.5px; margin-top: 18px; }
@@ -457,7 +460,7 @@
   #soft-app .ob-chip .cd { width: 10px; height: 10px; border-radius: 50%; }
   #soft-app .ob-chip.on { border-color: var(--live); background: var(--live-soft); }
   #soft-app .ob-actions { display: flex; align-items: center; gap: 10px; margin-top: 24px; }
-  #soft-app .ob .go { background: var(--live); color: #2C2932; border: 0; border-radius: 11px; padding: 12px 20px; font: inherit; font-weight: 600; cursor: pointer; }
+  #soft-app .ob .go { background: var(--live); color: var(--on-live); border: 0; border-radius: 11px; padding: 12px 20px; font: inherit; font-weight: 600; cursor: pointer; }
   #soft-app .ob .ghost { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 11px; padding: 12px 16px; font: inherit; cursor: pointer; }
   #soft-app .ob-skip { display: block; margin: 20px auto 0; }
 
@@ -527,7 +530,7 @@
   }
   @supports (padding: max(0px)) { #soft-app .undobar { bottom: max(16px, env(safe-area-inset-bottom)); } }
   #soft-app .undobar button {
-    background: var(--live); color: #2C2932; border: 0; border-radius: 999px;
+    background: var(--live); color: var(--on-live); border: 0; border-radius: 999px;
     padding: 6px 14px; font: inherit; font-weight: 600; cursor: pointer;
   }
 
@@ -559,7 +562,7 @@
     #ath-update { bottom: max(16px, env(safe-area-inset-bottom)); }
   }
   #ath-update button {
-    background: #E5A87E; color: #2C2932; border: 0; border-radius: 999px;
+    background: #E5A87E; color: var(--on-live); border: 0; border-radius: 999px;
     padding: 7px 15px; font: inherit; font-weight: 600; cursor: pointer;
   }
   #ath-update button:hover { opacity: .9; }
@@ -568,7 +571,7 @@
   #soft-app .ai-intro { color: var(--dim); font-size: 13.5px; line-height: 1.5; margin: 0 0 14px; }
   #soft-app .ai-prompt { background: var(--raise); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 14px; }
   #soft-app .ai-prompt pre { margin: 0 0 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.55; color: #D9D2DC; white-space: pre-wrap; word-break: break-word; max-height: 156px; overflow: auto; }
-  #soft-app .copybtn { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--live); color: #2C2932; border: 0; border-radius: 9px; padding: 8px 14px; }
+  #soft-app .copybtn { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; background: var(--live); color: var(--on-live); border: 0; border-radius: 9px; padding: 8px 14px; }
   #soft-app .copybtn:hover { opacity: .9; }
   #soft-app .fld textarea { width: 100%; background: var(--raise); border: 1px solid var(--line); color: var(--text); border-radius: 10px; padding: 11px 12px; font: inherit; font-size: 14px; line-height: 1.5; resize: vertical; }
   #soft-app .fld textarea:focus { outline: none; border-color: var(--ghost); }
@@ -582,3 +585,50 @@
   #soft-app .ai-row .pt small { display: block; color: var(--dim); font-size: 12px; margin-top: 1px; }
   #soft-app .ai-row .when { color: var(--dim); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
   @media (pointer: coarse) { #soft-app .fld textarea { font-size: 16px; } }
+
+  /* ===== Onboarding explainer ===== */
+  #soft-app .ob-explain { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 13px; text-align: left; }
+  #soft-app .ob-explain li { display: flex; align-items: flex-start; gap: 11px; }
+  #soft-app .ob-explain li > b { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; }
+  #soft-app .ob-explain li > span { flex: 1; font-size: 14px; line-height: 1.5; color: var(--dim); }
+  #soft-app .ob-explain li > span b { color: var(--text); font-weight: 600; }
+  #soft-app .ob-callout { background: var(--live-soft); border-radius: 14px; padding: 15px 16px; text-align: left; }
+  #soft-app .ob-callout b { display: block; font-family: var(--serif); font-weight: 400; font-size: 16px; color: var(--live); margin-bottom: 5px; }
+  #soft-app .ob-callout span { font-size: 13.5px; line-height: 1.55; color: var(--dim); }
+  #soft-app .ob-callout i { font-style: normal; color: var(--text); }
+
+  /* ===== Light theme =====
+     JS resolves the choice (dark / light / match device) and stamps the result
+     on <html>, so this one block covers every case. */
+  html[data-theme="light"], html[data-theme="light"] body { background: #EFEBE4; }
+  html[data-theme="light"] { --on-live: #FFFFFF; }
+  html[data-theme="light"] #soft-app {
+    --bg: #FCFAF7;
+    --raise: #F1ECE4;
+    --line: #E2DAD0;
+    --text: #2F2A31;
+    --dim: #6E6672;
+    --ghost: #9B939A;
+    --live: #B96A34;
+    --live-soft: #F8E9DB;
+    background: linear-gradient(178deg, #FFFFFF 0%, #FCFAF7 300px);
+  }
+  html[data-theme="light"] #soft-app .quote { background: rgba(185,106,52,.07); }
+  html[data-theme="light"] #soft-app .meter { background: rgba(0,0,0,.10); }
+  html[data-theme="light"] #soft-app .editdot:hover,
+  html[data-theme="light"] #soft-app .parked .parkdo:hover,
+  html[data-theme="light"] #soft-app .taskchip:hover { background: rgba(0,0,0,.05); }
+  html[data-theme="light"] #soft-app .modal-back { background: rgba(60,48,40,.32); }
+  html[data-theme="light"] #soft-app .modal { box-shadow: 0 24px 60px rgba(90,70,55,.20); }
+  html[data-theme="light"] #soft-app .undobar { box-shadow: 0 12px 32px rgba(90,70,55,.20); }
+  html[data-theme="light"] #soft-app .cb.dragging { box-shadow: 0 8px 22px rgba(90,70,55,.25); }
+  html[data-theme="light"] #ath-update { background: #FFFFFF; color: #2F2A31; border-color: #E2DAD0; box-shadow: 0 12px 32px rgba(90,70,55,.20); }
+  html[data-theme="light"] #ath-update button { background: #B96A34; color: #FFFFFF; }
+
+  /* theme picker in settings */
+  #soft-app .themerow { display: flex; gap: 8px; margin-bottom: 12px; }
+  #soft-app .themebtn {
+    flex: 1; background: var(--raise); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 10px; padding: 10px 6px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  #soft-app .themebtn.on { border-color: var(--live); color: var(--live); background: var(--live-soft); }

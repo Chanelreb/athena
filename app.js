@@ -156,7 +156,7 @@
   /* ---------- state ---------- */
   const blank = () => ({
     schemaVersion: 2,
-    profile: { name:'', timezone:(Intl.DateTimeFormat().resolvedOptions().timeZone || ''), onboarded:false },
+    profile: { name:'', timezone:(Intl.DateTimeFormat().resolvedOptions().timeZone || ''), onboarded:false, theme:'dark' },
     categories: DEFAULT_CATS.map(c => Object.assign({}, c)),
     events: [],
     habits: [],
@@ -247,6 +247,7 @@
         lsSet(KEY, r.value);
         if (!S.profile) S.profile = blank().profile;
         if (!S.categories || !S.categories.length) S.categories = DEFAULT_CATS.map(c => Object.assign({}, c));
+        applyTheme();
         render();
       }
     } catch(e){ /* offline — try again next time */ }
@@ -273,6 +274,35 @@
     S = Object.assign(blank(), JSON.parse(undoState.snap));
     undoState = null; clearTimeout(undoTimer);
     save(); render();
+  }
+
+  /* ---------- theme ----------
+     'dark' | 'light' | 'system'. We resolve the choice here and stamp the
+     result on <html>, so the CSS only needs one light block. */
+  const prefersLight = () => (typeof window !== 'undefined' && window.matchMedia)
+    ? window.matchMedia('(prefers-color-scheme: light)').matches : false;
+  function themeChoice(){ return (S.profile && S.profile.theme) || 'dark'; }
+  function applyTheme(){
+    const choice = themeChoice();
+    const resolved = choice === 'system' ? (prefersLight() ? 'light' : 'dark') : choice;
+    try {
+      document.documentElement.setAttribute('data-theme', resolved);
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', resolved === 'light' ? '#FCFAF7' : '#2C2932');
+      lsSet('athena:theme', choice);   // so the next boot paints correctly straight away
+    } catch(_){}
+  }
+  // Paint the remembered theme before any data loads, to avoid a flash of the wrong one.
+  try {
+    const cached = lsGet('athena:theme');
+    if (cached) document.documentElement.setAttribute('data-theme',
+      cached === 'system' ? (prefersLight() ? 'light' : 'dark') : cached);
+  } catch(_){}
+  if (typeof window !== 'undefined' && window.matchMedia){
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const onScheme = () => { if (themeChoice() === 'system') applyTheme(); };
+    if (mq.addEventListener) mq.addEventListener('change', onScheme);
+    else if (mq.addListener) mq.addListener(onScheme);
   }
 
   /* ---------- categories ---------- */
@@ -361,19 +391,33 @@
       h += '<p class="ob-sub">A calm place to plan your days. A couple of quick questions and it\'s yours.</p>';
       h += '<label class="fld"><span>What should we call you?</span><input id="ob_name" type="text" autocomplete="given-name" placeholder="Your name" value="'+esc(ob.name)+'"></label>';
       h += '<div class="ob-actions"><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
-      h += '<button class="linkish ob-skip" data-obskip>Skip — just set me up</button>';
+      h += '<button class="linkish ob-skip" data-obskip>Skip, just set me up</button>';
     } else if (ob.step === 1){
       h += '<h1>What are your days about?</h1>';
-      h += '<p class="ob-sub">Pick a few. These become your colour-coded categories — rename, recolour or change them anytime.</p>';
+      h += '<p class="ob-sub">Pick a few. These become your colour-coded categories. Rename, recolour or change them anytime.</p>';
       h += '<div class="ob-chips">' + OB_CATS.map(c =>
         '<button class="ob-chip'+(ob.cats.indexOf(c.id) !== -1 ? ' on' : '')+'" data-obcat="'+c.id+'">'+
         '<span class="cd" style="background:'+c.color+'"></span>'+c.label+'</button>').join('') + '</div>';
       h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
-    } else {
+    } else if (ob.step === 2){
       h += '<h1>Your rhythm</h1>';
-      h += '<p class="ob-sub">Roughly when does your day start and wind down? We\'ll sketch a light week you can reshape — or fill it with your AI later.</p>';
+      h += '<p class="ob-sub">Roughly when does your day start and wind down? We\'ll sketch a light week you can reshape, or fill it with your AI later.</p>';
       h += '<div class="fld two"><label><span>Day starts</span><input id="ob_start" type="time" value="'+ob.start+'"></label>'+
         '<label><span>Wind down</span><input id="ob_end" type="time" value="'+ob.end+'"></label></div>';
+      h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
+    } else {
+      const cc = S.categories.map(c => c.color);
+      const dot = i => '<b style="background:'+(cc[i % (cc.length || 1)] || '#9CC0A9')+'"></b>';
+      h += '<h1>How Athena works</h1>';
+      h += '<p class="ob-sub">Four pieces, and they fit together so you mostly don\'t have to think about them.</p>';
+      h += '<ul class="ob-explain">'+
+        '<li>'+dot(0)+'<span><b>Blocks</b> are the shape of your day. Repeating or one-off, they hold your time.</span></li>'+
+        '<li>'+dot(1)+'<span><b>Tasks</b> are things to finish. Give one a category and it turns up inside the block that shares it, so you do it while you\'re already in that headspace.</span></li>'+
+        '<li>'+dot(2)+'<span><b>Habits</b> are the small daily things you want a streak on.</span></li>'+
+        '<li>'+dot(0)+'<span><b>Goals</b> are something bigger with a date, broken into steps that land in your week.</span></li>'+
+        '</ul>';
+      h += '<div class="ob-callout"><b>The quick way in</b>'+
+        '<span>Got a head full of things? Tap <i>Ask your AI</i>, paste in a brain dump, and Athena sorts it into tasks, gives each a category and a priority, then drops them into the blocks where they belong. You approve everything before it lands.</span></div>';
       h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obfinish>Build my week</button></div>';
     }
     h += '</div>';
@@ -822,7 +866,7 @@
             '<input id="stime_'+g.id+'" type="time" value="17:00">'+
           '</div>'+
           '<button class="go" data-addstep="'+g.id+'">Add step</button>'+
-          '<small class="gform-hint">Day &amp; time apply to weekly steps — they appear on your calendar.</small></div>';
+          '<small class="gform-hint">Day and time apply to weekly steps, which then appear on your calendar.</small></div>';
         h += '<button class="del wide" data-delgoal="'+g.id+'">Remove this goal</button>';
         h += '</div>';
       }
@@ -897,7 +941,7 @@
     ];
     const any = groups.some(g => g[1].length);
     if (!any){
-      h += '<p class="park-empty">No tasks yet. Dump anything on your mind above — a name is enough — and it\'ll show up in the block that matches its category.</p>';
+      h += '<p class="park-empty">No tasks yet. Dump anything on your mind above. A name is enough, and it\'ll show up in the block that matches its category.</p>';
     }
     groups.forEach(g => {
       if (!g[1].length) return;
@@ -1176,7 +1220,7 @@
     if (view === 'day'){ h += parkHTML(dayKey(vd)); }
 
     const savedLine = !ok ? 'Not saving right now.'
-      : (cloud && session) ? 'Synced to your account — saves as you go, on every device.'
+      : (cloud && session) ? 'Synced to your account. Saves as you go, on every device.'
       : 'Everything saves as you go, on this device.';
     h += '<footer>'+savedLine+'</footer>';
 
@@ -1195,6 +1239,11 @@
     let h = '<div class="modal-back" data-closesettings></div>';
     h += '<div class="modal"><div class="modal-h">Settings</div>';
     h += '<label class="fld"><span>Your name</span><input id="s_name" type="text" placeholder="What should Athena call you?" value="'+esc((S.profile&&S.profile.name)||'')+'" autocomplete="off"></label>';
+    const th = themeChoice();
+    h += '<div class="fld"><span>Appearance</span><div class="themerow">'+
+      [['dark','Dark'],['light','Light'],['system','Match device']].map(t =>
+        '<button class="themebtn'+(th===t[0]?' on':'')+'" data-settheme="'+t[0]+'">'+t[1]+'</button>').join('')+
+      '</div></div>';
     h += '<div class="modal-h" style="margin-top:8px">Categories</div>';
     h += '<div class="catlist">';
     S.categories.forEach(c => {
@@ -1224,14 +1273,14 @@
   function aiPrompt(){
     const cats = S.categories.map(c => c.label).join(' | ');
     return [
-      'Reply with ONLY a JSON object in this exact shape — no other words:',
+      'Reply with ONLY a JSON object in this exact shape, with no other words:',
       '{',
       '  "events": [ { "title": "", "category": "'+cats+'", "start": "HH:MM", "end": "HH:MM", "repeat": "once|daily|weekdays|weekly|fortnightly|monthly", "weekdays": [0,1,2,3,4,5,6], "date": "YYYY-MM-DD", "note": "" } ],',
       '  "tasks":  [ { "title": "", "category": "'+cats+'", "priority": "high|normal|low", "due": "YYYY-MM-DD", "repeat": "once|daily|weekly|monthly", "note": "" } ],',
       '  "habits": [ { "label": "", "category": "'+cats+'", "timesPerDay": 1 } ],',
       '  "goals":  [ { "title": "", "targetDate": "YYYY-MM-DD", "category": "'+cats+'", "steps": [ { "label": "", "freq": "daily|weekly|monthly" } ] } ]',
       '}',
-      'Events are things with a time. Tasks are things to get done — give each a category and priority; "due" and "repeat" are optional.',
+      'Events are things with a time. Tasks are things to get done. Give each a category and priority. "due" and "repeat" are optional.',
       'Rules: weekdays are 0=Sun … 6=Sat. Use "date" only when repeat is "once". Omit "start"/"end" for an all-day item. Skip any field you don\'t need. Today is '+dayKey(new Date())+'.',
       'Here is what I want: '
     ].join('\n');
@@ -1471,7 +1520,7 @@
     if (t('[data-signout]')){ if (sb) sb.auth.signOut().catch(()=>{}); settingsOpen = false; return; }
 
     // onboarding
-    if (t('[data-obnext]')){ obSync(); ob.step = Math.min(2, ob.step + 1); render(); return; }
+    if (t('[data-obnext]')){ obSync(); ob.step = Math.min(3, ob.step + 1); render(); return; }
     if (t('[data-obback]')){ obSync(); ob.step = Math.max(0, ob.step - 1); render(); return; }
     if ((m = t('[data-obcat]'))){ obSync(); const id = m.dataset.obcat; const i = ob.cats.indexOf(id); if (i === -1) ob.cats.push(id); else ob.cats.splice(i, 1); render(); return; }
     if (t('[data-obfinish]')){ obFinish(); return; }
@@ -1532,6 +1581,7 @@
     }
     if ((m = t('[data-delevent]'))){ markUndo('Event deleted'); S.events = S.events.filter(x => x.id !== m.dataset.delevent); editing = null; clearModalDrafts(); save(); render(); return; }
     if ((m = t('[data-wd]'))){ syncEditor(); const d = +m.dataset.wd; const i = editing.weekdays.indexOf(d); if (i===-1) editing.weekdays.push(d); else editing.weekdays.splice(i,1); render(); return; }
+    if ((m = t('[data-settheme]'))){ commitSettings(); S.profile.theme = m.dataset.settheme; applyTheme(); save(); render(); return; }
     if (t('[data-settings]')){ clearModalDrafts(); settingsOpen = true; render(); return; }
     if (t('[data-closesettings]')){ commitSettings(); settingsOpen = false; clearModalDrafts(); render(); return; }
     if (t('[data-addcat]')){ commitSettings(); S.categories.push({ id:'c_'+uid8(), label:'New', color:'#B7B2BE' }); save(); render(); return; }
@@ -1676,7 +1726,7 @@
       '<button class="go" data-sendlink'+(authBusy?' disabled':'')+'>'+(authBusy?'Sending…':'Email me a sign-in link')+'</button>'+
       '</div>';
     if (authMsg) h += '<p class="login-msg">' + esc(authMsg) + '</p>';
-    h += '<p class="login-fine">No passwords — we email you a one-time link.</p>';
+    h += '<p class="login-fine">No passwords. We email you a one-time link.</p>';
     h += '</div>';
     return h;
   }
@@ -1696,7 +1746,7 @@
       const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
       authBusy = false;
       authMsg = error ? ('Could not send the link: ' + error.message)
-                      : 'Check your email — a sign-in link is on its way to ' + email + '.';
+                      : 'Check your email. A sign-in link is on its way to ' + email + '.';
     } catch(e){ authBusy = false; authMsg = 'Something went wrong. Please try again.'; }
     renderAuth();
   }
@@ -1705,6 +1755,7 @@
     if (started) return;
     started = true;
     load().then(() => {
+      applyTheme();
       render();
       setInterval(() => {
         const ae = document.activeElement;
