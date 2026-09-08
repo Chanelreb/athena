@@ -1127,7 +1127,7 @@
     h += '<h1>Athena</h1>';
     h += '<p class="login-sub">A calm place to plan your days. Sign in and it syncs across your phone and laptop.</p>';
     h += '<div class="login-box">'+
-      '<input id="auth_email" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com">'+
+      '<input id="auth_email" type="email" inputmode="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@email.com">'+
       '<button class="go" data-sendlink'+(authBusy?' disabled':'')+'>'+(authBusy?'Sending…':'Email me a sign-in link')+'</button>'+
       '</div>';
     if (authMsg) h += '<p class="login-msg">' + esc(authMsg) + '</p>';
