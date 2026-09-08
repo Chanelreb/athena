@@ -364,6 +364,30 @@
   }
   const findEvent = id => (S.events || []).find(e => e.id === id);
 
+  // Weekly goal steps that carry a day/time show up on the calendar as blocks,
+  // marked as "toward" their goal and tied to that week's completion.
+  function stepBlocksOnDate(D){
+    const wd = D.getDay(), dk = dayKey(D), out = [];
+    (S.goals || []).forEach(g => (g.steps || []).forEach(st => {
+      if (st.freq !== 'weekly' || st.time == null) return;   // only scheduled weekly steps
+      const day = (st.day == null) ? 1 : st.day;
+      if (day !== wd) return;
+      const s = st.time || '17:00';
+      out.push({
+        id: st.id, uid: 'step:' + st.id + '@' + dk,
+        t: st.label, n: 'Toward ' + g.title, c: g.cat, allDay: false,
+        s: s, e: fmtM(mins(s) + 30), step: { gid: g.id, sid: st.id }
+      });
+    }));
+    return out;
+  }
+  // Everything that appears on a given day: real events + scheduled goal steps.
+  function blocksForDate(D){
+    const all = eventsOnDate(D).concat(stepBlocksOnDate(D));
+    all.sort((a,b) => (a.allDay?-1:0)-(b.allDay?-1:0) || mins(a.s||'00:00') - mins(b.s||'00:00'));
+    return all;
+  }
+
   /* ---------- completions (per-date tick-offs) ---------- */
   function compVal(id, dk){ const m = S.completions[dk]; return m ? m[id] : undefined; }
   function isDone(id, dk, target){
@@ -406,7 +430,7 @@
     ORDER.forEach((d,i) => {
       const dd = new Date(monday); dd.setDate(monday.getDate()+i);
       dates[d] = dd;
-      blocksByDay[d] = eventsOnDate(dd).filter(b => !b.allDay);
+      blocksByDay[d] = blocksForDate(dd).filter(b => !b.allDay);
       LBL[d] = SD[d] + ' ' + dd.getDate();
     });
     const t = now.getHours()*60 + now.getMinutes();
@@ -427,8 +451,14 @@
         blocksByDay[d].forEach(b => {
           const st = Math.max(mins(b.s), DS), en = Math.min(mins(b.e), DE);
           if (en <= st) return;
-          tot[b.c] = (tot[b.c]||0) + (mins(b.e) - mins(b.s));
           const col = catColor(b.c);
+          if (b.step){
+            inner += '<button class="cb cbstep" style="top:'+px(st)+'px;height:'+Math.max(20,(en-st)/SPAN*H-2)+'px;'+
+              'background:'+col+'1F;border-left-color:'+col+'" data-gotogoal="'+b.step.gid+'">'+
+              '<b>'+esc(b.t)+'</b><em>toward a goal</em></button>';
+            return;
+          }
+          tot[b.c] = (tot[b.c]||0) + (mins(b.e) - mins(b.s));
           inner += '<button class="cb" style="top:'+px(st)+'px;height:'+Math.max(20,(en-st)/SPAN*H-2)+'px;'+
             'background:'+col+'2E;border-left-color:'+col+'" data-editinst="'+b.id+'|'+dayKey(dates[d])+'" '+
             'data-uid="'+b.id+'" data-dk="'+dayKey(dates[d])+'" data-sm="'+mins(b.s)+'" data-em="'+mins(b.e)+'" data-pos="'+pos+'">'+
@@ -452,16 +482,16 @@
       blocks.forEach(b => {
         const s = Math.max(mins(b.s), DS), e = Math.min(mins(b.e), DE);
         if (e <= s) return;
-        tot[b.c] = (tot[b.c]||0) + (mins(b.e) - mins(b.s));
-        segs += '<i style="left:'+((s-DS)/SPAN*100)+'%;width:'+((e-s)/SPAN*100)+'%;background:'+catColor(b.c)+'"></i>';
+        if (!b.step) tot[b.c] = (tot[b.c]||0) + (mins(b.e) - mins(b.s));
+        segs += '<i class="'+(b.step?'seg-step':'')+'" style="left:'+((s-DS)/SPAN*100)+'%;width:'+((e-s)/SPAN*100)+'%;background:'+catColor(b.c)+'"></i>';
       });
       if (isToday && t >= DS && t <= DE) segs += '<span class="wnow" style="left:'+((t-DS)/SPAN*100)+'%"></span>';
       h += '<div class="wrow'+(isToday?' today':'')+'"><span class="wday">'+LBL[d]+'</span>'+
         '<button class="wbar" data-day="'+d+'">'+segs+'</button></div>';
       if (openDay === d){
         h += '<div class="wlist">' + (blocks.length ? blocks.map(b =>
-          '<button class="wl" data-editinst="'+b.id+'|'+dayKey(dates[d])+'">'+
-          '<span class="sw" style="background:'+catColor(b.c)+'"></span><span>'+esc(b.t)+'</span>'+
+          '<button class="wl"'+(b.step ? ' data-gotogoal="'+b.step.gid+'"' : ' data-editinst="'+b.id+'|'+dayKey(dates[d])+'"')+'>'+
+          '<span class="sw" style="background:'+catColor(b.c)+'"></span><span>'+esc(b.t)+(b.step?' <em class="steptag">· goal</em>':'')+'</span>'+
           '<em>'+clockOf(b.s)+'</em></button>').join('')
           : '<p class="park-empty" style="margin:0">Nothing on this day.</p>') +
           '<button class="wl wl-add" data-newon="'+dayKey(dates[d])+'">+ Add something</button></div>';
@@ -474,7 +504,7 @@
   function dayRail(now){
     const t = now.getHours()*60 + now.getMinutes();
     const dk = dayKey(now);
-    const all = eventsOnDate(now);
+    const all = blocksForDate(now);
     const allDay = all.filter(b => b.allDay);
     const blocks = all.filter(b => !b.allDay);
 
@@ -485,9 +515,10 @@
       if (nx){ const g = mins(nx.s) - mins(b.e); if (g >= 30) items.push({ type:'gap', from:mins(b.e), to:mins(nx.s), next:nx }); }
     });
     const openTotal = items.filter(x=>x.type==='gap').reduce((a,x)=>a+(x.to-x.from),0);
-    const booked = blocks.reduce((a,b)=>a+(mins(b.e)-mins(b.s)),0);
+    const timed = blocks.filter(b => !b.step);                // goal steps don't count as "booked"
+    const booked = timed.reduce((a,b)=>a+(mins(b.e)-mins(b.s)),0);
     const split = {};
-    blocks.forEach(b => { split[b.c] = (split[b.c]||0) + (mins(b.e)-mins(b.s)); });
+    timed.forEach(b => { split[b.c] = (split[b.c]||0) + (mins(b.e)-mins(b.s)); });
 
     let h = '';
     if (booked){
@@ -517,19 +548,21 @@
         return;
       }
       const b = it.b;
+      const isStep = !!b.step;
       const live = t >= mins(b.s) && t < mins(b.e);
       const past = t >= mins(b.e);
-      const done = isDone(b.id, dk);
+      const done = isStep ? isDone('w:' + b.step.sid, weekKey(now)) : isDone(b.id, dk);
       const col = catColor(b.c);
       let dotStyle = '';
       if (done) dotStyle = 'background:'+col+';border-color:'+col;
       else if (live) dotStyle = 'background:var(--live);border-color:var(--live)';
       else if (!past) dotStyle = 'border-color:'+col;
-      h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+'">'+
+      const doneAct = isStep ? 'data-stepweek="'+b.step.gid+':'+b.step.sid+'"' : 'data-done="'+b.id+'"';
+      h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+'">'+
         '<div class="clock">'+clockOf(b.s)+'</div>'+
         '<div class="track"><span class="dot" style="'+dotStyle+'">'+TICK+'</span></div>'+
         '<div class="card cardrow">'+
-        '<button class="cardmain" data-done="'+b.id+'">'+
+        '<button class="cardmain" '+doneAct+'>'+
         '<div class="t">'+esc(b.t)+'</div>'+
         (b.n?'<div class="n">'+esc(b.n)+'</div>':'');
       if (live){
@@ -538,7 +571,8 @@
           '<div class="left">'+dur(mins(b.e)-t)+' to go</div>';
       }
       h += '</button>'+
-        '<button class="editdot" data-editinst="'+b.id+'|'+dk+'" aria-label="Edit">⋯</button>'+
+        (isStep ? '<button class="editdot" data-gotogoal="'+b.step.gid+'" aria-label="Open goal">›</button>'
+                : '<button class="editdot" data-editinst="'+b.id+'|'+dk+'" aria-label="Edit">⋯</button>')+
         '</div></div>';
     });
 
@@ -628,7 +662,10 @@
   function goalsView(now){
     const today = dayKey(now);
     const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'>"+esc(c.label)+"</option>").join('');
-    const freqText = st => st.freq === 'daily' ? 'Every day' : st.freq === 'weekly' ? 'Weekly' : 'Monthly';
+    const DAYOPTS = [1,2,3,4,5,6,0].map(d => "<option value='"+d+"'>"+SD[d]+"</option>").join('');
+    const freqText = st => st.freq === 'daily' ? 'Every day'
+      : st.freq === 'weekly' ? (st.time != null ? SD[st.day == null ? 1 : st.day] + ' ' + clockOf(st.time) : 'Weekly')
+      : 'Monthly';
     const nice = d => { const x = parseDay(d); return x.getDate()+' '+SHORT[x.getMonth()]+' '+x.getFullYear(); };
 
     let h = '<h2>What you are building</h2>';
@@ -666,8 +703,11 @@
           '<input id="sl_'+g.id+'" type="text" placeholder="A step you will repeat" autocomplete="off">'+
           '<div class="frow">'+
             '<select id="sf_'+g.id+'"><option value="daily">Daily</option><option value="weekly" selected>Weekly</option><option value="monthly">Monthly</option></select>'+
+            '<select id="sday_'+g.id+'">'+DAYOPTS+'</select>'+
+            '<input id="stime_'+g.id+'" type="time" value="17:00">'+
           '</div>'+
-          '<button class="go" data-addstep="'+g.id+'">Add step</button></div>';
+          '<button class="go" data-addstep="'+g.id+'">Add step</button>'+
+          '<small class="gform-hint">Day &amp; time apply to weekly steps — they appear on your calendar.</small></div>';
         h += '<button class="del wide" data-delgoal="'+g.id+'">Remove this goal</button>';
         h += '</div>';
       }
@@ -676,7 +716,7 @@
       '<input id="gt" type="text" placeholder="What are you building toward?" autocomplete="off">'+
       '<div class="frow"><input id="gb" type="date"><select id="gc">'+CATOPTS+'</select></div>'+
       '<button class="go" data-addgoal>Add goal</button></div>';
-    h += '<p class="slack" style="padding-top:16px">Daily steps become everyday tick-offs. Weekly and monthly steps are tracked here against each period.</p>';
+    h += '<p class="slack" style="padding-top:16px">Daily steps become everyday tick-offs. Weekly steps show up in your calendar on the day and time you pick. Monthly steps are tracked here.</p>';
     return h;
   }
 
@@ -1041,24 +1081,28 @@
      ========================================================================== */
 
   // ----- desktop drag in the expanded grid: resize + vertical (time) move -----
-  const GH = 680, GSPAN = SPAN;
+  const GH = 680, GSPAN = SPAN, GORDER = [1,2,3,4,5,6,0];
   let drag = null, noClick = false;
   app.addEventListener('pointerdown', e => {
     if (view !== 'week' || !expanded || editing || aiOpen) return;
     const cb = e.target.closest('.cb'); if (!cb) return;
+    if (cb.classList.contains('cbstep')) return; // goal-step blocks aren't draggable
+    const cols = app.querySelector('.calcols'); if (!cols) return;
     e.preventDefault();
     drag = {
       el: cb, uid: cb.dataset.uid, dk: cb.dataset.dk,
-      s: +cb.dataset.sm, e: +cb.dataset.em,
-      y: e.clientY, resize: e.target.classList.contains('rz'), moved: false
+      s: +cb.dataset.sm, e: +cb.dataset.em, pos: +cb.dataset.pos,
+      x: e.clientX, y: e.clientY,
+      colW: (cols.clientWidth - 36) / 7 + 6,     // column centre-to-centre distance
+      resize: e.target.classList.contains('rz'), moved: false
     };
-    drag.newS = drag.s; drag.newE = drag.e;
+    drag.newS = drag.s; drag.newE = drag.e; drag.newPos = drag.pos;
     cb.setPointerCapture(e.pointerId);
   });
   app.addEventListener('pointermove', e => {
     if (!drag) return;
-    const dy = e.clientY - drag.y;
-    if (!drag.moved && Math.abs(dy) < 5) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
     if (!drag.moved){ drag.moved = true; drag.el.classList.add('dragging'); }
     const pxMin = GH / GSPAN;
     const dm = Math.round((dy / pxMin) / 15) * 15;
@@ -1067,16 +1111,38 @@
       drag.el.style.height = Math.max(20, (drag.newE - drag.s) * pxMin - 2) + 'px';
     } else {
       const len = drag.e - drag.s;
+      drag.newPos = Math.max(0, Math.min(6, drag.pos + Math.round(dx / drag.colW)));
       drag.newS = Math.max(DS, Math.min(DS + GSPAN - len, drag.s + dm));
       drag.newE = drag.newS + len;
-      drag.el.style.transform = 'translateY(' + ((drag.newS - drag.s) * pxMin) + 'px)';
+      drag.el.style.transform = 'translate(' + ((drag.newPos - drag.pos) * drag.colW) + 'px,' +
+        ((drag.newS - drag.s) * pxMin) + 'px)';
     }
   });
   app.addEventListener('pointerup', () => {
     if (!drag) return;
     if (drag.moved){
-      const e = findEvent(drag.uid);
-      if (e){ e.ex = e.ex || {}; e.ex[drag.dk] = Object.assign({}, e.ex[drag.dk], { start: fmtM(drag.newS), end: fmtM(drag.newE) }); }
+      const ev = findEvent(drag.uid);
+      if (ev){
+        const s = fmtM(drag.newS), en = fmtM(drag.newE);
+        if (drag.resize || drag.newPos === drag.pos){
+          // same day — just override this occurrence's time
+          ev.ex = ev.ex || {}; ev.ex[drag.dk] = Object.assign({}, ev.ex[drag.dk], { start:s, end:en });
+        } else {
+          // moved to another day
+          const monday = parseDay(weekKey(new Date()));
+          const target = new Date(monday); target.setDate(monday.getDate() + drag.newPos);
+          const newDk = dayKey(target);
+          if (!ev.rrule){
+            ev.date = newDk; ev.start = s; ev.end = en;
+            if (ev.ex) delete ev.ex[drag.dk];
+          } else {
+            // detach just this occurrence: skip it in the series, drop a one-off on the new day
+            ev.skip = ev.skip || []; if (ev.skip.indexOf(drag.dk) === -1) ev.skip.push(drag.dk);
+            S.events.push({ id:'ev_'+uid8(), title:ev.title, note:ev.note, cat:ev.cat,
+              allDay:false, start:s, end:en, rrule:null, date:newDk, ex:{}, skip:[] });
+          }
+        }
+      }
       noClick = true; save(); drag = null; render(); return;
     }
     drag = null;
@@ -1125,6 +1191,7 @@
     // re-render editor when repeat/all-day changes handled in 'change' listener below
 
     if ((m = t('[data-editinst]'))){ const [id, dk] = m.dataset.editinst.split('|'); openEditor({ id, date: dk }); return; }
+    if ((m = t('[data-gotogoal]'))){ view = 'goals'; openGoal = m.dataset.gotogoal; render(); return; }
     if ((m = t('[data-newon]'))){ openEditor({ date: m.dataset.newon }); return; }
 
     if ((m = t('[data-view]'))){ view = m.dataset.view; openDay = null; render(); return; }
@@ -1135,6 +1202,7 @@
     if ((m = t('[data-done]'))){ toggleDone(m.dataset.done, today); save(); render(); return; }
     if ((m = t('[data-pip]'))){ const [id, tg] = m.dataset.pip.split(':'); bumpCount(id, today, +tg); save(); render(); return; }
     if ((m = t('[data-step]'))){ const [gid, sid] = m.dataset.step.split(':'); toggleStep(gid, sid, now); save(); render(); return; }
+    if ((m = t('[data-stepweek]'))){ const [gid, sid] = m.dataset.stepweek.split(':'); toggleStep(gid, sid, now); save(); render(); return; }
 
     if (t('[data-addhabit]')){
       const lab = (document.getElementById('hl')||{}).value || '';
@@ -1160,8 +1228,14 @@
       const gid = m.dataset.addstep, g = S.goals.find(x=>x.id===gid); if (!g) return;
       const lab = (document.getElementById('sl_'+gid)||{}).value || '';
       if (!lab.trim()) return;
+      const freq = (document.getElementById('sf_'+gid)||{}).value || 'weekly';
       clearDraft('sl_'+gid);
-      g.steps.push({ id:'st_'+uid8(), label:lab.trim().slice(0,120), freq:(document.getElementById('sf_'+gid)||{}).value||'weekly' });
+      const step = { id:'st_'+uid8(), label:lab.trim().slice(0,120), freq };
+      if (freq === 'weekly'){
+        step.day  = +((document.getElementById('sday_'+gid)||{}).value || 1);
+        step.time = (document.getElementById('stime_'+gid)||{}).value || '17:00';
+      }
+      g.steps.push(step);
       save(); render(); return;
     }
     if ((m = t('[data-delstep]'))){ const [gid, sid] = m.dataset.delstep.split(':'); const g = S.goals.find(x=>x.id===gid); if (g) g.steps = g.steps.filter(s=>s.id!==sid); save(); render(); return; }
