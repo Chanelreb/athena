@@ -2,12 +2,14 @@
    Strategy: stale-while-revalidate for same-origin GETs. The app shell serves
    instantly from cache and refreshes in the background; bump CACHE on release to
    evict old files. All user data lives in localStorage (Phase B: Supabase), not here. */
-const CACHE = 'athena-shell-v1';
+const CACHE = 'athena-shell-v2';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './supabase-config.js',
+  './vendor/supabase.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

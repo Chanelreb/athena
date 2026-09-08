@@ -8,18 +8,46 @@
      in Phase B. See SPEC.md.
      ========================================================================== */
 
-  const KEY = 'athena:v2';
+  const KEY = 'athena:v2';   // also the local offline-cache key
 
-  // Storage adapter. Falls back to localStorage; Phase B replaces this with
-  // Supabase calls keyed by the logged-in user. This is the only I/O boundary.
-  const store = (window.storage && window.storage.get) ? window.storage : {
-    get: async (k) => {
-      const v = localStorage.getItem(k);
-      if (v === null) throw new Error('not found: ' + k);
-      return { key: k, value: v };
+  // --- Supabase client & auth ---------------------------------------------
+  // The publishable key is public by design; row-level security is what keeps
+  // each account's data private. Falls back to local-only if config/lib absent.
+  const CFG = (typeof window !== 'undefined' && window.ATHENA_SUPABASE) || null;
+  const sb = (CFG && window.supabase && window.supabase.createClient)
+    ? window.supabase.createClient(CFG.url, CFG.publishableKey, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+      })
+    : null;
+  const cloud = !!sb;          // true once we have a Supabase client
+  let session = null;          // current auth session (set in boot)
+
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch(_){ return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch(_){} };
+
+  // Storage adapter — the only I/O boundary. When signed in, reads/writes the
+  // user's single row in `dashboards`; always write-through to a local cache so
+  // the app still opens offline (and to keep working when Supabase is absent).
+  const store = {
+    get: async () => {
+      if (cloud && session){
+        const { data, error } = await sb.from('dashboards')
+          .select('data').eq('user_id', session.user.id).maybeSingle();
+        if (error) throw error;
+        return data ? { value: JSON.stringify(data.data), remote: true } : { value: null, remote: true };
+      }
+      const v = lsGet(KEY);
+      return { value: v, remote: false };
     },
-    set: async (k, v) => { localStorage.setItem(k, v); return { key: k, value: v }; },
-    delete: async (k) => { localStorage.removeItem(k); return { key: k, deleted: true }; }
+    set: async (blob) => {
+      lsSet(KEY, blob);                       // write-through offline cache
+      if (cloud && session){
+        const { error } = await sb.from('dashboards')
+          .upsert({ user_id: session.user.id, data: JSON.parse(blob), updated_at: new Date().toISOString() });
+        if (error) throw error;
+      }
+      return { ok: true };
+    }
   };
 
   const app = document.getElementById('soft-app');
@@ -148,10 +176,23 @@
   }
 
   async function load(){
-    try {
-      const r = await store.get(KEY);
-      if (r && r.value) S = Object.assign(blank(), JSON.parse(r.value));
-    } catch(e){ /* nothing stored yet */ }
+    let remote = null, reachedRemote = false;
+    try { const r = await store.get(); remote = r ? r.value : null; reachedRemote = true; }
+    catch(e){ reachedRemote = false; }               // offline or not signed in
+    const localRaw = lsGet(KEY);
+
+    if (remote){
+      // Cloud is the source of truth.
+      S = Object.assign(blank(), JSON.parse(remote));
+      lsSet(KEY, remote);                            // refresh offline cache
+    } else if (localRaw){
+      // No cloud copy yet — adopt what's on this device...
+      S = Object.assign(blank(), JSON.parse(localRaw));
+      if (cloud && reachedRemote) save();            // ...and migrate it up to the account
+    } else {
+      firstRun();                                    // brand-new account
+      if (cloud && reachedRemote) save();
+    }
     if (!S.profile) S.profile = blank().profile;
     if (!S.categories || !S.categories.length) S.categories = DEFAULT_CATS.map(c => Object.assign({}, c));
     if (!S.profile.onboarded && !(S.events || []).length) firstRun();
@@ -160,7 +201,7 @@
   function save(){
     clearTimeout(tm);
     tm = setTimeout(async () => {
-      try { const r = await store.set(KEY, JSON.stringify(S)); ok = !!r; }
+      try { await store.set(JSON.stringify(S)); ok = true; }
       catch(e){ ok = false; }
     }, 250);
   }
@@ -722,7 +763,10 @@
     // parked thoughts + everyday chips live under the Day view
     if (view === 'day'){ h += parkHTML(); }
 
-    h += '<footer>'+(ok?'Everything saves as you go, on this device. Accounts and sync are coming.':'Not saving right now.')+'</footer>';
+    const savedLine = !ok ? 'Not saving right now.'
+      : (cloud && session) ? 'Synced to your account — saves as you go, on every device.'
+      : 'Everything saves as you go, on this device.';
+    h += '<footer>'+savedLine+'</footer>';
 
     if (editing) h += editorHTML();
     if (settingsOpen) h += settingsHTML();
@@ -747,6 +791,11 @@
     });
     h += '</div>';
     h += '<button class="go" data-addcat>+ Add category</button>';
+    if (cloud && session){
+      h += '<div class="modal-h" style="margin-top:8px">Account</div>';
+      h += '<div class="acctrow"><span class="acctmail">'+esc(session.user.email || 'Signed in')+'</span>'+
+        '<button class="ghost" data-signout>Sign out</button></div>';
+    }
     h += '<div class="modal-actions"><span style="flex:1"></span><button class="go" data-closesettings>Done</button></div>';
     h += '</div>';
     return h;
@@ -803,6 +852,10 @@
     const now = new Date(), today = dayKey(now);
     const t = el => e.target.closest(el);
     let m;
+
+    // auth
+    if (t('[data-sendlink]')){ sendMagicLink(); return; }
+    if (t('[data-signout]')){ if (sb) sb.auth.signOut().catch(()=>{}); settingsOpen = false; return; }
 
     // editor / settings dismissal
     if (t('[data-closeeditor]')){ editing = null; clearModalDrafts(); render(); return; }
@@ -889,6 +942,7 @@
   }
 
   app.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.id === 'auth_email'){ e.preventDefault(); sendMagicLink(); return; }
     if (e.key === 'Enter' && e.target.id === 'sk'){
       e.preventDefault(); const v = e.target.value.trim();
       if (v){ S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
@@ -914,17 +968,75 @@
     window.addEventListener('orientationchange', onResize);
   }
 
-  load().then(() => {
-    render();
-    keepDrafts();
-    setInterval(() => {
-      const ae = document.activeElement;
-      if (editing || settingsOpen) return;
-      if (ae && app.contains && app.contains(ae) &&
-          (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) return;
+  /* ---------- auth gate & login screen ---------- */
+  let started = false;
+  let authMsg = '';
+  let authBusy = false;
+
+  function loginHTML(){
+    let h = '<div class="login">';
+    h += '<div class="login-mark">' + MOON + '</div>';
+    h += '<h1>Athena</h1>';
+    h += '<p class="login-sub">A calm place to plan your days. Sign in and it syncs across your phone and laptop.</p>';
+    h += '<div class="login-box">'+
+      '<input id="auth_email" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com">'+
+      '<button class="go" data-sendlink'+(authBusy?' disabled':'')+'>'+(authBusy?'Sending…':'Email me a sign-in link')+'</button>'+
+      '</div>';
+    if (authMsg) h += '<p class="login-msg">' + esc(authMsg) + '</p>';
+    h += '<p class="login-fine">No passwords — we email you a one-time link.</p>';
+    h += '</div>';
+    return h;
+  }
+  function renderAuth(){
+    app.classList.remove('wide');
+    app.innerHTML = loginHTML();
+    const i = document.getElementById('auth_email');
+    if (i && drafts['auth_email']) i.value = drafts['auth_email'];
+  }
+  async function sendMagicLink(){
+    const i = document.getElementById('auth_email');
+    const email = ((i && i.value) || '').trim();
+    if (!email || email.indexOf('@') === -1){ authMsg = 'Enter a valid email address.'; renderAuth(); if (i) i.focus(); return; }
+    if (!sb){ authMsg = 'Sign-in is not configured.'; renderAuth(); return; }
+    authBusy = true; authMsg = ''; renderAuth();
+    try {
+      const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
+      authBusy = false;
+      authMsg = error ? ('Could not send the link: ' + error.message)
+                      : 'Check your email — a sign-in link is on its way to ' + email + '.';
+    } catch(e){ authBusy = false; authMsg = 'Something went wrong. Please try again.'; }
+    renderAuth();
+  }
+
+  function startApp(){
+    if (started) return;
+    started = true;
+    load().then(() => {
       render();
-    }, 60000);
-  });
+      setInterval(() => {
+        const ae = document.activeElement;
+        if (editing || settingsOpen) return;
+        if (ae && app.contains && app.contains(ae) &&
+            (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) return;
+        render();
+      }, 60000);
+    });
+  }
+
+  async function boot(){
+    keepDrafts();
+    if (!sb){ startApp(); return; }                    // no config -> local-only
+    try { const { data } = await sb.auth.getSession(); session = data.session || null; }
+    catch(_){ session = null; }
+    sb.auth.onAuthStateChange((event, s) => {
+      session = s || null;
+      if (session && !started) startApp();
+      else if (!session && started) location.reload();  // signed out -> back to login
+    });
+    if (session) startApp();
+    else renderAuth();
+  }
+  boot();
 
   // Register the service worker (installable + offline). Harmless where unsupported.
   if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator){
