@@ -1331,8 +1331,8 @@
     return (r.interval === 2 ? 'Fortnightly, ' : '') + days + ' · ' + time;
   }
 
-  function aiBuildPreview(){
-    const raw = (document.getElementById('ai_paste') || {}).value || '';
+  function aiBuildPreview(rawOverride){
+    const raw = rawOverride != null ? rawOverride : ((document.getElementById('ai_paste') || {}).value || '');
     let obj;
     try { obj = aiParse(raw); }
     catch(e){ aiError = "That didn't look like valid JSON. Paste the whole reply, or ask your AI to send JSON only."; render(); return; }
@@ -1401,6 +1401,41 @@
     return h;
   }
 
+  // Athena's own assistant: send the request to /api/ai and go straight to the
+  // preview. Falls back to the manual flow if it is unavailable.
+  let aiBusy = false, aiManual = false;
+  async function aiAskAthena(){
+    const ask = (((document.getElementById('ai_ask') || {}).value) || '').trim();
+    if (!ask){ const i = document.getElementById('ai_ask'); if (i) i.focus(); return; }
+    if (!cloud || !session){ aiError = 'Sign in first to use the built-in assistant.'; render(); return; }
+    aiBusy = true; aiError = ''; render();
+    try {
+      const { data } = await sb.auth.getSession();
+      const token = data && data.session ? data.session.access_token : '';
+      const r = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({
+          ask: ask,
+          categories: S.categories.map(c => c.label).join(', '),
+          today: dayKey(new Date())
+        })
+      });
+      let j = {};
+      try { j = await r.json(); } catch(_){}
+      aiBusy = false;
+      if (!r.ok){
+        aiError = (j && j.error) || 'That did not work. Try again, or use your own assistant below.';
+        render(); return;
+      }
+      aiBuildPreview(j.text);
+    } catch(e){
+      aiBusy = false;
+      aiError = 'Could not reach the assistant. Check your connection, or use your own assistant below.';
+      render();
+    }
+  }
+
   // Open the user's assistant with the whole prompt (schema plus their request)
   // already filled in, so they never have to copy anything on the way out.
   function aiLaunch(which){
@@ -1436,20 +1471,30 @@
       h += aiPreviewHTML();
       h += '<div class="modal-actions"><button class="ghost" data-aiback>Back</button><span style="flex:1"></span><button class="go" data-aiapply>Add to my week</button></div>';
     } else {
-      const pref = (S.profile && S.profile.preferredAI) || 'chatgpt';
-      const launch = [['chatgpt','ChatGPT'], ['claude','Claude']];
-      launch.sort((a,b) => (a[0] === pref ? -1 : 0) - (b[0] === pref ? -1 : 0));
-      h += '<p class="ai-intro">Say what you want, open it in your assistant (the whole prompt goes with you), then bring the reply back.</p>';
+      h += '<p class="ai-intro">Say it in plain words. Athena sorts it into events, tasks, habits and goals for you to approve.</p>';
       h += '<label class="fld"><span>What should Athena add?</span>'+
         '<textarea id="ai_ask" rows="3" placeholder="e.g. chase the invoice, book the dentist, and a weekly SEO check on Fridays"></textarea></label>';
-      h += '<div class="ai-launch">' + launch.map((l,i) =>
-        '<button class="'+(i===0?'go':'ghost')+'" data-ailaunch="'+l[0]+'">Open in '+l[1]+'</button>').join('') + '</div>';
-      h += '<button class="linkish ai-alt" data-aicopy>Using something else? Copy the prompt</button>';
-      h += '<label class="fld"><span>Then paste the reply back</span>'+
-        '<textarea id="ai_paste" rows="4" placeholder="Paste what your assistant gave you…"></textarea></label>';
-      h += '<button class="ghost ai-clip" data-aipasteclip>Paste from clipboard and preview</button>';
+      h += '<button class="go ai-primary" data-aiask'+(aiBusy ? ' disabled' : '')+'>'+
+        (aiBusy ? 'Thinking…' : 'Ask Athena')+'</button>';
       if (aiError) h += '<p class="ai-error">'+esc(aiError)+'</p>';
-      h += '<div class="modal-actions"><button class="ghost" data-aiclose>Cancel</button><span style="flex:1"></span><button class="go" data-aipreview>Preview</button></div>';
+
+      h += '<button class="linkish ai-alt" data-aimanual>'+
+        (aiManual ? 'Hide the manual way' : 'Or use your own assistant')+'</button>';
+      if (aiManual){
+        const pref = (S.profile && S.profile.preferredAI) || 'chatgpt';
+        const launch = [['chatgpt','ChatGPT'], ['claude','Claude']];
+        launch.sort((a,b) => (a[0] === pref ? -1 : 0) - (b[0] === pref ? -1 : 0));
+        h += '<div class="ai-manual">';
+        h += '<div class="ai-launch">' + launch.map((l,i) =>
+          '<button class="'+(i===0?'go':'ghost')+'" data-ailaunch="'+l[0]+'">Open in '+l[1]+'</button>').join('') + '</div>';
+        h += '<button class="linkish ai-alt" data-aicopy>Using something else? Copy the prompt</button>';
+        h += '<label class="fld"><span>Then paste the reply back</span>'+
+          '<textarea id="ai_paste" rows="4" placeholder="Paste what your assistant gave you…"></textarea></label>';
+        h += '<button class="ghost ai-clip" data-aipasteclip>Paste from clipboard and preview</button>';
+        h += '<div class="modal-actions" style="margin-top:10px"><span style="flex:1"></span><button class="go" data-aipreview>Preview</button></div>';
+        h += '</div>';
+      }
+      h += '<div class="modal-actions"><button class="ghost" data-aiclose>Cancel</button><span style="flex:1"></span></div>';
     }
     h += '</div>';
     return h;
@@ -1566,6 +1611,8 @@
     // ask your AI
     if (t('[data-aiopen]')){ aiOpen = true; aiStep = 'input'; aiPreview = null; aiError = ''; clearDraft('ai_paste'); clearDraft('ai_ask'); render(); return; }
     if (t('[data-aiclose]')){ aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; clearDraft('ai_paste'); clearDraft('ai_ask'); render(); return; }
+    if (t('[data-aiask]')){ aiAskAthena(); return; }
+    if (t('[data-aimanual]')){ aiManual = !aiManual; aiError = ''; render(); return; }
     if ((m = t('[data-ailaunch]'))){ aiLaunch(m.dataset.ailaunch); return; }
     if (t('[data-aipasteclip]')){ aiPasteClip(); return; }
     if (t('[data-aipreview]')){ aiBuildPreview(); return; }

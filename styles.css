@@ -641,3 +641,8 @@
   #soft-app .ai-alt { display: block; margin: 0 0 16px; font-size: 12.5px; }
   #soft-app .ai-clip { display: block; width: 100%; background: none; border: 1px dashed var(--line); color: var(--dim); border-radius: 10px; padding: 10px; font: inherit; font-size: 13px; cursor: pointer; margin-bottom: 4px; }
   #soft-app .ai-clip:hover { color: var(--text); border-color: var(--ghost); }
+
+  /* built-in assistant */
+  #soft-app .ai-primary { display: block; width: 100%; background: var(--live); color: var(--on-live); border: 0; border-radius: 11px; padding: 13px; font: inherit; font-weight: 600; cursor: pointer; }
+  #soft-app .ai-primary[disabled] { opacity: .6; cursor: default; }
+  #soft-app .ai-manual { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 4px; }

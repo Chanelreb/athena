@@ -1,0 +1,10 @@
+{
+  "name": "athena",
+  "private": true,
+  "type": "module",
+  "description": "Athena is a static site; these dependencies exist only for the serverless function in /api.",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
+    "zod": "^4.5.4"
+  }
+}
