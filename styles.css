@@ -105,7 +105,12 @@
     width: 14px; height: 14px; border-radius: 50%;
     border: 1.5px solid var(--ghost); background: var(--bg);
     display: grid; place-items: center;
+    padding: 0; font: inherit; cursor: pointer; -webkit-appearance: none;
   }
+  /* The dot looks like a checkbox, so it is one. Invisible padding gives it a
+     real touch target without changing how big it looks. */
+  #soft-app .dot::before { content: ""; position: absolute; inset: -12px; border-radius: 50%; }
+  #soft-app .dot:focus-visible { outline: 2px solid var(--live); outline-offset: 3px; }
   #soft-app .dot svg { width: 8px; height: 8px; opacity: 0; }
   #soft-app .item.done .dot svg { opacity: 1; }
 

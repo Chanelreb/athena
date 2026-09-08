@@ -812,7 +812,8 @@
       const doneAct = isStep ? 'data-stepweek="'+b.step.gid+':'+b.step.sid+'|'+dk+'"' : 'data-done="'+b.id+'|'+dk+'"';
       h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+((justDone === (isStep ? b.step.sid : b.id))?' just':'')+'">'+
         '<div class="clock">'+clockOf(b.s)+'</div>'+
-        '<div class="track"><span class="dot" style="'+dotStyle+'">'+TICK+'</span></div>'+
+        '<div class="track"><button class="dot" '+doneAct+' style="'+dotStyle+'" '+
+          'aria-label="'+(done ? 'Undo ' : 'Tick off ')+esc(b.t)+'">'+TICK+'</button></div>'+
         '<div class="card"><div class="cardrow">'+
         '<button class="cardmain" '+doneAct+'>'+
         '<div class="t">'+esc(b.t)+'</div>'+
