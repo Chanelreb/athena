@@ -169,7 +169,7 @@
   const gridShown = () => expanded && canGrid();
 
   function firstRun(){
-    // Seed a fresh install so it isn't empty. Marks onboarded so we don't reseed.
+    // The "skip setup" default — a light generic starter. Marks onboarded.
     S.events = seedEvents();
     S.habits = seedHabits();
     S.profile.onboarded = true;
@@ -189,13 +189,11 @@
       // No cloud copy yet — adopt what's on this device...
       S = Object.assign(blank(), JSON.parse(localRaw));
       if (cloud && reachedRemote) save();            // ...and migrate it up to the account
-    } else {
-      firstRun();                                    // brand-new account
-      if (cloud && reachedRemote) save();
     }
+    // else: brand-new account — leave it empty and not onboarded, so the guided
+    // setup runs on first render. Nothing is saved until they finish setup.
     if (!S.profile) S.profile = blank().profile;
     if (!S.categories || !S.categories.length) S.categories = DEFAULT_CATS.map(c => Object.assign({}, c));
-    if (!S.profile.onboarded && !(S.events || []).length) firstRun();
   }
   let tm = null;
   function save(){
@@ -209,6 +207,107 @@
   /* ---------- categories ---------- */
   const catOf = id => S.categories.find(c => c.id === id) || S.categories[0] || DEFAULT_CATS[0];
   const catColor = id => catOf(id).color;
+
+  /* ==========================================================================
+     Guided first-run setup — a brand-new account (not onboarded, no events)
+     gets a short, warm flow that builds a starter week from a few answers.
+     ========================================================================== */
+  let ob = null;   // onboarding state, or null
+  const needsOnboarding = () => !(S.profile && S.profile.onboarded) && !((S.events || []).length);
+
+  const OB_CATS = [
+    { id:'work',     label:'Work',     color:'#8DA9C4' },
+    { id:'study',    label:'Study',    color:'#B0A8CE' },
+    { id:'family',   label:'Family',   color:'#C4A8CE' },
+    { id:'health',   label:'Health',   color:'#9CC0A9' },
+    { id:'home',     label:'Home',     color:'#C4B79A' },
+    { id:'creative', label:'Creative', color:'#D0A8B0' }
+  ];
+
+  function obSync(){
+    if (!ob) return;
+    const g = id => document.getElementById(id);
+    if (g('ob_name'))  ob.name  = g('ob_name').value;
+    if (g('ob_start')) ob.start = g('ob_start').value || ob.start;
+    if (g('ob_end'))   ob.end   = g('ob_end').value || ob.end;
+  }
+
+  function obBuildStarter(startT, endT){
+    const cats = S.categories;
+    const byLabel = l => cats.find(c => c.label.toLowerCase() === l.toLowerCase());
+    const firstOf = (...labels) => { for (const l of labels){ const c = byLabel(l); if (c) return c.id; } return cats[0].id; };
+    const health   = firstOf('Health', 'Fitness');
+    const workish  = firstOf('Work', 'Study');
+    const personal = firstOf('Family', 'Home', 'Personal', 'Creative');
+    const from = weekKey(new Date());
+    const everyday = { freq:'weekly', interval:1, weekdays:[0,1,2,3,4,5,6], from };
+    const weekdays = { freq:'weekly', interval:1, weekdays:[1,2,3,4,5], from };
+    const addMin = (t, m) => fmtM(mins(t) + m);
+    const ev = o => Object.assign({ id:'ev_'+uid8(), note:'', allDay:false, ex:{}, skip:[], date:null }, o);
+
+    const events = [ ev({ title:'Morning', cat:health, start:startT, end:addMin(startT, 30), rrule:everyday }) ];
+    if (byLabel('Work') || byLabel('Study'))
+      events.push(ev({ title:(byLabel('Work') ? 'Focus time' : 'Study block'), cat:workish, start:'09:00', end:'11:00', rrule:weekdays }));
+    events.push(ev({ title:'Lunch', cat:personal, start:'12:30', end:'13:00', rrule:everyday }));
+    events.push(ev({ title:'Wind down', cat:personal, start:endT, end:addMin(endT, 30), rrule:everyday }));
+    S.events = events;
+
+    const habits = [];
+    if (byLabel('Health') || byLabel('Fitness')){
+      habits.push({ id:'hb_'+uid8(), label:'Move your body', cat:health, target:1 });
+      habits.push({ id:'hb_'+uid8(), label:'Water', cat:health, target:4 });
+    }
+    S.habits = habits;
+  }
+
+  function obFinish(){
+    obSync();
+    S.profile.name = (ob.name || '').trim().slice(0, 40);
+    const chosen = ob.cats.length ? ob.cats : ['personal'];
+    let cats = chosen.map(id => OB_CATS.find(c => c.id === id)).filter(Boolean).map(c => ({ id:c.id, label:c.label, color:c.color }));
+    if (!cats.length) cats = DEFAULT_CATS.map(c => Object.assign({}, c));
+    S.categories = cats;
+    obBuildStarter(ob.start || '07:00', ob.end || '21:00');
+    S.profile.onboarded = true;
+    ob = null; view = 'day';
+    save(); render();
+  }
+
+  function obSkip(){
+    obSync();
+    S.profile.name = (ob && ob.name ? ob.name : '').trim().slice(0, 40);
+    S.categories = DEFAULT_CATS.map(c => Object.assign({}, c));
+    firstRun();                 // generic starter, marks onboarded
+    ob = null; view = 'day';
+    save(); render();
+  }
+
+  function onboardingHTML(){
+    if (!ob) ob = { step:0, name:(S.profile && S.profile.name) || '', cats:[], start:'07:00', end:'21:00' };
+    let h = '<div class="ob"><div class="ob-mark">' + MOON + '</div>';
+    if (ob.step === 0){
+      h += '<h1>Welcome to Athena</h1>';
+      h += '<p class="ob-sub">A calm place to plan your days. A couple of quick questions and it\'s yours.</p>';
+      h += '<label class="fld"><span>What should we call you?</span><input id="ob_name" type="text" autocomplete="given-name" placeholder="Your name" value="'+esc(ob.name)+'"></label>';
+      h += '<div class="ob-actions"><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
+      h += '<button class="linkish ob-skip" data-obskip>Skip — just set me up</button>';
+    } else if (ob.step === 1){
+      h += '<h1>What are your days about?</h1>';
+      h += '<p class="ob-sub">Pick a few. These become your colour-coded categories — rename, recolour or change them anytime.</p>';
+      h += '<div class="ob-chips">' + OB_CATS.map(c =>
+        '<button class="ob-chip'+(ob.cats.indexOf(c.id) !== -1 ? ' on' : '')+'" data-obcat="'+c.id+'">'+
+        '<span class="cd" style="background:'+c.color+'"></span>'+c.label+'</button>').join('') + '</div>';
+      h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
+    } else {
+      h += '<h1>Your rhythm</h1>';
+      h += '<p class="ob-sub">Roughly when does your day start and wind down? We\'ll sketch a light week you can reshape — or fill it with your AI later.</p>';
+      h += '<div class="fld two"><label><span>Day starts</span><input id="ob_start" type="time" value="'+ob.start+'"></label>'+
+        '<label><span>Wind down</span><input id="ob_end" type="time" value="'+ob.end+'"></label></div>';
+      h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obfinish>Build my week</button></div>';
+    }
+    h += '</div>';
+    return h;
+  }
 
   /* ==========================================================================
      Recurrence engine — the heart of the calendar.
@@ -735,6 +834,7 @@
   }
 
   function render(){
+    if (needsOnboarding()){ app.classList.remove('wide'); paint(onboardingHTML()); return; }
     const now = new Date();
     const hr = now.getHours();
     const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
@@ -992,6 +1092,13 @@
     if (t('[data-sendlink]')){ sendMagicLink(); return; }
     if (t('[data-signout]')){ if (sb) sb.auth.signOut().catch(()=>{}); settingsOpen = false; return; }
 
+    // onboarding
+    if (t('[data-obnext]')){ obSync(); ob.step = Math.min(2, ob.step + 1); render(); return; }
+    if (t('[data-obback]')){ obSync(); ob.step = Math.max(0, ob.step - 1); render(); return; }
+    if ((m = t('[data-obcat]'))){ obSync(); const id = m.dataset.obcat; const i = ob.cats.indexOf(id); if (i === -1) ob.cats.push(id); else ob.cats.splice(i, 1); render(); return; }
+    if (t('[data-obfinish]')){ obFinish(); return; }
+    if (t('[data-obskip]')){ obSkip(); return; }
+
     // ask your AI
     if (t('[data-aiopen]')){ aiOpen = true; aiStep = 'input'; aiPreview = null; aiError = ''; clearDraft('ai_paste'); render(); return; }
     if (t('[data-aiclose]')){ aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; clearDraft('ai_paste'); render(); return; }
@@ -1091,6 +1198,7 @@
 
   app.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target.id === 'auth_email'){ e.preventDefault(); sendMagicLink(); return; }
+    if (e.key === 'Enter' && e.target.id === 'ob_name'){ e.preventDefault(); obSync(); ob.step = 1; render(); return; }
     if (e.key === 'Enter' && e.target.id === 'sk'){
       e.preventDefault(); const v = e.target.value.trim();
       if (v){ S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
