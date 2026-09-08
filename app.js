@@ -28,23 +28,31 @@
   // Storage adapter — the only I/O boundary. When signed in, reads/writes the
   // user's single row in `dashboards`; always write-through to a local cache so
   // the app still opens offline (and to keep working when Supabase is absent).
+  // updated_at of the cloud copy we last read or wrote — lets us tell whether
+  // another device has changed things since (see syncFromCloud).
+  let lastRemoteAt = null;
+
   const store = {
     get: async () => {
       if (cloud && session){
         const { data, error } = await sb.from('dashboards')
-          .select('data').eq('user_id', session.user.id).maybeSingle();
+          .select('data, updated_at').eq('user_id', session.user.id).maybeSingle();
         if (error) throw error;
-        return data ? { value: JSON.stringify(data.data), remote: true } : { value: null, remote: true };
+        return data
+          ? { value: JSON.stringify(data.data), updatedAt: data.updated_at, remote: true }
+          : { value: null, updatedAt: null, remote: true };
       }
       const v = lsGet(KEY);
-      return { value: v, remote: false };
+      return { value: v, updatedAt: null, remote: false };
     },
     set: async (blob) => {
       lsSet(KEY, blob);                       // write-through offline cache
       if (cloud && session){
+        const stamp = new Date().toISOString();
         const { error } = await sb.from('dashboards')
-          .upsert({ user_id: session.user.id, data: JSON.parse(blob), updated_at: new Date().toISOString() });
+          .upsert({ user_id: session.user.id, data: JSON.parse(blob), updated_at: stamp });
         if (error) throw error;
+        lastRemoteAt = stamp;                 // this device is now the latest writer
       }
       return { ok: true };
     }
@@ -164,6 +172,10 @@
   let openGoal = null;
   let expanded = (typeof window !== 'undefined' && window.innerWidth >= 900);
   let editing = null;                 // event-editor state, or null
+  // Which day/week you're looking at, as an offset in days from today. Day view
+  // steps by 1, Week view by 7 (so the weekday stays put when you change week).
+  let dayShift = 0;
+  const viewDate = () => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() + dayShift); return d; };
   // The full 7-column grid needs real width; below this we always show strips.
   const canGrid = () => (typeof window !== 'undefined' && window.innerWidth >= 700);
   const gridShown = () => expanded && canGrid();
@@ -177,7 +189,12 @@
 
   async function load(){
     let remote = null, reachedRemote = false;
-    try { const r = await store.get(); remote = r ? r.value : null; reachedRemote = true; }
+    try {
+      const r = await store.get();
+      remote = r ? r.value : null;
+      lastRemoteAt = r ? r.updatedAt : null;
+      reachedRemote = true;
+    }
     catch(e){ reachedRemote = false; }               // offline or not signed in
     const localRaw = lsGet(KEY);
 
@@ -196,12 +213,62 @@
     if (!S.categories || !S.categories.length) S.categories = DEFAULT_CATS.map(c => Object.assign({}, c));
   }
   let tm = null;
+  let savePending = false;
   function save(){
     clearTimeout(tm);
+    savePending = true;
     tm = setTimeout(async () => {
       try { await store.set(JSON.stringify(S)); ok = true; }
       catch(e){ ok = false; }
+      finally { savePending = false; }
     }, 250);
+  }
+
+  // ---- keeping devices honest ----------------------------------------------
+  // One JSON blob per account means the last writer wins, so a device sitting on
+  // stale state could overwrite newer changes made elsewhere. We pull the cloud
+  // copy whenever this device comes back to life (and periodically while open),
+  // so it's current before you touch anything.
+  let syncing = false;
+  async function syncFromCloud(){
+    if (!cloud || !session || syncing || savePending) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
+    if (userBusy()) return;                       // never yank the UI mid-edit
+    syncing = true;
+    try {
+      const r = await store.get();
+      if (r && r.value && r.updatedAt && r.updatedAt !== lastRemoteAt){
+        S = Object.assign(blank(), JSON.parse(r.value));
+        lastRemoteAt = r.updatedAt;
+        lsSet(KEY, r.value);
+        if (!S.profile) S.profile = blank().profile;
+        if (!S.categories || !S.categories.length) S.categories = DEFAULT_CATS.map(c => Object.assign({}, c));
+        render();
+      }
+    } catch(e){ /* offline — try again next time */ }
+    finally { syncing = false; }
+  }
+  if (typeof window !== 'undefined'){
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) syncFromCloud(); });
+    window.addEventListener('focus', syncFromCloud);
+    window.addEventListener('online', syncFromCloud);
+    setInterval(syncFromCloud, 60 * 1000);
+  }
+
+  // ---- undo -----------------------------------------------------------------
+  // Snapshot the whole state before anything destructive; a brief bar offers to
+  // put it back. Cheap because the state is one small blob.
+  let undoState = null, undoTimer = null;
+  function markUndo(label){
+    undoState = { label: label, snap: JSON.stringify(S) };
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => { undoState = null; render(); }, 7000);
+  }
+  function doUndo(){
+    if (!undoState) return;
+    S = Object.assign(blank(), JSON.parse(undoState.snap));
+    undoState = null; clearTimeout(undoTimer);
+    save(); render();
   }
 
   /* ---------- categories ---------- */
@@ -423,9 +490,9 @@
     return h;
   }
 
-  function weekView(now){
+  function weekView(vd, now){
     const ORDER = [1,2,3,4,5,6,0];
-    const monday = parseDay(weekKey(now));
+    const monday = parseDay(weekKey(vd));
     const dates = {}, blocksByDay = {}, LBL = {};
     ORDER.forEach((d,i) => {
       const dd = new Date(monday); dd.setDate(monday.getDate()+i);
@@ -433,8 +500,10 @@
       blocksByDay[d] = blocksForDate(dd).filter(b => !b.allDay);
       LBL[d] = SD[d] + ' ' + dd.getDate();
     });
-    const t = now.getHours()*60 + now.getMinutes();
-    const todayPos = ORDER.indexOf(now.getDay());
+    // The current-time marker only belongs on the week you're actually in.
+    const thisWeek = weekKey(vd) === weekKey(now);
+    const t = thisWeek ? (now.getHours()*60 + now.getMinutes()) : -1;
+    const todayPos = thisWeek ? ORDER.indexOf(now.getDay()) : -1;
     const tot = {};
     let h = '';
 
@@ -501,10 +570,12 @@
     return h;
   }
 
-  function dayRail(now){
-    const t = now.getHours()*60 + now.getMinutes();
-    const dk = dayKey(now);
-    const all = blocksForDate(now);
+  function dayRail(vd, now){
+    const isToday = dayKey(vd) === dayKey(now);
+    // Only "today" has a live moment; other days render as plain, unstyled time.
+    const t = isToday ? (now.getHours()*60 + now.getMinutes()) : -1;
+    const dk = dayKey(vd);
+    const all = blocksForDate(vd);
     const allDay = all.filter(b => b.allDay);
     const blocks = all.filter(b => !b.allDay);
 
@@ -528,7 +599,8 @@
       h += '<div class="balkey">' + S.categories.filter(c=>split[c.id]).map(c =>
         '<span><b style="background:'+c.color+'"></b>'+esc(c.label)+' '+dur(split[c.id])+'</span>').join('') + '</div>';
     } else {
-      h += '<p class="slack">Nothing scheduled today. <button class="linkish" data-newon="'+dk+'">Add something</button>, or enjoy the open day.</p>';
+      h += '<p class="slack">Nothing scheduled '+(isToday ? 'today' : 'this day')+'. '+
+        '<button class="linkish" data-newon="'+dk+'">Add something</button>, or enjoy the open day.</p>';
     }
 
     if (allDay.length){
@@ -551,13 +623,13 @@
       const isStep = !!b.step;
       const live = t >= mins(b.s) && t < mins(b.e);
       const past = t >= mins(b.e);
-      const done = isStep ? isDone('w:' + b.step.sid, weekKey(now)) : isDone(b.id, dk);
+      const done = isStep ? isDone('w:' + b.step.sid, weekKey(vd)) : isDone(b.id, dk);
       const col = catColor(b.c);
       let dotStyle = '';
       if (done) dotStyle = 'background:'+col+';border-color:'+col;
       else if (live) dotStyle = 'background:var(--live);border-color:var(--live)';
       else if (!past) dotStyle = 'border-color:'+col;
-      const doneAct = isStep ? 'data-stepweek="'+b.step.gid+':'+b.step.sid+'"' : 'data-done="'+b.id+'"';
+      const doneAct = isStep ? 'data-stepweek="'+b.step.gid+':'+b.step.sid+'|'+dk+'"' : 'data-done="'+b.id+'|'+dk+'"';
       h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+'">'+
         '<div class="clock">'+clockOf(b.s)+'</div>'+
         '<div class="track"><span class="dot" style="'+dotStyle+'">'+TICK+'</span></div>'+
@@ -721,12 +793,15 @@
   }
 
   /* ---------- parked thoughts ---------- */
-  function parkHTML(){
+  function parkHTML(dk){
     let h = '<div class="park"><div class="park-row">'+
       '<input id="sk" type="text" placeholder="Park a stray thought…" autocomplete="off">'+
       '<button data-park>Park</button></div>';
     h += (S.parked||[]).length
-      ? '<ul class="parked">'+S.parked.map((p,i)=>'<li><span>'+esc(p.t)+'</span><button data-unpark="'+i+'" aria-label="Remove">×</button></li>').join('')+'</ul>'
+      ? '<ul class="parked">'+S.parked.map((p,i) =>
+          '<li><span>'+esc(p.t)+'</span>'+
+          '<button class="parkdo" data-parkschedule="'+i+'|'+dk+'" aria-label="Schedule this" title="Put it in the calendar">→</button>'+
+          '<button data-unpark="'+i+'" aria-label="Remove">×</button></li>').join('')+'</ul>'
       : '<p class="park-empty">Nothing here yet. When something pops into your head mid-task, leave it here and come back to it later.</p>';
     h += '</div>';
     return h;
@@ -754,9 +829,10 @@
       const D = parseDay(dk);
       editing = {
         id: null, date: dk,
-        title: '', note: '', cat: (S.categories[0]||{}).id, allDay: false,
+        title: opts.title || '', note: '', cat: (S.categories[0]||{}).id, allDay: false,
         start: '09:00', end: '10:00',
-        repeat: 'once', weekdays: [D.getDay()], onceDate: dk, monthday: D.getDate()
+        repeat: 'once', weekdays: [D.getDay()], onceDate: dk, monthday: D.getDate(),
+        fromParked: (opts.fromParked == null ? null : opts.fromParked)
       };
     }
     render();
@@ -837,6 +913,8 @@
       if (e) Object.assign(e, base);   // keep ex/skip
     } else {
       S.events.push(Object.assign({ id:'ev_'+uid8(), ex:{}, skip:[] }, base));
+      // scheduled straight from a parked thought? clear it off the list
+      if (ed.fromParked != null && S.parked && S.parked[ed.fromParked]) S.parked.splice(ed.fromParked, 1);
     }
     editing = null;
     clearModalDrafts();
@@ -873,9 +951,35 @@
     if (typeof window !== 'undefined' && window.scrollTo && sy) window.scrollTo(0, sy);
   }
 
+  // Prev / next / back-to-today for the Day and Week views.
+  function dateNav(vd, now){
+    if (view !== 'day' && view !== 'week') return '';
+    const step = view === 'week' ? 7 : 1;
+    let label, rel = '';
+    if (view === 'day'){
+      const diff = daysBetween(dayKey(now), dayKey(vd));
+      rel = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : diff === -1 ? 'Yesterday' : '';
+      label = DAYS[vd.getDay()] + ' ' + vd.getDate() + ' ' + SHORT[vd.getMonth()];
+    } else {
+      const mon = parseDay(weekKey(vd));
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+      const wdiff = Math.round(daysBetween(weekKey(now), weekKey(vd)) / 7);
+      rel = wdiff === 0 ? 'This week' : wdiff === 1 ? 'Next week' : wdiff === -1 ? 'Last week' : '';
+      label = mon.getDate() + ' ' + SHORT[mon.getMonth()] + ' – ' + sun.getDate() + ' ' + SHORT[sun.getMonth()];
+    }
+    let h = '<div class="datenav">';
+    h += '<button class="dnav" data-shift="'+(-step)+'" aria-label="Previous">‹</button>';
+    h += '<span class="dnlabel"><b>'+esc(label)+'</b>'+(rel ? '<small>'+rel+'</small>' : '')+'</span>';
+    h += '<button class="dnav" data-shift="'+step+'" aria-label="Next">›</button>';
+    if (dayShift !== 0) h += '<button class="dntoday" data-today>'+(view === 'week' ? 'This week' : 'Today')+'</button>';
+    h += '</div>';
+    return h;
+  }
+
   function render(){
     if (needsOnboarding()){ app.classList.remove('wide'); paint(onboardingHTML()); return; }
     const now = new Date();
+    const vd = viewDate();
     const hr = now.getHours();
     const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
     const name = (S.profile && S.profile.name) ? ', ' + esc(S.profile.name) : '';
@@ -896,19 +1000,22 @@
       '</div>';
     app.classList.toggle('wide', view==='week' && gridShown());
 
-    if (view === 'day')    h += dayRail(now);
-    else if (view === 'week')  h += weekView(now);
+    h += dateNav(vd, now);
+
+    if (view === 'day')    h += dayRail(vd, now);
+    else if (view === 'week')  h += weekView(vd, now);
     else if (view === 'habits') h += habitsView(now);
     else if (view === 'goals')  h += goalsView(now);
 
     // parked thoughts + everyday chips live under the Day view
-    if (view === 'day'){ h += parkHTML(); }
+    if (view === 'day'){ h += parkHTML(dayKey(vd)); }
 
     const savedLine = !ok ? 'Not saving right now.'
       : (cloud && session) ? 'Synced to your account — saves as you go, on every device.'
       : 'Everything saves as you go, on this device.';
     h += '<footer>'+savedLine+'</footer>';
 
+    if (undoState) h += '<div class="undobar"><span>'+esc(undoState.label)+'</span><button data-undo>Undo</button></div>';
     if (editing) h += editorHTML();
     if (settingsOpen) h += settingsHTML();
     if (aiOpen) h += aiHTML();
@@ -1148,6 +1255,25 @@
     drag = null;
   });
 
+  // Swipe left/right on the Day view to step through days (phones).
+  let swX = null, swY = null;
+  app.addEventListener('touchstart', e => {
+    if (view !== 'day' || editing || settingsOpen || aiOpen || ob || e.touches.length !== 1){ swX = null; return; }
+    swX = e.touches[0].clientX; swY = e.touches[0].clientY;
+  }, { passive: true });
+  app.addEventListener('touchend', e => {
+    if (swX == null) return;
+    const tp = e.changedTouches && e.changedTouches[0];
+    const x = swX, y = swY; swX = null;
+    if (!tp) return;
+    const dx = tp.clientX - x, dy = tp.clientY - y;
+    if (Math.abs(dx) > 70 && Math.abs(dy) < 45){
+      dayShift += (dx < 0 ? 1 : -1);   // swipe left = next day
+      noClick = true;                  // swallow the click this gesture would fire
+      render();
+    }
+  }, { passive: true });
+
   app.addEventListener('click', e => {
     if (noClick){ noClick = false; e.preventDefault(); return; }
     const now = new Date(), today = dayKey(now);
@@ -1181,12 +1307,13 @@
     // editor / settings dismissal
     if (t('[data-closeeditor]')){ editing = null; clearModalDrafts(); render(); return; }
     if (t('[data-saveevent]')){ commitEvent(); return; }
-    if ((m = t('[data-delevent]'))){ S.events = S.events.filter(x => x.id !== m.dataset.delevent); editing = null; clearModalDrafts(); save(); render(); return; }
+    if (t('[data-undo]')){ doUndo(); return; }
+    if ((m = t('[data-delevent]'))){ markUndo('Event deleted'); S.events = S.events.filter(x => x.id !== m.dataset.delevent); editing = null; clearModalDrafts(); save(); render(); return; }
     if ((m = t('[data-wd]'))){ syncEditor(); const d = +m.dataset.wd; const i = editing.weekdays.indexOf(d); if (i===-1) editing.weekdays.push(d); else editing.weekdays.splice(i,1); render(); return; }
     if (t('[data-settings]')){ clearModalDrafts(); settingsOpen = true; render(); return; }
     if (t('[data-closesettings]')){ commitSettings(); settingsOpen = false; clearModalDrafts(); render(); return; }
     if (t('[data-addcat]')){ commitSettings(); S.categories.push({ id:'c_'+uid8(), label:'New', color:'#B7B2BE' }); save(); render(); return; }
-    if ((m = t('[data-delcat]'))){ commitSettings(); if (S.categories.length>1) S.categories = S.categories.filter(c=>c.id!==m.dataset.delcat); save(); render(); return; }
+    if ((m = t('[data-delcat]'))){ commitSettings(); if (S.categories.length>1){ markUndo('Category removed'); S.categories = S.categories.filter(c=>c.id!==m.dataset.delcat); } save(); render(); return; }
 
     // re-render editor when repeat/all-day changes handled in 'change' listener below
 
@@ -1195,14 +1322,20 @@
     if ((m = t('[data-newon]'))){ openEditor({ date: m.dataset.newon }); return; }
 
     if ((m = t('[data-view]'))){ view = m.dataset.view; openDay = null; render(); return; }
+    if ((m = t('[data-shift]'))){ dayShift += +m.dataset.shift; openDay = null; render(); return; }
+    if (t('[data-today]')){ dayShift = 0; openDay = null; render(); return; }
     if (t('[data-expand]')){ expanded = !expanded; render(); return; }
     if ((m = t('[data-day]'))){ const d = +m.dataset.day; openDay = (openDay === d) ? null : d; render(); return; }
     if ((m = t('[data-goal]'))){ const id = m.dataset.goal; openGoal = (openGoal === id) ? null : id; render(); return; }
 
-    if ((m = t('[data-done]'))){ toggleDone(m.dataset.done, today); save(); render(); return; }
+    if ((m = t('[data-done]'))){ const [id, dk] = m.dataset.done.split('|'); toggleDone(id, dk || today); save(); render(); return; }
     if ((m = t('[data-pip]'))){ const [id, tg] = m.dataset.pip.split(':'); bumpCount(id, today, +tg); save(); render(); return; }
     if ((m = t('[data-step]'))){ const [gid, sid] = m.dataset.step.split(':'); toggleStep(gid, sid, now); save(); render(); return; }
-    if ((m = t('[data-stepweek]'))){ const [gid, sid] = m.dataset.stepweek.split(':'); toggleStep(gid, sid, now); save(); render(); return; }
+    if ((m = t('[data-stepweek]'))){
+      const [ids, dk] = m.dataset.stepweek.split('|');
+      const [gid, sid] = ids.split(':');
+      toggleStep(gid, sid, dk ? parseDay(dk) : now); save(); render(); return;
+    }
 
     if (t('[data-addhabit]')){
       const lab = (document.getElementById('hl')||{}).value || '';
@@ -1213,7 +1346,7 @@
         target:+((document.getElementById('hn')||{}).value || 1) });
       save(); render(); return;
     }
-    if ((m = t('[data-delhabit]'))){ S.habits = S.habits.filter(x => x.id !== m.dataset.delhabit); save(); render(); return; }
+    if ((m = t('[data-delhabit]'))){ markUndo('Habit removed'); S.habits = S.habits.filter(x => x.id !== m.dataset.delhabit); save(); render(); return; }
 
     if (t('[data-addgoal]')){
       const ti = (document.getElementById('gt')||{}).value || '';
@@ -1238,11 +1371,18 @@
       g.steps.push(step);
       save(); render(); return;
     }
-    if ((m = t('[data-delstep]'))){ const [gid, sid] = m.dataset.delstep.split(':'); const g = S.goals.find(x=>x.id===gid); if (g) g.steps = g.steps.filter(s=>s.id!==sid); save(); render(); return; }
-    if ((m = t('[data-delgoal]'))){ S.goals = S.goals.filter(x=>x.id!==m.dataset.delgoal); if (openGoal===m.dataset.delgoal) openGoal=null; save(); render(); return; }
+    if ((m = t('[data-delstep]'))){ markUndo('Step removed'); const [gid, sid] = m.dataset.delstep.split(':'); const g = S.goals.find(x=>x.id===gid); if (g) g.steps = g.steps.filter(s=>s.id!==sid); save(); render(); return; }
+    if ((m = t('[data-delgoal]'))){ markUndo('Goal removed'); S.goals = S.goals.filter(x=>x.id!==m.dataset.delgoal); if (openGoal===m.dataset.delgoal) openGoal=null; save(); render(); return; }
 
     if (t('[data-park]')){ const i = document.getElementById('sk'); const v = i && i.value.trim(); if (!v){ if (i) i.focus(); return; } S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const j = document.getElementById('sk'); if (j) j.focus(); return; }
-    if ((m = t('[data-unpark]'))){ S.parked.splice(+m.dataset.unpark, 1); save(); render(); return; }
+    if ((m = t('[data-parkschedule]'))){
+      const [i, dk] = m.dataset.parkschedule.split('|');
+      const item = (S.parked || [])[+i];
+      if (!item) return;
+      openEditor({ date: dk, title: item.t, fromParked: +i });
+      return;
+    }
+    if ((m = t('[data-unpark]'))){ markUndo('Thought cleared'); S.parked.splice(+m.dataset.unpark, 1); save(); render(); return; }
   });
 
   // Re-render the editor when repeat type or all-day toggles (to swap fields).

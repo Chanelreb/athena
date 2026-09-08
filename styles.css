@@ -461,6 +461,43 @@
   #soft-app .ob .ghost { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 11px; padding: 12px 16px; font: inherit; cursor: pointer; }
   #soft-app .ob-skip { display: block; margin: 20px auto 0; }
 
+  /* ===== Day / week navigation ===== */
+  #soft-app .datenav { display: flex; align-items: center; gap: 8px; margin: 2px 0 18px; }
+  #soft-app .dnav {
+    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
+    background: var(--raise); border: 1px solid var(--line); color: var(--dim);
+    font: inherit; font-size: 18px; line-height: 1; cursor: pointer;
+  }
+  #soft-app .dnav:hover { color: var(--text); border-color: var(--ghost); }
+  #soft-app .dnlabel { flex: 1; min-width: 0; text-align: center; }
+  #soft-app .dnlabel b { display: block; font-family: var(--serif); font-weight: 400; font-size: 16.5px; }
+  #soft-app .dnlabel small { display: block; color: var(--ghost); font-size: 11.5px; margin-top: 1px; }
+  #soft-app .dntoday {
+    flex: 0 0 auto; background: var(--live-soft); border: 1px solid var(--live); color: var(--live);
+    border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+
+  /* ===== Undo bar ===== */
+  #soft-app .undobar {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 45;
+    display: flex; align-items: center; gap: 12px;
+    background: var(--raise); color: var(--text); border: 1px solid var(--line);
+    border-radius: 999px; padding: 9px 10px 9px 16px; font-size: 13.5px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.45);
+  }
+  @supports (padding: max(0px)) { #soft-app .undobar { bottom: max(16px, env(safe-area-inset-bottom)); } }
+  #soft-app .undobar button {
+    background: var(--live); color: #2C2932; border: 0; border-radius: 999px;
+    padding: 6px 14px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+
+  /* parked thought -> schedule it */
+  #soft-app .parked .parkdo {
+    background: none; border: 0; color: var(--ghost); cursor: pointer;
+    font-size: 15px; line-height: 1; padding: 2px 6px; border-radius: 7px;
+  }
+  #soft-app .parked .parkdo:hover { color: var(--live); background: rgba(255,255,255,.06); }
+
   /* ===== Scheduled goal steps on the calendar ===== */
   #soft-app .cb.cbstep { border-left-style: dashed; }
   #soft-app .cb.cbstep em { font-style: italic; }
