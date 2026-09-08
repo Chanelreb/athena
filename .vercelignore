@@ -1,0 +1,7 @@
+# Dev-only and internal files — not part of the deployed app
+serve.js
+gen-icons.js
+SPEC.md
+HANDOFF.md
+mesh-dashboard.original.html
+.claude
