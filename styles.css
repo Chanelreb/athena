@@ -736,3 +736,9 @@
     background: var(--live-soft); border: 1px solid var(--live); color: var(--live);
     border-radius: 12px; padding: 11px 14px; font-size: 13px; line-height: 1.45; margin: 18px 0 4px;
   }
+  #soft-app .modal .savewarn { margin: 0 0 12px; }
+
+  /* which build this device is actually running */
+  #soft-app .buildline {
+    margin-top: 12px; color: var(--dim); font-size: 11.5px; letter-spacing: .04em; opacity: .75;
+  }

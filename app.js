@@ -10,6 +10,11 @@
 
   const KEY = 'athena:v2';   // also the local offline-cache key
 
+  // Shown in Settings. A device serving an old cached copy of the app reports an
+  // old stamp, which is the quickest way to tell "it is broken" from "it is not
+  // the version you think it is". Bump this on anything worth identifying.
+  const BUILD = '2026-09-09.1';
+
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
   // each account's data private. Falls back to local-only if config/lib absent.
@@ -1475,6 +1480,9 @@
     if (view === 'day'){ h += parkHTML(dayKey(vd)); }
 
     if (!ok) h += '<div class="savewarn">Not saving to your account right now. Recent changes are only on this device.</div>';
+    // Running with no account at all is the failure that hides itself, because
+    // the app looks perfectly healthy while nothing leaves the device.
+    else if (!cloud || !session) h += '<div class="savewarn">Not signed in, so nothing is syncing. This device is saving on its own. Open Settings to fix it.</div>';
     const savedLine = !ok ? 'Not saving right now.'
       : (cloud && session) ? 'Synced to your account. Saves as you go, on every device.'
       : 'Everything saves as you go, on this device.';
@@ -1488,6 +1496,36 @@
     if (aiOpen) h += aiHTML();
 
     paint(h);
+  }
+
+  /* ---------- getting your data out, and getting unstuck ----------
+     Athena had no way to take a copy of your own data, which makes every "did I
+     just lose that?" moment worse than it needs to be. This writes the whole
+     blob to a file, so a device can be backed up before anything is changed on
+     it. forceUpdate() tears out the offline cache and the service worker, which
+     is what frees a device still serving a build from before sign-in existed. */
+  function exportBackup(){
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      const blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'athena-backup-' + stamp + '.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch(_){ alert('Could not save the file. Try from a browser tab rather than the installed app.'); }
+  }
+
+  async function forceUpdate(){
+    try {
+      if (window.caches) (await caches.keys()).forEach(k => caches.delete(k));
+      if (navigator.serviceWorker){
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch(_){}
+    // Cache-busted so nothing in front of us can answer from a stale copy.
+    location.replace(location.origin + location.pathname + '?fresh=' + Date.now());
   }
 
   /* ---------- settings (name + categories) ---------- */
@@ -1512,11 +1550,21 @@
     });
     h += '</div>';
     h += '<button class="go" data-addcat>+ Add category</button>';
+    h += '<div class="modal-h" style="margin-top:8px">Account</div>';
     if (cloud && session){
-      h += '<div class="modal-h" style="margin-top:8px">Account</div>';
       h += '<div class="acctrow"><span class="acctmail">'+esc(session.user.email || 'Signed in')+'</span>'+
         '<button class="ghost" data-signout>Sign out</button></div>';
+    } else {
+      // No account means nothing is syncing. Say so where it cannot be missed:
+      // a silent local-only mode is indistinguishable from a working app.
+      h += '<div class="savewarn">This device is not signed in to an account. '+
+        'Everything is saved here only, and nothing is syncing. If you were expecting '+
+        'to be signed in, you are probably on an old copy of Athena.</div>';
+      h += '<button class="ghost" data-forceupdate>Get the latest version</button>';
     }
+    h += '<div class="modal-h" style="margin-top:8px">Your data</div>';
+    h += '<button class="ghost" data-export>Download a backup</button>';
+    h += '<div class="buildline">Version '+BUILD+'</div>';
     h += '<div class="modal-actions"><span style="flex:1"></span><button class="go" data-closesettings>Done</button></div>';
     h += '</div>';
     return h;
@@ -1873,6 +1921,8 @@
     // auth
     if (t('[data-sendlink]')){ sendMagicLink(); return; }
     if (t('[data-signout]')){ if (sb) sb.auth.signOut().catch(()=>{}); settingsOpen = false; return; }
+    if (t('[data-export]')){ exportBackup(); return; }
+    if (t('[data-forceupdate]')){ forceUpdate(); return; }
 
     // onboarding
     if (t('[data-obnext]')){ obSync(); ob.step = Math.min(3, ob.step + 1); render(); return; }
