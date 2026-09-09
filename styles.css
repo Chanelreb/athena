@@ -605,18 +605,18 @@
   /* ===== Light theme =====
      JS resolves the choice (dark / light / match device) and stamps the result
      on <html>, so this one block covers every case. */
-  html[data-theme="light"], html[data-theme="light"] body { background: #EFEBE4; }
+  html[data-theme="light"], html[data-theme="light"] body { background: #E7E1D6; }
   html[data-theme="light"] { --on-live: #FFFFFF; }
   html[data-theme="light"] #soft-app {
-    --bg: #FCFAF7;
-    --raise: #F1ECE4;
-    --line: #E2DAD0;
-    --text: #2F2A31;
-    --dim: #6E6672;
-    --ghost: #9B939A;
-    --live: #B96A34;
-    --live-soft: #F8E9DB;
-    background: linear-gradient(178deg, #FFFFFF 0%, #FCFAF7 300px);
+    --bg: #FBF8F2;
+    --raise: #EDE7DB;
+    --line: #D6CCBC;
+    --text: #221D26;
+    --dim: #5C5462;
+    --ghost: #857C86;
+    --live: #A85B27;
+    --live-soft: #F6E4D2;
+    background: linear-gradient(178deg, #FFFDF9 0%, #FBF8F2 300px);
   }
   html[data-theme="light"] #soft-app .quote { background: rgba(185,106,52,.07); }
   html[data-theme="light"] #soft-app .meter { background: rgba(0,0,0,.10); }
@@ -627,8 +627,8 @@
   html[data-theme="light"] #soft-app .modal { box-shadow: 0 24px 60px rgba(90,70,55,.20); }
   html[data-theme="light"] #soft-app .undobar { box-shadow: 0 12px 32px rgba(90,70,55,.20); }
   html[data-theme="light"] #soft-app .cb.dragging { box-shadow: 0 8px 22px rgba(90,70,55,.25); }
-  html[data-theme="light"] #ath-update { background: #FFFFFF; color: #2F2A31; border-color: #E2DAD0; box-shadow: 0 12px 32px rgba(90,70,55,.20); }
-  html[data-theme="light"] #ath-update button { background: #B96A34; color: #FFFFFF; }
+  html[data-theme="light"] #ath-update { background: #FFFFFF; color: #221D26; border-color: #D6CCBC; box-shadow: 0 12px 32px rgba(90,70,55,.20); }
+  html[data-theme="light"] #ath-update button { background: #A85B27; color: #FFFFFF; }
 
   /* theme picker in settings */
   #soft-app .themerow { display: flex; gap: 8px; margin-bottom: 12px; }

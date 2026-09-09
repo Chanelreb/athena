@@ -280,12 +280,14 @@
   /* ---------- theme ----------
      'dark' | 'light' | 'system'. We resolve the choice here and stamp the
      result on <html>, so the CSS only needs one light block. */
+  let lightNow = false;               // set whenever the theme resolves; see tint()
   const prefersLight = () => (typeof window !== 'undefined' && window.matchMedia)
     ? window.matchMedia('(prefers-color-scheme: light)').matches : false;
   function themeChoice(){ return (S.profile && S.profile.theme) || 'dark'; }
   function applyTheme(){
     const choice = themeChoice();
     const resolved = choice === 'system' ? (prefersLight() ? 'light' : 'dark') : choice;
+    lightNow = (resolved === 'light');
     try {
       document.documentElement.setAttribute('data-theme', resolved);
       const meta = document.querySelector('meta[name="theme-color"]');
@@ -296,8 +298,11 @@
   // Paint the remembered theme before any data loads, to avoid a flash of the wrong one.
   try {
     const cached = lsGet('athena:theme');
-    if (cached) document.documentElement.setAttribute('data-theme',
-      cached === 'system' ? (prefersLight() ? 'light' : 'dark') : cached);
+    if (cached){
+      const r = cached === 'system' ? (prefersLight() ? 'light' : 'dark') : cached;
+      lightNow = (r === 'light');
+      document.documentElement.setAttribute('data-theme', r);
+    }
   } catch(_){}
   if (typeof window !== 'undefined' && window.matchMedia){
     const mq = window.matchMedia('(prefers-color-scheme: light)');
@@ -306,9 +311,45 @@
     else if (mq.addListener) mq.addListener(onScheme);
   }
 
-  /* ---------- categories ---------- */
+  /* ---------- categories ----------
+     Category colours are your data, not the theme's, so we can't just swap the
+     palette. Instead the stored colour is deepened on the fly in light mode:
+     the calm pastels stay for dark, and the same hue comes back as a forest
+     green or a deep blue on a light ground. Works for custom colours too. */
+  const shadeCache = {};
+  function deepen(hex){
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(hex || '');
+    if (!m) return hex;
+    if (shadeCache[hex]) return shadeCache[hex];
+    const n = parseInt(m[1], 16);
+    const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+    let h = 0, s = 0;
+    if (d){
+      s = d / (1 - Math.abs(2 * l - 1));
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60; if (h < 0) h += 360;
+    }
+    const L = 0.33, S = Math.min(0.64, Math.max(0.42, s * 1.6));   // darker and richer
+    const c = (1 - Math.abs(2 * L - 1)) * S;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const mm = L - c / 2;
+    let rr, gg, bb;
+    if (h < 60){ rr = c; gg = x; bb = 0; }
+    else if (h < 120){ rr = x; gg = c; bb = 0; }
+    else if (h < 180){ rr = 0; gg = c; bb = x; }
+    else if (h < 240){ rr = 0; gg = x; bb = c; }
+    else if (h < 300){ rr = x; gg = 0; bb = c; }
+    else { rr = c; gg = 0; bb = x; }
+    const to = v => Math.round((v + mm) * 255).toString(16).padStart(2, '0');
+    return (shadeCache[hex] = '#' + to(rr) + to(gg) + to(bb));
+  }
+  const tint = hex => lightNow ? deepen(hex) : hex;
+
   const catOf = id => S.categories.find(c => c.id === id) || S.categories[0] || DEFAULT_CATS[0];
-  const catColor = id => catOf(id).color;
+  const catColor = id => tint(catOf(id).color);
 
   /* ==========================================================================
      Guided first-run setup — a brand-new account (not onboarded, no events)
@@ -399,7 +440,7 @@
       h += '<p class="ob-sub">Pick a few. These become your colour-coded categories. Rename, recolour or change them anytime.</p>';
       h += '<div class="ob-chips">' + OB_CATS.map(c =>
         '<button class="ob-chip'+(ob.cats.indexOf(c.id) !== -1 ? ' on' : '')+'" data-obcat="'+c.id+'">'+
-        '<span class="cd" style="background:'+c.color+'"></span>'+c.label+'</button>').join('') + '</div>';
+        '<span class="cd" style="background:'+tint(c.color)+'"></span>'+c.label+'</button>').join('') + '</div>';
       h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
     } else if (ob.step === 2){
       h += '<h1>Your rhythm</h1>';
@@ -408,7 +449,7 @@
         '<label><span>Wind down</span><input id="ob_end" type="time" value="'+ob.end+'"></label></div>';
       h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
     } else {
-      const cc = S.categories.map(c => c.color);
+      const cc = S.categories.map(c => tint(c.color));
       const dot = i => '<b style="background:'+(cc[i % (cc.length || 1)] || '#9CC0A9')+'"></b>';
       h += '<h1>How Athena works</h1>';
       h += '<p class="ob-sub">Four pieces, and they fit together so you mostly don\'t have to think about them.</p>';
@@ -646,9 +687,9 @@
     const cats = S.categories;
     const all = cats.reduce((a,c) => a + (tot[c.id]||0), 0) || 1;
     let h = '<div class="wtot"><div class="balbar">' + cats.map(c =>
-      tot[c.id] ? '<i style="width:'+(tot[c.id]/all*100)+'%;background:'+c.color+'"></i>' : '').join('') + '</div>';
+      tot[c.id] ? '<i style="width:'+(tot[c.id]/all*100)+'%;background:'+tint(c.color)+'"></i>' : '').join('') + '</div>';
     h += '<div class="balkey">' + cats.filter(c=>tot[c.id]).map(c =>
-      '<span><b style="background:'+c.color+'"></b>'+esc(c.label)+' '+dur(tot[c.id])+'</span>').join('') + '</div>';
+      '<span><b style="background:'+tint(c.color)+'"></b>'+esc(c.label)+' '+dur(tot[c.id])+'</span>').join('') + '</div>';
     const committed = cats.reduce((a,c) => a + (tot[c.id]||0), 0);
     h += '<p class="slack" style="padding-top:0">Across the week that is <b>'+dur(committed)+'</b> committed.</p></div>';
     return h;
@@ -799,9 +840,9 @@
     if (booked){
       h += '<p class="slack">Today asks for <b>'+dur(booked)+'</b>, and leaves <b>'+dur(openTotal)+'</b> open in between. There is room.</p>';
       h += '<div class="balbar">' + S.categories.map(c =>
-        split[c.id] ? '<i style="width:'+(split[c.id]/booked*100)+'%;background:'+c.color+'"></i>' : '').join('') + '</div>';
+        split[c.id] ? '<i style="width:'+(split[c.id]/booked*100)+'%;background:'+tint(c.color)+'"></i>' : '').join('') + '</div>';
       h += '<div class="balkey">' + S.categories.filter(c=>split[c.id]).map(c =>
-        '<span><b style="background:'+c.color+'"></b>'+esc(c.label)+' '+dur(split[c.id])+'</span>').join('') + '</div>';
+        '<span><b style="background:'+tint(c.color)+'"></b>'+esc(c.label)+' '+dur(split[c.id])+'</span>').join('') + '</div>';
     } else {
       h += '<p class="slack">Nothing scheduled '+(isToday ? 'today' : 'this day')+'. '+
         '<button class="linkish" data-newon="'+dk+'">Add something</button>, or enjoy the open day.</p>';
