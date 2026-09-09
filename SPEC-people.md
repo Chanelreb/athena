@@ -50,8 +50,9 @@ delivers the whole feature.
 
 ```sql
 households        (id, name, created_by, created_at)
-household_members (household_id, user_id, display_name, role, joined_at)
-                  -- role: 'adult' | 'child'
+household_members (household_id, user_id, display_name, joined_at)
+                  -- no role: everyone is a capable account holder, so
+                  -- permissions are symmetric (see section 6)
 household_invites (id, household_id, email, invited_by, accepted_at, expires_at)
 
 tasks             (id, owner_id, household_id, assignee_id,
@@ -62,8 +63,7 @@ tasks             (id, owner_id, household_id, assignee_id,
 ```
 
 Policies, roughly: you can read a task if you own it, are assigned it, or are a
-member of its household. You can assign within your household. Only an adult
-can assign to a child.
+member of its household, and you can assign to anyone in your household.
 
 ## 5. The decisions that are actually about privacy
 
@@ -77,25 +77,29 @@ These matter more than the schema, and they are yours to make.
    with the assigner notified, rather than silently deleting it. Otherwise
    assignment becomes a way to make things vanish.
 3. **Does the assigner see completion?** Yes, that is most of the point.
-4. **Can a child reassign or assign upward?** Probably not by default.
+4. **Can anyone assign to anyone?** Yes. With older kids and spouses there is
+   no reason for one-way permissions, and symmetry means no role system.
 
-## 6. The awkward practical problem: children without email
+## 6. Children without email: decided, and it is a non-issue
 
-Sign-in is a magic link to an email address. A young child may not have one.
-Three ways out:
+**Decision (Chanel, 2026-09-09): older kids and spouses only, for now.**
 
-- **Managed members.** A person in the household with **no login**, whose tasks
-  appear on the parent's device. Simplest, works for young kids, but they never
-  get the satisfaction of ticking their own things off, which is most of why
-  this would work on a child.
-- **A household device.** One shared tablet, one account, several named people.
-  Cheap, but it is not really multi-user.
-- **Parent-created accounts.** The parent sets up an address the child can use.
-  Real accounts, real ticking, but more setup and a duty of care about a child's
-  data that is worth thinking about properly.
+Everyone who will use this has their own email address, so they all get real
+accounts and sign in the same way you do. That removes the whole problem:
 
-**This is the first thing to decide**, because it changes the auth model, not
-just the schema.
+- No managed members with no login.
+- No shared household device.
+- No accounts created on a child's behalf, and none of the duty-of-care
+  questions that would have come with that.
+- **The auth model does not change at all.** Magic link, exactly as today.
+
+It also removes the need for **roles**. With capable account holders on both
+sides, permissions can be symmetric: anyone in the household can assign to
+anyone else. That drops `role` from the schema and deletes a whole class of
+"can an adult do X to a child" rules.
+
+If Athena ever wants younger children, revisit this. It would mean managed
+members, and it is a real piece of work, not a tweak.
 
 ## 7. Getting people in
 
@@ -127,9 +131,15 @@ anything is built on top of it.
 
 ## 10. Open questions for Chanel
 
-- Children without email: managed members, a shared device, or real accounts?
-- Tasks only, or should household members see more of each other?
-- Is this a household of adults sharing a home, or parents and kids? The
-  permission model differs.
-- Does this want to wait until you and one friend have actually lived in Athena
-  for a few weeks? It is the biggest thing on the list and the least reversible.
+Resolved: children without email (section 6), and the permission model, which is
+now symmetric with no roles.
+
+Still open, though I have proposed defaults for both:
+
+- **Tasks only, or more?** Default: tasks only. Household members do not see
+  each other's calendars, habits or goals.
+- **Declining.** Default: you can mark something "not doing", and the person who
+  assigned it is told, rather than it silently disappearing.
+- **Timing.** This is still the biggest and least reversible thing on the list.
+  Worth asking whether it should wait until you and your friend have actually
+  lived in Athena for a few weeks.
