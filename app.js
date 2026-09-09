@@ -31,10 +31,17 @@
   // updated_at of the cloud copy we last read or wrote — lets us tell whether
   // another device has changed things since (see syncFromCloud).
   let lastRemoteAt = null;
+  // True only once we have genuinely read this account's cloud copy (an empty
+  // row counts). Until then we must not save over it, and must not offer setup.
+  let cloudLoaded = false;
+  let loadFailed = false;
 
   const store = {
     get: async () => {
-      if (cloud && session){
+      if (cloud){
+        // Never quietly answer with local data when this account has a cloud
+        // copy. Pretending the read succeeded is how good data gets overwritten.
+        if (!session) throw new Error('not signed in');
         const { data, error } = await sb.from('dashboards')
           .select('data, updated_at').eq('user_id', session.user.id).maybeSingle();
         if (error) throw error;
@@ -47,7 +54,11 @@
     },
     set: async (blob) => {
       lsSet(KEY, blob);                       // write-through offline cache
-      if (cloud && session){
+      if (cloud){
+        if (!session) throw new Error('not signed in');
+        // Refuse to push over a cloud copy we never managed to read this
+        // session: we would be writing on top of who knows what.
+        if (!cloudLoaded) throw new Error('cloud not loaded');
         const stamp = new Date().toISOString();
         const { error } = await sb.from('dashboards')
           .upsert({ user_id: session.user.id, data: JSON.parse(blob), updated_at: stamp });
@@ -204,8 +215,19 @@
       lastRemoteAt = r ? r.updatedAt : null;
       reachedRemote = true;
     }
-    catch(e){ reachedRemote = false; }               // offline or not signed in
+    catch(e){ reachedRemote = false; }               // offline, signed out, or a failed read
+    cloudLoaded = cloud ? reachedRemote : true;
     const localRaw = lsGet(KEY);
+
+    // If this account lives in the cloud and we could not read it, stop. Do not
+    // fall back to a blank slate: that used to show setup again and then save a
+    // fresh starter week straight over the real data.
+    if (cloud && !reachedRemote){
+      loadFailed = true;
+      if (localRaw){ try { S = Object.assign(blank(), JSON.parse(localRaw)); } catch(_){} }
+      return;
+    }
+    loadFailed = false;
 
     if (remote){
       // Cloud is the source of truth.
@@ -214,10 +236,10 @@
     } else if (localRaw){
       // No cloud copy yet — adopt what's on this device...
       S = Object.assign(blank(), JSON.parse(localRaw));
-      if (cloud && reachedRemote) save();            // ...and migrate it up to the account
+      if (cloud) save();                             // ...and migrate it up to the account
     }
-    // else: brand-new account — leave it empty and not onboarded, so the guided
-    // setup runs on first render. Nothing is saved until they finish setup.
+    // else: genuinely a brand-new account, confirmed against the cloud. Leave it
+    // empty and not onboarded so setup runs. Nothing is saved until setup ends.
     if (!S.profile) S.profile = blank().profile;
     if (!S.categories || !S.categories.length) S.categories = DEFAULT_CATS.map(c => Object.assign({}, c));
   }
@@ -360,7 +382,10 @@
      gets a short, warm flow that builds a starter week from a few answers.
      ========================================================================== */
   let ob = null;   // onboarding state, or null
-  const needsOnboarding = () => !(S.profile && S.profile.onboarded) && !((S.events || []).length);
+  // Only offer setup when we have actually confirmed with the cloud that this
+  // account is empty. Otherwise a failed read looks identical to a new user.
+  const needsOnboarding = () =>
+    cloudLoaded && !loadFailed && !(S.profile && S.profile.onboarded) && !((S.events || []).length);
 
   const OB_CATS = [
     { id:'work',     label:'Work',     color:'#8DA9C4' },
@@ -1404,7 +1429,15 @@
     return h;
   }
 
+  function loadFailedHTML(){
+    return '<div class="ob"><div class="ob-mark">' + MOON + '</div>'+
+      '<h1>Could not reach your data</h1>'+
+      '<p class="ob-sub">Athena could not load your account just now, so it is not showing anything rather than risk showing you the wrong thing. Nothing has been changed or lost.</p>'+
+      '<div class="ob-actions"><span style="flex:1"></span><button class="go" data-retryload>Try again</button></div></div>';
+  }
+
   function render(){
+    if (loadFailed){ app.classList.remove('wide'); paint(loadFailedHTML()); return; }
     if (needsOnboarding()){ app.classList.remove('wide'); paint(onboardingHTML()); return; }
     const now = new Date();
     const vd = viewDate();
@@ -1441,6 +1474,7 @@
     // parked thoughts + everyday chips live under the Day view
     if (view === 'day'){ h += parkHTML(dayKey(vd)); }
 
+    if (!ok) h += '<div class="savewarn">Not saving to your account right now. Recent changes are only on this device.</div>';
     const savedLine = !ok ? 'Not saving right now.'
       : (cloud && session) ? 'Synced to your account. Saves as you go, on every device.'
       : 'Everything saves as you go, on this device.';
@@ -1867,6 +1901,7 @@
     // editor / settings dismissal
     if (t('[data-closeeditor]')){ editing = null; clearModalDrafts(); render(); return; }
     if (t('[data-saveevent]')){ commitEvent(); return; }
+    if (t('[data-retryload]')){ load().then(() => { applyTheme(); render(); }); return; }
     if (t('[data-undo]')){ doUndo(); return; }
 
     // tasks

@@ -730,3 +730,9 @@
   #soft-app .calcols.cols-3 { grid-template-columns: repeat(3, 1fr); }
   #soft-app .calhead .hs.cols-3 { grid-template-columns: repeat(3, 1fr); }
   #soft-app .calhead .hs.cols-7 { grid-template-columns: repeat(7, 1fr); }
+
+  /* an unmissable warning when writes are not reaching the account */
+  #soft-app .savewarn {
+    background: var(--live-soft); border: 1px solid var(--live); color: var(--live);
+    border-radius: 12px; padding: 11px 14px; font-size: 13px; line-height: 1.45; margin: 18px 0 4px;
+  }
