@@ -1,5 +1,8 @@
 /* ===== Theme tokens that must live above #soft-app ===== */
-  :root { --on-live: #2C2932; }
+  /* --on-live: text sitting on the accent. --pill-ink: text sitting on a
+     category colour, which is a different question and needs its own answer.
+     --warn: reserved for "something is wrong", never the accent. */
+  :root { --on-live: #2C2932; --pill-ink: #2C2932; --warn: #E5A87E; --warn-soft: #413229; }
 
 /* ===== Page reset (was inline in <head>) ===== */
   html, body { margin: 0; padding: 0; background: #26232C; min-height: 100%; }
@@ -626,30 +629,37 @@
   /* ===== Light theme =====
      JS resolves the choice (dark / light / match device) and stamps the result
      on <html>, so this one block covers every case. */
-  html[data-theme="light"], html[data-theme="light"] body { background: #E7E1D6; }
-  html[data-theme="light"] { --on-live: #FFFFFF; }
+  html[data-theme="light"], html[data-theme="light"] body { background: #E4E2DD; }
+  /* Stone paper, charcoal accent. Warmth without the yellow, and an accent quiet
+     enough that the category colours are the only real colour on the screen. */
+  html[data-theme="light"] { --on-live: #FFFFFF; --pill-ink: #1E1D1A; --warn: #9A5B1E; --warn-soft: #F7EBDC; }
   html[data-theme="light"] #soft-app {
-    --bg: #FBF8F2;
-    --raise: #EDE7DB;
-    --line: #D6CCBC;
-    --text: #221D26;
-    --dim: #5C5462;
-    --ghost: #857C86;
-    --live: #A85B27;
-    --live-soft: #F6E4D2;
-    background: linear-gradient(178deg, #FFFDF9 0%, #FBF8F2 300px);
+    --bg: #FAF9F7;
+    --raise: #EFEDE9;
+    --line: #DAD6D0;
+    --text: #21201D;
+    --dim: #5A5751;
+    --ghost: #8A867F;
+    --live: #3A3833;
+    /* Deeper than --raise on purpose. With a charcoal accent the block you are
+       in can no longer stand out by hue, so it stands out by weight instead. */
+    --live-soft: #E6E2D9;
+    background: linear-gradient(178deg, #FFFEFC 0%, #FAF9F7 300px);
   }
-  html[data-theme="light"] #soft-app .quote { background: rgba(185,106,52,.07); }
+  html[data-theme="light"] #soft-app .quote { background: rgba(58,56,51,.06); }
+  /* Soft fills: the category colours stay close to their pastel selves, so the
+     wash across a block card carries more of the colour than it does in dark. */
+  html[data-theme="light"] #soft-app .bcard::before { opacity: .2; }
   html[data-theme="light"] #soft-app .meter { background: rgba(0,0,0,.10); }
   html[data-theme="light"] #soft-app .editdot:hover,
   html[data-theme="light"] #soft-app .parked .parkdo:hover,
   html[data-theme="light"] #soft-app .taskchip:hover { background: rgba(0,0,0,.05); }
-  html[data-theme="light"] #soft-app .modal-back { background: rgba(60,48,40,.32); }
-  html[data-theme="light"] #soft-app .modal { box-shadow: 0 24px 60px rgba(90,70,55,.20); }
-  html[data-theme="light"] #soft-app .undobar { box-shadow: 0 12px 32px rgba(90,70,55,.20); }
-  html[data-theme="light"] #soft-app .cb.dragging { box-shadow: 0 8px 22px rgba(90,70,55,.25); }
-  html[data-theme="light"] #ath-update { background: #FFFFFF; color: #221D26; border-color: #D6CCBC; box-shadow: 0 12px 32px rgba(90,70,55,.20); }
-  html[data-theme="light"] #ath-update button { background: #A85B27; color: #FFFFFF; }
+  html[data-theme="light"] #soft-app .modal-back { background: rgba(45,43,38,.32); }
+  html[data-theme="light"] #soft-app .modal { box-shadow: 0 24px 60px rgba(70,66,58,.20); }
+  html[data-theme="light"] #soft-app .undobar { box-shadow: 0 12px 32px rgba(70,66,58,.20); }
+  html[data-theme="light"] #soft-app .cb.dragging { box-shadow: 0 8px 22px rgba(70,66,58,.25); }
+  html[data-theme="light"] #ath-update { background: #FFFFFF; color: #21201D; border-color: #DAD6D0; box-shadow: 0 12px 32px rgba(70,66,58,.20); }
+  html[data-theme="light"] #ath-update button { background: #3A3833; color: #FFFFFF; }
 
   /* theme picker in settings */
   #soft-app .themerow { display: flex; gap: 8px; margin-bottom: 12px; }
@@ -752,9 +762,12 @@
   #soft-app .calhead .hs.cols-3 { grid-template-columns: repeat(3, 1fr); }
   #soft-app .calhead .hs.cols-7 { grid-template-columns: repeat(7, 1fr); }
 
-  /* an unmissable warning when writes are not reaching the account */
+  /* An unmissable warning when writes are not reaching the account. It has its
+     own colour rather than borrowing the accent, because the accent is a matter
+     of taste and a warning is not: a theme with a quiet accent must not quietly
+     turn "your data is not saving" into a grey box. */
   #soft-app .savewarn {
-    background: var(--live-soft); border: 1px solid var(--live); color: var(--live);
+    background: var(--warn-soft); border: 1px solid var(--warn); color: var(--warn);
     border-radius: 12px; padding: 11px 14px; font-size: 13px; line-height: 1.45; margin: 18px 0 4px;
   }
   #soft-app .modal .savewarn { margin: 0 0 12px; }
@@ -817,7 +830,7 @@
     width: 17px; height: 17px; border-radius: 5px; display: flex; align-items: center; justify-content: center;
     font-size: 10px; line-height: 1; color: var(--ghost); background: rgba(255,255,255,.04);
   }
-  #soft-app .bcard-days span.on { background: var(--bc); color: var(--on-live); font-weight: 600; }
+  #soft-app .bcard-days span.on { background: var(--bc); color: var(--pill-ink); font-weight: 600; }
   #soft-app .bcard-days em { font-style: normal; font-size: 11px; color: var(--dim); margin-left: 5px; }
   #soft-app .bcard-del {
     position: absolute; z-index: 2; top: 8px; right: 8px; width: 26px; height: 26px;
@@ -871,11 +884,11 @@
 
   /* the actual reason a load failed, so it can be reported rather than guessed */
   #soft-app .errdetail {
-    background: var(--live-soft); border: 1px solid var(--live); border-radius: 12px;
+    background: var(--warn-soft); border: 1px solid var(--warn); border-radius: 12px;
     padding: 11px 14px; margin: 4px 0 16px; text-align: left;
   }
-  #soft-app .errdetail b { display: block; color: var(--live); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 5px; }
-  #soft-app .errdetail span { display: block; color: var(--ink); font-size: 13px; line-height: 1.5; word-break: break-word; }
+  #soft-app .errdetail b { display: block; color: var(--warn); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 5px; }
+  #soft-app .errdetail span { display: block; color: var(--text); font-size: 13px; line-height: 1.5; word-break: break-word; }
 
   /* which build this device is actually running */
   #soft-app .buildline {

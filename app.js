@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-09.10';
+  const BUILD = '2026-09-09.11';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -375,9 +375,9 @@
 
   /* ---------- categories ----------
      Category colours are your data, not the theme's, so we can't just swap the
-     palette. Instead the stored colour is deepened on the fly in light mode:
-     the calm pastels stay for dark, and the same hue comes back as a forest
-     green or a deep blue on a light ground. Works for custom colours too. */
+     palette. Instead the stored colour is adjusted on the fly in light mode:
+     the same hue, settled to a level that reads on pale stone without going
+     dark and heavy. Works for custom colours too, and never touches the data. */
   const shadeCache = {};
   function deepen(hex){
     const m = /^#?([0-9a-fA-F]{6})$/.exec(hex || '');
@@ -394,7 +394,9 @@
       else h = (r - g) / d + 4;
       h *= 60; if (h < 0) h += 360;
     }
-    const L = 0.33, S = Math.min(0.64, Math.max(0.42, s * 1.6));   // darker and richer
+    // Soft: the pastels are nudged, not shoved. Enough to read on stone paper,
+    // not so far that a week of blocks looks like a bar chart drawn in navy.
+    const L = 0.58, S = Math.min(0.44, Math.max(0.30, s * 1.6));
     const c = (1 - Math.abs(2 * L - 1)) * S;
     const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
     const mm = L - c / 2;
