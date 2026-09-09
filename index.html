@@ -19,6 +19,20 @@
 <body>
 <div id="soft-app"><div class="boot">Reading the day…</div></div>
 
+<!-- Record why a script failed before app.js runs. Without this, a sign-in
+     library that fails to load or parse looks identical to an app that was
+     never meant to sign in, and Athena drops to local-only saying nothing. -->
+<script>
+window.ATHENA_BOOT_ERRORS = [];
+window.addEventListener('error', function (e) {
+  var src = (e.target && e.target.src) || '';
+  window.ATHENA_BOOT_ERRORS.push(src
+    ? 'failed to load ' + src.split('/').slice(-1)[0]
+    : (e.message || 'script error') + (e.filename ? ' in ' + e.filename.split('/').slice(-1)[0] : '') +
+      (e.lineno ? ':' + e.lineno : ''));
+}, true);
+</script>
+
 <script src="vendor/supabase.js"></script>
 <script src="supabase-config.js"></script>
 <script src="app.js"></script>

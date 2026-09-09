@@ -13,7 +13,7 @@
   // Shown in Settings. A device serving an old cached copy of the app reports an
   // old stamp, which is the quickest way to tell "it is broken" from "it is not
   // the version you think it is". Bump this on anything worth identifying.
-  const BUILD = '2026-09-09.3';
+  const BUILD = '2026-09-09.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -25,6 +25,11 @@
       })
     : null;
   const cloud = !!sb;          // true once we have a Supabase client
+  // Settings present but no client means the sign-in library did not load or
+  // would not run. That is a broken copy of the app, not a local-only one, and
+  // it must not pass silently: silence is what let a phone spend days saving to
+  // itself while looking perfectly healthy.
+  const bootBroken = !!(CFG && !sb);
   let session = null;          // current auth session (set in boot)
 
   const lsGet = (k) => { try { return localStorage.getItem(k); } catch(_){ return null; } };
@@ -1450,17 +1455,20 @@
 
   function loadFailedHTML(){
     return '<div class="ob"><div class="ob-mark">' + MOON + '</div>'+
-      '<h1>Could not reach your data</h1>'+
-      '<p class="ob-sub">Athena could not load your account just now, so it is not showing anything rather than risk showing you the wrong thing. Nothing has been changed or lost.</p>'+
-      (loadError ? '<div class="errdetail"><b>What went wrong</b><span>'+esc(loadError)+'</span></div>' : '')+
+      '<h1>'+(bootBroken ? 'Athena did not load properly' : 'Could not reach your data')+'</h1>'+
+      '<p class="ob-sub">'+(bootBroken
+        ? 'Part of Athena is missing on this device, so it cannot reach your account. This is almost always a bad copy cached here, and getting the latest version fixes it. Nothing has been changed or lost.'
+        : 'Athena could not load your account just now, so it is not showing anything rather than risk showing you the wrong thing. Nothing has been changed or lost.')+'</p>'+
+      '<div class="errdetail"><b>What went wrong</b><span>'+esc(bootBroken ? whyNoAccount() : (loadError || 'unknown'))+'</span></div>'+
       '<div class="ob-actions"><button class="ghost" data-export>Download a backup</button><span style="flex:1"></span>'+
-      '<button class="go" data-retryload>Try again</button></div>'+
+      (bootBroken ? '<button class="go" data-forceupdate>Get the latest version</button>'
+                  : '<button class="go" data-retryload>Try again</button>')+'</div>'+
       '<button class="linkish ob-skip" data-worklocal>Carry on with this device for now</button>'+
       '<div class="buildline">Version '+BUILD+(session ? ' · signed in as '+esc(session.user.email || '') : ' · not signed in')+'</div></div>';
   }
 
   function render(){
-    if (loadFailed && !workLocal){ app.classList.remove('wide'); paint(loadFailedHTML()); return; }
+    if ((loadFailed || bootBroken) && !workLocal){ app.classList.remove('wide'); paint(loadFailedHTML()); return; }
     if (needsOnboarding()){ app.classList.remove('wide'); paint(onboardingHTML()); return; }
     const now = new Date();
     const vd = viewDate();
@@ -1524,6 +1532,20 @@
     paint(h);
   }
 
+  // Sign-in needs three things in place: the config, the Supabase library, and a
+  // session. Saying which one is missing is the difference between a fix and a
+  // fortnight of guessing, and it costs a line of text.
+  function whyNoAccount(){
+    const boot = (window.ATHENA_BOOT_ERRORS || []).join('; ');
+    const bits = [];
+    if (!CFG) bits.push('the Supabase settings did not load (supabase-config.js)');
+    if (!(window.supabase && window.supabase.createClient)) bits.push('the sign-in library did not load or would not run (vendor/supabase.js)');
+    if (CFG && window.supabase && !sb) bits.push('the sign-in client could not be created');
+    if (cloud && !session) bits.push('no active session on this device');
+    if (!bits.length) bits.push('unknown');
+    return bits.join('. ') + (boot ? '. Errors: ' + boot : '') + '.';
+  }
+
   /* ---------- getting your data out, and getting unstuck ----------
      Athena had no way to take a copy of your own data, which makes every "did I
      just lose that?" moment worse than it needs to be. This writes the whole
@@ -1584,8 +1606,8 @@
       // No account means nothing is syncing. Say so where it cannot be missed:
       // a silent local-only mode is indistinguishable from a working app.
       h += '<div class="savewarn">This device is not signed in to an account. '+
-        'Everything is saved here only, and nothing is syncing. If you were expecting '+
-        'to be signed in, you are probably on an old copy of Athena.</div>';
+        'Everything is saved here only, and nothing is syncing.</div>';
+      h += '<div class="errdetail"><b>Why</b><span>'+esc(whyNoAccount())+'</span></div>';
       h += '<button class="ghost" data-forceupdate>Get the latest version</button>';
     }
     h += '<div class="modal-h" style="margin-top:8px">Your data</div>';
