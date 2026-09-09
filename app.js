@@ -13,7 +13,7 @@
   // Shown in Settings. A device serving an old cached copy of the app reports an
   // old stamp, which is the quickest way to tell "it is broken" from "it is not
   // the version you think it is". Bump this on anything worth identifying.
-  const BUILD = '2026-09-09.2';
+  const BUILD = '2026-09-09.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -43,6 +43,10 @@
   // Why the last read failed, in the user's own words where possible. A failure
   // screen that cannot say what went wrong is a failure screen nobody can act on.
   let loadError = '';
+  // Set when someone chooses to carry on with the copy on this device after a
+  // failed read. Safe, because a failed read leaves cloudLoaded false, so saves
+  // stay local and can never land on top of a cloud copy we have not seen.
+  let workLocal = false;
 
   const store = {
     get: async () => {
@@ -242,6 +246,7 @@
     }
     loadFailed = false;
     loadError = '';
+    workLocal = false;      // back on the account; the local-only banner can go
 
     if (remote){
       // Cloud is the source of truth.
@@ -1450,11 +1455,12 @@
       (loadError ? '<div class="errdetail"><b>What went wrong</b><span>'+esc(loadError)+'</span></div>' : '')+
       '<div class="ob-actions"><button class="ghost" data-export>Download a backup</button><span style="flex:1"></span>'+
       '<button class="go" data-retryload>Try again</button></div>'+
+      '<button class="linkish ob-skip" data-worklocal>Carry on with this device for now</button>'+
       '<div class="buildline">Version '+BUILD+(session ? ' · signed in as '+esc(session.user.email || '') : ' · not signed in')+'</div></div>';
   }
 
   function render(){
-    if (loadFailed){ app.classList.remove('wide'); paint(loadFailedHTML()); return; }
+    if (loadFailed && !workLocal){ app.classList.remove('wide'); paint(loadFailedHTML()); return; }
     if (needsOnboarding()){ app.classList.remove('wide'); paint(onboardingHTML()); return; }
     const now = new Date();
     const vd = viewDate();
@@ -1491,11 +1497,19 @@
     // parked thoughts + everyday chips live under the Day view
     if (view === 'day'){ h += parkHTML(dayKey(vd)); }
 
-    if (!ok) h += '<div class="savewarn">Not saving to your account right now. Recent changes are only on this device.</div>';
+    // One banner, in order of how much it matters. Stacking three warnings that
+    // all mean "not syncing" just teaches people to ignore the strip.
+    if (loadFailed)
+      h += '<div class="savewarn">Working on this device only. Athena cannot reach your account, so your changes are being kept here and nothing is being overwritten. '+
+        '<button class="linkish" data-retryload>Try connecting again</button></div>';
+    else if (!ok)
+      h += '<div class="savewarn">Not saving to your account right now. Recent changes are only on this device.</div>';
     // Running with no account at all is the failure that hides itself, because
     // the app looks perfectly healthy while nothing leaves the device.
-    else if (!cloud || !session) h += '<div class="savewarn">Not signed in, so nothing is syncing. This device is saving on its own. Open Settings to fix it.</div>';
-    const savedLine = !ok ? 'Not saving right now.'
+    else if (!cloud || !session)
+      h += '<div class="savewarn">Not signed in, so nothing is syncing. This device is saving on its own. Open Settings to fix it.</div>';
+    const savedLine = loadFailed ? 'Saved on this device. Not syncing.'
+      : !ok ? 'Not saving right now.'
       : (cloud && session) ? 'Synced to your account. Saves as you go, on every device.'
       : 'Everything saves as you go, on this device.';
     h += '<footer>'+savedLine+'</footer>';
@@ -1964,6 +1978,7 @@
     if (t('[data-closeeditor]')){ editing = null; clearModalDrafts(); render(); return; }
     if (t('[data-saveevent]')){ commitEvent(); return; }
     if (t('[data-retryload]')){ load().then(() => { applyTheme(); render(); }); return; }
+    if (t('[data-worklocal]')){ workLocal = true; applyTheme(); render(); return; }
     if (t('[data-undo]')){ doUndo(); return; }
 
     // tasks
