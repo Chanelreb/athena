@@ -34,6 +34,17 @@ window.addEventListener('error', function (e) {
 </script>
 
 <script src="vendor/supabase.js"></script>
+<!-- One retry, cache-busted, if the library did not turn up. A device that was
+     once handed the wrong file for this script had no way back: the sign-in
+     library was missing on every load, so there was nothing to render a sign-in
+     screen with, and the app looked like it had simply never had accounts.
+     document.write is deliberate here; it blocks parsing so app.js below still
+     finds window.supabase. Same origin, and it runs at most once. -->
+<script>
+if (!(window.supabase && window.supabase.createClient)) {
+  document.write('<script src="vendor/supabase.js?retry=' + Date.now() + '"><\/script>');
+}
+</script>
 <script src="supabase-config.js"></script>
 <script src="app.js"></script>
 

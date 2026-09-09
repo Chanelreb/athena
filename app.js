@@ -13,7 +13,7 @@
   // Shown in Settings. A device serving an old cached copy of the app reports an
   // old stamp, which is the quickest way to tell "it is broken" from "it is not
   // the version you think it is". Bump this on anything worth identifying.
-  const BUILD = '2026-09-09.4';
+  const BUILD = '2026-09-09.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
