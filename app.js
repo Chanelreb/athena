@@ -13,7 +13,7 @@
   // Shown in Settings. A device serving an old cached copy of the app reports an
   // old stamp, which is the quickest way to tell "it is broken" from "it is not
   // the version you think it is". Bump this on anything worth identifying.
-  const BUILD = '2026-09-09.1';
+  const BUILD = '2026-09-09.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -40,6 +40,9 @@
   // row counts). Until then we must not save over it, and must not offer setup.
   let cloudLoaded = false;
   let loadFailed = false;
+  // Why the last read failed, in the user's own words where possible. A failure
+  // screen that cannot say what went wrong is a failure screen nobody can act on.
+  let loadError = '';
 
   const store = {
     get: async () => {
@@ -220,7 +223,12 @@
       lastRemoteAt = r ? r.updatedAt : null;
       reachedRemote = true;
     }
-    catch(e){ reachedRemote = false; }               // offline, signed out, or a failed read
+    catch(e){                                        // offline, signed out, or a failed read
+      reachedRemote = false;
+      loadError = [e && e.message, e && e.hint, e && e.code, e && e.details]
+        .filter(Boolean).join(' | ') || String(e);
+      if (typeof console !== 'undefined') console.error('Athena load failed:', e);
+    }
     cloudLoaded = cloud ? reachedRemote : true;
     const localRaw = lsGet(KEY);
 
@@ -233,6 +241,7 @@
       return;
     }
     loadFailed = false;
+    loadError = '';
 
     if (remote){
       // Cloud is the source of truth.
@@ -1438,7 +1447,10 @@
     return '<div class="ob"><div class="ob-mark">' + MOON + '</div>'+
       '<h1>Could not reach your data</h1>'+
       '<p class="ob-sub">Athena could not load your account just now, so it is not showing anything rather than risk showing you the wrong thing. Nothing has been changed or lost.</p>'+
-      '<div class="ob-actions"><span style="flex:1"></span><button class="go" data-retryload>Try again</button></div></div>';
+      (loadError ? '<div class="errdetail"><b>What went wrong</b><span>'+esc(loadError)+'</span></div>' : '')+
+      '<div class="ob-actions"><button class="ghost" data-export>Download a backup</button><span style="flex:1"></span>'+
+      '<button class="go" data-retryload>Try again</button></div>'+
+      '<div class="buildline">Version '+BUILD+(session ? ' · signed in as '+esc(session.user.email || '') : ' · not signed in')+'</div></div>';
   }
 
   function render(){

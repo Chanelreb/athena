@@ -738,6 +738,14 @@
   }
   #soft-app .modal .savewarn { margin: 0 0 12px; }
 
+  /* the actual reason a load failed, so it can be reported rather than guessed */
+  #soft-app .errdetail {
+    background: var(--live-soft); border: 1px solid var(--live); border-radius: 12px;
+    padding: 11px 14px; margin: 4px 0 16px; text-align: left;
+  }
+  #soft-app .errdetail b { display: block; color: var(--live); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 5px; }
+  #soft-app .errdetail span { display: block; color: var(--ink); font-size: 13px; line-height: 1.5; word-break: break-word; }
+
   /* which build this device is actually running */
   #soft-app .buildline {
     margin-top: 12px; color: var(--dim); font-size: 11.5px; letter-spacing: .04em; opacity: .75;
