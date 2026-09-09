@@ -587,6 +587,9 @@
      A one-off task is finished once (doneAt). A recurring one is finished per
      period, on the same completions map habits and goal steps use. */
   const PRIOS = [['high','High'], ['normal','Normal'], ['low','Low']];
+  const DATEKINDS = [['by','Due by'], ['on','Do on']];
+  const MINOPTS = [[0,'How long?'], [10,'10 min'], [15,'15 min'], [20,'20 min'], [30,'30 min'],
+    [45,'45 min'], [60,'1h'], [90,'1h 30m'], [120,'2h'], [180,'3h']];
   const prioRank = p => (p === 'high' ? 0 : p === 'low' ? 2 : 1);
   const periodKeyFor = (freq, d) => freq === 'daily' ? dayKey(d) : freq === 'monthly' ? monKey(d) : weekKey(d);
 
@@ -599,20 +602,40 @@
     else toggleDone('t:' + tk.id, periodKeyFor(tk.repeat.freq, d));
   }
   const findTask = id => (S.tasks || []).find(x => x.id === id);
-  // Ordering everywhere: priority first, then soonest due, then oldest.
-  function taskSort(a, b){
-    const p = prioRank(a.priority) - prioRank(b.priority);
-    if (p) return p;
-    if (a.due && b.due && a.due !== b.due) return a.due < b.due ? -1 : 1;
-    if (a.due && !b.due) return -1;
-    if (!a.due && b.due) return 1;
-    return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+
+  // A task's date means one of two things, and they behave differently:
+  //   'on'  this has to happen that day, so it only surfaces that day
+  //   'by'  this has to be finished by then, so it surfaces until it is done
+  function taskAvailableOn(tk, d){
+    if (!tk.due) return true;
+    if (tk.dateType === 'on') return tk.due === dayKey(d);
+    return true;
+  }
+  // Urgency first, then priority, then soonest, then oldest.
+  function taskSorter(d){
+    const today = dayKey(d);
+    const rank = tk => {
+      if (tk.due && tk.due < today) return 0;                        // overdue
+      if (tk.due === today) return tk.dateType === 'on' ? 1 : 2;     // today, fixed before flexible
+      return 3;
+    };
+    return (a, b) => {
+      const r = rank(a) - rank(b); if (r) return r;
+      const p = prioRank(a.priority) - prioRank(b.priority); if (p) return p;
+      if (a.due && b.due && a.due !== b.due) return a.due < b.due ? -1 : 1;
+      if (a.due && !b.due) return -1;
+      if (!a.due && b.due) return 1;
+      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+    };
   }
   // A just-ticked task lingers for a beat so you see it strike through before
   // it clears out of the list.
   const openTasks = d => (S.tasks || []).filter(tk => !taskDone(tk, d) || tk.id === justDone);
-  // The tasks a block should offer: same category, still outstanding.
-  const tasksForCat = (catId, d) => openTasks(d).filter(tk => tk.cat === catId).sort(taskSort);
+  // The tasks a block should offer: same category, outstanding, and actually
+  // relevant to that day (a "do on Friday" task stays out of Tuesday's blocks).
+  const tasksForCat = (catId, d) =>
+    openTasks(d).filter(tk => tk.cat === catId && taskAvailableOn(tk, d)).sort(taskSorter(d));
+  const totalMins = list => list.reduce((a, tk) => a + (tk.mins || 0), 0);
 
   /* ==========================================================================
      Views
@@ -832,9 +855,18 @@
       const bt = isStep ? [] : tasksForCat(b.c, vd);
       if (bt.length){
         const openHere = openBlockTasks === b.uid;
+        const est = totalMins(bt);                       // estimated work waiting
+        const blockLen = mins(b.e) - mins(b.s);          // room available
         h += '<div class="btasks"><button class="taskchip'+(openHere?' on':'')+'" data-blocktasks="'+b.uid+'">'+
-          bt.length+' task'+(bt.length !== 1 ? 's' : '')+'<em>'+(openHere ? '▴' : '▾')+'</em></button>';
-        if (openHere) h += '<div class="tlist inblock">'+bt.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
+          bt.length+' task'+(bt.length !== 1 ? 's' : '')+(est ? ' · '+dur(est) : '')+
+          '<em>'+(openHere ? '▴' : '▾')+'</em></button>';
+        if (openHere){
+          if (est) h += '<div class="tfit'+(est > blockLen ? ' over' : '')+'">'+
+            (est > blockLen
+              ? dur(est)+' of tasks, only '+dur(blockLen)+' here'
+              : dur(est)+' of tasks in a '+dur(blockLen)+' block')+'</div>';
+          h += '<div class="tlist inblock">'+bt.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
+        }
         h += '</div>';
       }
       h += '</div></div>';
@@ -989,13 +1021,14 @@
   let showDone = false;
 
   function repeatLabel(rep){ return rep ? (rep.freq === 'daily' ? 'Daily' : rep.freq === 'monthly' ? 'Monthly' : 'Weekly') : ''; }
-  function dueLabel(due, d){
+  function dueLabel(due, d, type){
+    const on = type === 'on';
     const diff = daysBetween(dayKey(d), due);
     if (diff < 0) return { text: Math.abs(diff) + (Math.abs(diff) === 1 ? ' day over' : ' days over'), late: true };
-    if (diff === 0) return { text: 'Today', soon: true };
-    if (diff === 1) return { text: 'Tomorrow' };
+    if (diff === 0) return { text: on ? 'Today' : 'Due today', soon: true };
+    if (diff === 1) return { text: on ? 'Tomorrow' : 'By tomorrow' };
     const x = parseDay(due);
-    return { text: x.getDate() + ' ' + SHORT[x.getMonth()] };
+    return { text: (on ? 'On ' : 'By ') + x.getDate() + ' ' + SHORT[x.getMonth()] };
   }
 
   function taskRow(tk, d, compact){
@@ -1004,7 +1037,8 @@
     const bits = [];
     if (tk.priority === 'high') bits.push('<i class="prio-high">High</i>');
     if (!compact) bits.push('<i class="tcat"><b style="background:'+col+'"></b>'+esc(catOf(tk.cat).label)+'</i>');
-    if (tk.due){ const dl = dueLabel(tk.due, d); bits.push('<i class="'+(dl.late?'due-late':dl.soon?'due-soon':'')+'">'+esc(dl.text)+'</i>'); }
+    if (tk.due){ const dl = dueLabel(tk.due, d, tk.dateType); bits.push('<i class="'+(dl.late?'due-late':dl.soon?'due-soon':'')+'">'+esc(dl.text)+'</i>'); }
+    if (tk.mins) bits.push('<i class="tmins">'+dur(tk.mins)+'</i>');
     if (tk.repeat) bits.push('<i>'+repeatLabel(tk.repeat)+'</i>');
     return '<div class="trow'+(done?' done':'')+(justDone===tk.id?' just':'')+'">'+
       '<button class="tcheck" data-tasktoggle="'+tk.id+'|'+dayKey(d)+'" aria-label="Mark done">'+
@@ -1020,7 +1054,7 @@
   function tasksView(now){
     const today = dayKey(now);
     const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'>"+esc(c.label)+"</option>").join('');
-    const open = openTasks(now).sort(taskSort);
+    const open = openTasks(now).sort(taskSorter(now));
 
     let h = '<div class="gform taskadd">'+
       '<input id="tk_title" type="text" placeholder="What needs doing?" autocomplete="off">'+
@@ -1029,11 +1063,15 @@
         '<select id="tk_prio">'+PRIOS.map(p => "<option value='"+p[0]+"'"+(p[0]==='normal'?' selected':'')+">"+p[1]+"</option>").join('')+'</select>'+
       '</div>'+
       '<div class="frow">'+
+        '<select id="tk_when">'+DATEKINDS.map(k => "<option value='"+k[0]+"'>"+k[1]+"</option>").join('')+'</select>'+
         '<input id="tk_due" type="date">'+
+      '</div>'+
+      '<div class="frow">'+
         '<select id="tk_rep"><option value="once" selected>One-off</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>'+
+        '<select id="tk_mins">'+MINOPTS.map(o => "<option value='"+o[0]+"'>"+o[1]+"</option>").join('')+'</select>'+
       '</div>'+
       '<button class="go" data-addtask>Add task</button>'+
-      '<small class="gform-hint">Only the name is required. Tasks appear inside whichever block shares their category.</small></div>';
+      '<small class="gform-hint">Only the name is required. "Due by" stays on your list until it is done; "Do on" only turns up that day.</small></div>';
 
     h += '<div class="dayadd" style="margin-top:14px"><button class="ai-btn" data-aiopen>✦ Dump a list with your AI</button></div>';
 
@@ -1069,6 +1107,7 @@
     clearModalDrafts();
     taskEdit = { id: tk.id, title: tk.title, note: tk.note || '', cat: tk.cat,
       priority: tk.priority || 'normal', due: tk.due || '',
+      dateType: tk.dateType || 'by', mins: tk.mins || 0,
       repeat: tk.repeat ? tk.repeat.freq : 'once' };
     render();
   }
@@ -1083,7 +1122,10 @@
     h += '<div class="fld two">'+
       '<label><span>Priority</span><select id="te_prio">'+PRIOS.map(p=>"<option value='"+p[0]+"'"+(p[0]===e.priority?' selected':'')+">"+p[1]+"</option>").join('')+'</select></label>'+
       '<label><span>Repeat</span><select id="te_rep">'+REPS.map(r=>"<option value='"+r[0]+"'"+(r[0]===e.repeat?' selected':'')+">"+r[1]+"</option>").join('')+'</select></label></div>';
-    h += '<label class="fld"><span>Due (optional)</span><input id="te_due" type="date" value="'+esc(e.due)+'"></label>';
+    h += '<div class="fld two">'+
+      '<label><span>Date means</span><select id="te_when">'+DATEKINDS.map(k=>"<option value='"+k[0]+"'"+(k[0]===e.dateType?' selected':'')+">"+k[1]+"</option>").join('')+'</select></label>'+
+      '<label><span>Date (optional)</span><input id="te_due" type="date" value="'+esc(e.due)+'"></label></div>';
+    h += '<label class="fld"><span>How long will it take?</span><select id="te_mins">'+MINOPTS.map(o=>"<option value='"+o[0]+"'"+(o[0]===e.mins?' selected':'')+">"+o[1]+"</option>").join('')+'</select></label>';
     h += '<div class="modal-actions"><button class="del" data-deltask="'+e.id+'">Delete</button>'+
       '<span style="flex:1"></span><button class="ghost" data-closetask>Cancel</button>'+
       '<button class="go" data-savetask>Save</button></div></div>';
@@ -1100,6 +1142,8 @@
     tk.cat = (g('te_cat') || {}).value || tk.cat;
     tk.priority = (g('te_prio') || {}).value || 'normal';
     tk.due = (g('te_due') || {}).value || null;
+    tk.dateType = (g('te_when') || {}).value || 'by';
+    tk.mins = +((g('te_mins') || {}).value || 0) || null;
     const rep = (g('te_rep') || {}).value || 'once';
     tk.repeat = rep === 'once' ? null : { freq: rep, interval: 1 };
     taskEdit = null; clearModalDrafts(); save(); render();
@@ -1243,7 +1287,7 @@
   }
   const clearDraft = id => { delete drafts[id]; };
   const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
-    'te_title','te_note','te_cat','te_prio','te_rep','te_due'];
+    'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','tk_when','tk_mins'];
   const clearModalDrafts = () => MODAL_IDS.forEach(clearDraft);
 
   function paint(h){
@@ -1384,11 +1428,13 @@
       'Reply with ONLY a JSON object in this exact shape, with no other words:',
       '{',
       '  "events": [ { "title": "", "category": "'+cats+'", "start": "HH:MM", "end": "HH:MM", "repeat": "once|daily|weekdays|weekly|fortnightly|monthly", "weekdays": [0,1,2,3,4,5,6], "date": "YYYY-MM-DD", "note": "" } ],',
-      '  "tasks":  [ { "title": "", "category": "'+cats+'", "priority": "high|normal|low", "due": "YYYY-MM-DD", "repeat": "once|daily|weekly|monthly", "note": "" } ],',
+      '  "tasks":  [ { "title": "", "category": "'+cats+'", "priority": "high|normal|low", "due": "YYYY-MM-DD", "dateType": "by|on", "minutes": 30, "repeat": "once|daily|weekly|monthly", "note": "" } ],',
       '  "habits": [ { "label": "", "category": "'+cats+'", "timesPerDay": 1 } ],',
       '  "goals":  [ { "title": "", "targetDate": "YYYY-MM-DD", "category": "'+cats+'", "steps": [ { "label": "", "freq": "daily|weekly|monthly" } ] } ]',
       '}',
-      'Events are things with a time. Tasks are things to get done. Give each a category and priority. "due" and "repeat" are optional.',
+      'Events are things with a time. Tasks are things to get done. Give each a category and priority. "due", "repeat" and "minutes" are optional.',
+      'dateType says what the date means: "on" if it must happen that day, "by" if it just has to be finished by then. Default to "by".',
+      'minutes is a rough estimate of how long the task takes, so it can be fitted into a block.',
       'Rules: weekdays are 0=Sun … 6=Sat. Use "date" only when repeat is "once". Omit "start"/"end" for an all-day item. Skip any field you don\'t need. Today is '+dayKey(new Date())+'.',
       'Here is what I want: '
     ].join('\n');
@@ -1459,6 +1505,8 @@
         cat: matchCat(x.category),
         priority: (['high','normal','low'].indexOf(x.priority) >= 0 ? x.priority : 'normal'),
         due: (typeof x.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.due)) ? x.due : null,
+        dateType: (x.dateType === 'on' ? 'on' : 'by'),
+        mins: (typeof x.minutes === 'number' && x.minutes > 0) ? Math.min(600, Math.round(x.minutes)) : null,
         repeat: (['daily','weekly','monthly'].indexOf(rep) >= 0) ? { freq: rep, interval: 1 } : null,
         createdAt: new Date().toISOString(), doneAt: null
       };
@@ -1505,7 +1553,7 @@
     h += grp(tks.length+' task'+(tks.length !== 1 ? 's' : ''), tks.map(x =>
       '<div class="ai-row"><span class="cd" style="background:'+catColor(x.cat)+'"></span>'+
       '<span class="pt">'+esc(x.title)+(x.priority === 'high' ? '<small>High priority</small>' : '')+'</span>'+
-      '<span class="when">'+(x.due ? esc(niceBy(x.due)) : (x.repeat ? repeatLabel(x.repeat) : 'anytime'))+'</span></div>'));
+      '<span class="when">'+esc((x.due ? (x.dateType === 'on' ? 'on ' : 'by ')+niceBy(x.due) : (x.repeat ? repeatLabel(x.repeat) : 'anytime')) + (x.mins ? ' · '+dur(x.mins) : ''))+'</span></div>'));
     h += grp(p.habits.length+' habit'+(p.habits.length !== 1 ? 's' : ''), p.habits.map(x =>
       '<div class="ai-row"><span class="cd" style="background:'+catColor(x.cat)+'"></span>'+
       '<span class="pt">'+esc(x.label)+'</span><span class="when">'+(x.target > 1 ? x.target+'× daily' : 'daily')+'</span></div>'));
@@ -1776,6 +1824,8 @@
         cat: (document.getElementById('tk_cat') || {}).value || (S.categories[0]||{}).id,
         priority: (document.getElementById('tk_prio') || {}).value || 'normal',
         due: (document.getElementById('tk_due') || {}).value || null,
+        dateType: (document.getElementById('tk_when') || {}).value || 'by',
+        mins: +((document.getElementById('tk_mins') || {}).value || 0) || null,
         repeat: rep === 'once' ? null : { freq: rep, interval: 1 },
         createdAt: new Date().toISOString(), doneAt: null
       });

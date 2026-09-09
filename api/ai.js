@@ -34,6 +34,8 @@ const Task = z.object({
   category: z.string().nullable(),
   priority: z.enum(['high', 'normal', 'low']).nullable(),
   due: z.string().nullable(),
+  dateType: z.enum(['by', 'on']).nullable(),
+  minutes: z.number().nullable(),
   repeat: z.enum(['once', 'daily', 'weekly', 'monthly']).nullable(),
   note: z.string().nullable()
 });
@@ -101,6 +103,8 @@ export default async function handler(req, res){
   const system = [
     'You turn a person\'s plain-language notes into entries for their planner, Athena.',
     'Events are things with a time of day. Tasks are things to finish; give each a category and a priority.',
+    'On a task, dateType says what its date means: "on" if it must happen that day, "by" if it only has to be done by then. Default to "by".',
+    'minutes is a rough estimate of how long a task takes, so it can be fitted into a block. Estimate it when you reasonably can.',
     'Habits are small daily things worth a streak. Goals are bigger, with a target date and repeatable steps.',
     'Their categories are: ' + (categories || 'Personal, Work, Health') + '. Use exactly these names.',
     'Today is ' + (today || new Date().toISOString().slice(0, 10)) + '. Resolve relative dates like "Friday" against it.',

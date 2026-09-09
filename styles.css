@@ -719,3 +719,8 @@
     #soft-app .fld.two { flex-wrap: wrap; }
     #soft-app .fld.two label { flex: 1 1 46%; min-width: 0; }
   }
+
+  /* task duration and block fit */
+  #soft-app .tmeta .tmins { color: var(--dim); }
+  #soft-app .tfit { font-size: 11.5px; color: var(--ghost); margin: 7px 0 2px; }
+  #soft-app .tfit.over { color: #E8A487; }
