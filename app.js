@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-09.11';
+  const BUILD = '2026-09-09.12';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -910,9 +910,52 @@
     }));
     return out;
   }
-  // Everything that appears on a given day: real events + scheduled goal steps.
+  /* ---- tasks that have been given a time ----
+     Most tasks have no time: they are filed by category and turn up inside
+     whichever block shares it. Some are appointments, though. Once a task has a
+     time it stops being something to fit in and becomes something that happens,
+     so it takes its own place on the rail and leaves the block lists alone. */
+  // A time only means anything on a particular day. Set one with no date and no
+  // repeat and it would belong to no day at all, so pin it to today rather than
+  // silently dropping what someone just typed. A time also settles the question
+  // the date was asking: this happens then, so "by" no longer applies.
+  function normaliseAt(value, tk){
+    const at = /^\d{1,2}:\d{2}$/.test(value || '') ? value : null;
+    if (!at) return null;
+    if (!tk.due && !tk.repeat) tk.due = dayKey(new Date());
+    tk.dateType = 'on';
+    return at;
+  }
+
+  function taskAtOn(tk, D){
+    if (!tk.at) return false;
+    const dk = dayKey(D);
+    if (!tk.repeat) return tk.due === dk;
+    const f = tk.repeat.freq;
+    if (f === 'daily') return !tk.due || dk >= tk.due;
+    if (!tk.due || dk < tk.due) return false;
+    const due = parseDay(tk.due);
+    if (f === 'weekly') return D.getDay() === due.getDay();
+    return D.getDate() === due.getDate();          // monthly
+  }
+  function taskBlocksOnDate(D){
+    const dk = dayKey(D), out = [];
+    (S.tasks || []).forEach(tk => {
+      if (!taskAtOn(tk, D)) return;
+      out.push({
+        id: tk.id, uid: 'task:' + tk.id + '@' + dk,
+        t: tk.title, n: tk.note || '', c: tk.cat, allDay: false,
+        s: tk.at, e: fmtM(Math.min(24 * 60 - 1, mins(tk.at) + (tk.mins || 30))),
+        task: tk
+      });
+    });
+    return out;
+  }
+
+  // Everything that appears on a given day: real events, scheduled goal steps,
+  // and tasks with a time of their own.
   function blocksForDate(D){
-    const all = eventsOnDate(D).concat(stepBlocksOnDate(D));
+    const all = eventsOnDate(D).concat(stepBlocksOnDate(D)).concat(taskBlocksOnDate(D));
     all.sort((a,b) => (a.allDay?-1:0)-(b.allDay?-1:0) || mins(a.s||'00:00') - mins(b.s||'00:00'));
     return all;
   }
@@ -1045,8 +1088,10 @@
   const openTasks = d => (S.tasks || []).filter(tk => !taskDone(tk, d) || tk.id === justDone);
   // The tasks a block should offer: same category, outstanding, and actually
   // relevant to that day (a "do on Friday" task stays out of Tuesday's blocks).
+  // A task with a time of its own has a place on the rail already, so it never
+  // queues inside a block as well.
   const tasksForCat = (catId, d) =>
-    openTasks(d).filter(tk => tk.cat === catId && taskAvailableOn(tk, d)).sort(taskSorter(d));
+    openTasks(d).filter(tk => !tk.at && tk.cat === catId && taskAvailableOn(tk, d)).sort(taskSorter(d));
   const totalMins = list => list.reduce((a, tk) => a + (tk.mins || 0), 0);
 
   /* ==========================================================================
@@ -1242,7 +1287,10 @@
       if (nx){ const g = mins(nx.s) - mins(b.e); if (g >= 30) items.push({ type:'gap', from:mins(b.e), to:mins(nx.s), next:nx }); }
     });
     const openTotal = items.filter(x=>x.type==='gap').reduce((a,x)=>a+(x.to-x.from),0);
-    const timed = blocks.filter(b => !b.step);                // goal steps don't count as "booked"
+    // Goal steps and timed tasks don't count as "booked": both commonly sit
+    // inside a block that already claimed that time, and counting them would
+    // book the same hour twice.
+    const timed = blocks.filter(b => !b.step && !b.task);
     const booked = timed.reduce((a,b)=>a+(mins(b.e)-mins(b.s)),0);
     const split = {};
     timed.forEach(b => { split[b.c] = (split[b.c]||0) + (mins(b.e)-mins(b.s)); });
@@ -1278,22 +1326,27 @@
       }
       const b = it.b;
       const isStep = !!b.step;
+      const isTask = !!b.task;
       const live = t >= mins(b.s) && t < mins(b.e);
       const past = t >= mins(b.e);
-      const done = isStep ? isDone('w:' + b.step.sid, weekKey(vd)) : isDone(b.id, dk);
+      const done = isStep ? isDone('w:' + b.step.sid, weekKey(vd))
+                 : isTask ? taskDone(b.task, vd)
+                 : isDone(b.id, dk);
       const col = catColor(b.c);
       let dotStyle = '';
       if (done) dotStyle = 'background:'+col+';border-color:'+col;
       else if (live) dotStyle = 'background:var(--live);border-color:var(--live)';
       else if (!past) dotStyle = 'border-color:'+col;
-      const doneAct = isStep ? 'data-stepweek="'+b.step.gid+':'+b.step.sid+'|'+dk+'"' : 'data-done="'+b.id+'|'+dk+'"';
-      h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+((justDone === (isStep ? b.step.sid : b.id))?' just':'')+'">'+
+      const doneAct = isStep ? 'data-stepweek="'+b.step.gid+':'+b.step.sid+'|'+dk+'"'
+                    : isTask ? 'data-tasktoggle="'+b.task.id+'|'+dk+'"'
+                    : 'data-done="'+b.id+'|'+dk+'"';
+      h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+(isTask?' astask':'')+((justDone === (isStep ? b.step.sid : b.id))?' just':'')+'">'+
         '<div class="clock">'+clockOf(b.s)+'</div>'+
         '<div class="track"><button class="dot" '+doneAct+' style="'+dotStyle+'" '+
           'aria-label="'+(done ? 'Undo ' : 'Tick off ')+esc(b.t)+'">'+TICK+'</button></div>'+
         '<div class="card"><div class="cardrow">'+
         '<button class="cardmain" '+doneAct+'>'+
-        '<div class="t">'+esc(b.t)+'</div>'+
+        '<div class="t">'+esc(b.t)+(isTask?'<em class="tasktag">· task</em>':'')+'</div>'+
         (b.n?'<div class="n">'+esc(b.n)+'</div>':'');
       if (live){
         const pct = ((t - mins(b.s)) / (mins(b.e) - mins(b.s))) * 100;
@@ -1302,10 +1355,12 @@
       }
       h += '</button>'+
         (isStep ? '<button class="editdot" data-gotogoal="'+b.step.gid+'" aria-label="Open goal">›</button>'
-                : '<button class="editdot" data-editinst="'+b.id+'|'+dk+'" aria-label="Edit">⋯</button>')+
+         : isTask ? '<button class="editdot" data-taskedit="'+b.task.id+'" aria-label="Edit task">⋯</button>'
+                  : '<button class="editdot" data-editinst="'+b.id+'|'+dk+'" aria-label="Edit">⋯</button>')+
         '</div>';
-      // Tasks waiting in this block's category
-      const bt = isStep ? [] : tasksForCat(b.c, vd);
+      // Tasks waiting in this block's category. An appointment is not a block,
+      // so it does not collect a queue of its own.
+      const bt = (isStep || isTask) ? [] : tasksForCat(b.c, vd);
       if (bt.length){
         const openHere = openBlockTasks === b.uid;
         const est = totalMins(bt);                       // estimated work waiting
@@ -1330,9 +1385,11 @@
     // otherwise vanish from this screen entirely. Say so, rather than quietly
     // breaking the promise.
     const blockedCats = {};
-    all.forEach(b => { if (!b.step) blockedCats[b.c] = 1; });   // all-day blocks count too
+    // All-day blocks count as a home. Goal steps and timed tasks do not: neither
+    // collects a queue of its own, so neither is anywhere a task can land.
+    all.forEach(b => { if (!b.step && !b.task) blockedCats[b.c] = 1; });
     const homeless = openTasks(vd)
-      .filter(tk => !blockedCats[tk.cat] && taskAvailableOn(tk, vd))
+      .filter(tk => !tk.at && !blockedCats[tk.cat] && taskAvailableOn(tk, vd))
       .sort(taskSorter(vd));
     if (homeless.length){
       const names = {};
@@ -1510,6 +1567,7 @@
     if (tk.priority === 'high') bits.push('<i class="prio-high">High</i>');
     if (!compact) bits.push('<i class="tcat"><b style="background:'+col+'"></b>'+esc(catOf(tk.cat).label)+'</i>');
     if (tk.due){ const dl = dueLabel(tk.due, d, tk.dateType); bits.push('<i class="'+(dl.late?'due-late':dl.soon?'due-soon':'')+'">'+esc(dl.text)+'</i>'); }
+    if (tk.at) bits.push('<i class="tat">'+clockOf(tk.at)+'</i>');
     if (tk.mins) bits.push('<i class="tmins">'+dur(tk.mins)+'</i>');
     if (tk.repeat) bits.push('<i>'+repeatLabel(tk.repeat)+'</i>');
     return '<div class="trow'+(done?' done':'')+(justDone===tk.id?' just':'')+'">'+
@@ -1544,13 +1602,15 @@
       '<div class="frow">'+
         '<select id="tk_when">'+DATEKINDS.map(k => "<option value='"+k[0]+"'>"+k[1]+"</option>").join('')+'</select>'+
         '<input id="tk_due" type="date">'+
+        '<input id="tk_at" type="time" aria-label="At a set time (optional)">'+
       '</div>'+
       '<div class="frow">'+
         '<select id="tk_rep"><option value="once" selected>One-off</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>'+
         '<select id="tk_mins">'+MINOPTS.map(o => "<option value='"+o[0]+"'>"+o[1]+"</option>").join('')+'</select>'+
       '</div>'+
       '<button class="go" data-addtask>Add task</button>'+
-      '<small class="gform-hint">Only the name is required. "Due by" stays on your list until it is done; "Do on" only turns up that day.</small></div>';
+      '<small class="gform-hint">Only the name is required. "Due by" stays on your list until it is done; "Do on" only turns up that day. '+
+      'Add a time and it stops queueing inside a block and takes its own place in the day, like an appointment.</small></div>';
 
     h += '<div class="dayadd" style="margin-top:14px"><button class="ai-btn" data-aiopen>✦ Dump a list with your AI</button></div>';
 
@@ -1604,7 +1664,10 @@
     h += '<div class="fld two">'+
       '<label><span>Date means</span><select id="te_when">'+DATEKINDS.map(k=>"<option value='"+k[0]+"'"+(k[0]===e.dateType?' selected':'')+">"+k[1]+"</option>").join('')+'</select></label>'+
       '<label><span>Date (optional)</span><input id="te_due" type="date" value="'+esc(e.due)+'"></label></div>';
-    h += '<label class="fld"><span>How long will it take?</span><select id="te_mins">'+MINOPTS.map(o=>"<option value='"+o[0]+"'"+(o[0]===e.mins?' selected':'')+">"+o[1]+"</option>").join('')+'</select></label>';
+    h += '<div class="fld two">'+
+      '<label><span>At a set time</span><input id="te_at" type="time" value="'+esc(e.at || '')+'"></label>'+
+      '<label><span>How long will it take?</span><select id="te_mins">'+MINOPTS.map(o=>"<option value='"+o[0]+"'"+(o[0]===e.mins?' selected':'')+">"+o[1]+"</option>").join('')+'</select></label></div>';
+    h += '<small class="gform-hint">A time turns this into an appointment: it takes its own place in the day instead of waiting inside a block. Leave it blank and Athena decides when to offer it.</small>';
     h += '<div class="modal-actions"><button class="del" data-deltask="'+e.id+'">Delete</button>'+
       '<span style="flex:1"></span><button class="ghost" data-closetask>Cancel</button>'+
       '<button class="go" data-savetask>Save</button></div></div>';
@@ -1625,6 +1688,7 @@
     tk.mins = +((g('te_mins') || {}).value || 0) || null;
     const rep = (g('te_rep') || {}).value || 'once';
     tk.repeat = rep === 'once' ? null : { freq: rep, interval: 1 };
+    tk.at = normaliseAt((g('te_at') || {}).value, tk);
     taskEdit = null; clearModalDrafts(); save(); render();
   }
 
@@ -2038,13 +2102,14 @@
       'Reply with ONLY a JSON object in this exact shape, with no other words:',
       '{',
       '  "events": [ { "title": "", "category": "'+cats+'", "start": "HH:MM", "end": "HH:MM", "repeat": "once|daily|weekdays|weekly|fortnightly|monthly", "weekdays": [0,1,2,3,4,5,6], "date": "YYYY-MM-DD", "note": "" } ],',
-      '  "tasks":  [ { "title": "", "category": "'+cats+'", "priority": "high|normal|low", "due": "YYYY-MM-DD", "dateType": "by|on", "minutes": 30, "repeat": "once|daily|weekly|monthly", "note": "" } ],',
+      '  "tasks":  [ { "title": "", "category": "'+cats+'", "priority": "high|normal|low", "due": "YYYY-MM-DD", "dateType": "by|on", "minutes": 30, "at": "HH:MM", "repeat": "once|daily|weekly|monthly", "note": "" } ],',
       '  "habits": [ { "label": "", "category": "'+cats+'", "timesPerDay": 1 } ],',
       '  "goals":  [ { "title": "", "targetDate": "YYYY-MM-DD", "category": "'+cats+'", "steps": [ { "label": "", "freq": "daily|weekly|monthly" } ] } ]',
       '}',
       'Events are things with a time. Tasks are things to get done. Give each a category and priority. "due", "repeat" and "minutes" are optional.',
       'dateType says what the date means: "on" if it must happen that day, "by" if it just has to be finished by then. Default to "by".',
       'minutes is a rough estimate of how long the task takes, so it can be fitted into a block.',
+      'at is only for a task that must happen at a set time, like an appointment. Leave it out otherwise.',
       'Rules: weekdays are 0=Sun … 6=Sat. Use "date" only when repeat is "once". Omit "start"/"end" for an all-day item. Skip any field you don\'t need. Today is '+dayKey(new Date())+'.',
       'Here is what I want: '
     ].join('\n');
@@ -2110,7 +2175,7 @@
     const events = (Array.isArray(obj.events) ? obj.events : []).filter(e => e && e.title).map(aiImportEvent);
     const tasks = (Array.isArray(obj.tasks) ? obj.tasks : []).filter(x => x && x.title).map(x => {
       const rep = String(x.repeat || 'once');
-      return {
+      const out = {
         id:'tk_'+uid8(), title:String(x.title).slice(0,140), note:String(x.note || '').slice(0,200),
         cat: matchCat(x.category),
         priority: (['high','normal','low'].indexOf(x.priority) >= 0 ? x.priority : 'normal'),
@@ -2118,8 +2183,10 @@
         dateType: (x.dateType === 'on' ? 'on' : 'by'),
         mins: (typeof x.minutes === 'number' && x.minutes > 0) ? Math.min(600, Math.round(x.minutes)) : null,
         repeat: (['daily','weekly','monthly'].indexOf(rep) >= 0) ? { freq: rep, interval: 1 } : null,
-        createdAt: new Date().toISOString(), doneAt: null
+        at: null, createdAt: new Date().toISOString(), doneAt: null
       };
+      out.at = normaliseAt(typeof x.at === 'string' ? x.at : '', out);
+      return out;
     });
     const habits = (Array.isArray(obj.habits) ? obj.habits : []).filter(h => h && h.label).map(h => ({
       id:'hb_'+uid8(), label:String(h.label).slice(0,80), cat:matchCat(h.category),
@@ -2456,7 +2523,7 @@
       if (!ti.trim()) return;
       const rep = (document.getElementById('tk_rep') || {}).value || 'once';
       S.tasks = S.tasks || [];
-      S.tasks.push({
+      const nt = {
         id: 'tk_'+uid8(), title: ti.trim().slice(0,140), note: '',
         cat: (document.getElementById('tk_cat') || {}).value || (S.categories[0]||{}).id,
         priority: (document.getElementById('tk_prio') || {}).value || 'normal',
@@ -2464,9 +2531,11 @@
         dateType: (document.getElementById('tk_when') || {}).value || 'by',
         mins: +((document.getElementById('tk_mins') || {}).value || 0) || null,
         repeat: rep === 'once' ? null : { freq: rep, interval: 1 },
-        createdAt: new Date().toISOString(), doneAt: null
-      });
-      clearDraft('tk_title'); clearDraft('tk_due');
+        at: null, createdAt: new Date().toISOString(), doneAt: null
+      };
+      nt.at = normaliseAt((document.getElementById('tk_at') || {}).value, nt);
+      S.tasks.push(nt);
+      clearDraft('tk_title'); clearDraft('tk_due'); clearDraft('tk_at');
       save(); render();
       const i = document.getElementById('tk_title'); if (i) i.focus();   // keep dumping
       return;

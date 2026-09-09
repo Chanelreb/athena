@@ -753,6 +753,9 @@
 
   /* task duration and block fit */
   #soft-app .tmeta .tmins { color: var(--dim); }
+  /* a task that has been given a time of its own */
+  #soft-app .tmeta .tat { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+  #soft-app .item .tasktag { font-style: normal; color: var(--ghost); font-size: 11.5px; margin-left: 7px; }
   #soft-app .tfit { font-size: 11.5px; color: var(--ghost); margin: 7px 0 2px; }
   #soft-app .tfit.over { color: #E8A487; }
 
