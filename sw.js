@@ -33,6 +33,9 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  // The update check must reach the real server, or a stale copy can never
+  // notice that it is the stale one. Never intercept it, never cache it.
+  if (url.pathname.endsWith('/version.json')) return;
   e.respondWith(
     fetch(req)
       .then((res) => {

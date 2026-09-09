@@ -13,7 +13,11 @@
   // Shown in Settings. A device serving an old cached copy of the app reports an
   // old stamp, which is the quickest way to tell "it is broken" from "it is not
   // the version you think it is". Bump this on anything worth identifying.
-  const BUILD = '2026-09-09.5';
+  //
+  // KEEP IN STEP WITH version.json. The running copy compares itself against
+  // that file on the server, so if the two drift the check either never fires
+  // or fires forever. Both change together, every release.
+  const BUILD = '2026-09-09.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1564,6 +1568,25 @@
     } catch(_){ alert('Could not save the file. Try from a browser tab rather than the installed app.'); }
   }
 
+  // An app added to the home screen keeps its own storage, separate from the
+  // browser it was added from. Fixing the browser does nothing for the icon on
+  // the home screen, and the icon has no address bar to type a fresh URL into,
+  // so a device stuck on a bad cached copy had no way out from the inside.
+  // This gives it one: ask the server what the current build is and, if this
+  // copy is not it, clear everything out and reload. Once per launch, so a
+  // failure cannot become a reload loop.
+  async function updateIfStale(){
+    try {
+      const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const v = await r.json();
+      if (!v || !v.build || v.build === BUILD) return;
+      if (sessionStorage.getItem('athena:updating') === v.build) return;
+      sessionStorage.setItem('athena:updating', v.build);
+      await forceUpdate();
+    } catch(_){ /* offline, or no version file: carry on with what we have */ }
+  }
+
   async function forceUpdate(){
     try {
       if (window.caches) (await caches.keys()).forEach(k => caches.delete(k));
@@ -2257,6 +2280,7 @@
 
   async function boot(){
     keepDrafts();
+    updateIfStale();     // deliberately not awaited: never hold the app on it
     if (!sb){ startApp(); return; }                    // no config -> local-only
     try { const { data } = await sb.auth.getSession(); session = data.session || null; }
     catch(_){ session = null; }
