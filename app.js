@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-09.9';
+  const BUILD = '2026-09-09.10';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -211,7 +211,9 @@
   let openDay = null;                 // week strips: which day is expanded
   let openGoal = null;
   let openBlockTasks = null;          // which block has its task list expanded
-  let manageBlocks = false;           // Week view: showing the whole-rhythm editor
+  // Today and the whole week are the same calendar at two zoom levels, so they
+  // share the Day tab. Blocks got the slot that Week used to hold.
+  let dayMode = 'today';              // 'today' | 'week'
   let expanded = (typeof window !== 'undefined' && window.innerWidth >= 900);
   let editing = null;                 // event-editor state, or null
   // Which day/week you're looking at, as an offset in days from today. Day view
@@ -225,6 +227,7 @@
   // (whole-week shape) are still one tap away.
   let weekMode = 'days';              // 'days' | 'strips'
   const phoneGrid = () => !canGrid() && weekMode === 'days';
+  const weekShown = () => view === 'day' && dayMode === 'week';
 
   function firstRun(){
     // The "skip setup" default — a light generic starter. Marks onboarded.
@@ -693,7 +696,7 @@
     markUndo('Setup changes applied');
     obApplyChanges(ob.changes || []);
     S.profile.onboarded = true;
-    ob = null; view = 'week'; manageBlocks = true;   // land where they can adjust
+    ob = null; view = 'blocks';        // land where they can adjust
     save(); render();
   }
 
@@ -1320,6 +1323,25 @@
       h += '</div></div>';
     });
 
+    // Athena promises that tasks find their own way into your day. When a task's
+    // category has no block today there is nowhere for it to land, and it would
+    // otherwise vanish from this screen entirely. Say so, rather than quietly
+    // breaking the promise.
+    const blockedCats = {};
+    all.forEach(b => { if (!b.step) blockedCats[b.c] = 1; });   // all-day blocks count too
+    const homeless = openTasks(vd)
+      .filter(tk => !blockedCats[tk.cat] && taskAvailableOn(tk, vd))
+      .sort(taskSorter(vd));
+    if (homeless.length){
+      const names = {};
+      homeless.forEach(tk => { const c = S.categories.find(x => x.id === tk.cat); names[c ? c.label : 'Other'] = 1; });
+      h += '<div class="homeless"><div class="homeless-h">'+
+        '<b>'+homeless.length+' task'+(homeless.length !== 1 ? 's' : '')+' with no block today</b>'+
+        '<span>Nothing scheduled for '+esc(Object.keys(names).join(', '))+' today. Tick them off here, or give them somewhere to live.</span></div>'+
+        '<div class="tlist">'+homeless.map(tk => taskRow(tk, vd, true)).join('')+'</div>'+
+        '<button class="linkish" data-newon="'+dk+'">Add a block for today</button></div>';
+    }
+
     h += '<div class="dayadd"><button data-newon="'+dk+'">+ New event</button>'+
       '<button class="ai-btn" data-aiopen>✦ Ask your AI</button></div>';
     return h;
@@ -1772,11 +1794,12 @@
 
   // Prev / next / back-to-today for the Day and Week views.
   function dateNav(vd, now){
-    if (view !== 'day' && view !== 'week') return '';
-    if (manageBlocks) return '';        // the rhythm editor is not tied to a date
-    const step = view === 'week' ? (phoneGrid() ? 3 : 7) : 1;
+    // Only the calendar is tied to a date. Blocks, tasks, habits and goals are
+    // not, so they get no date strip at all.
+    if (view !== 'day') return '';
+    const step = weekShown() ? (phoneGrid() ? 3 : 7) : 1;
     let label, rel = '';
-    if (view === 'day'){
+    if (!weekShown()){
       const diff = daysBetween(dayKey(now), dayKey(vd));
       rel = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : diff === -1 ? 'Yesterday' : '';
       label = DAYS[vd.getDay()] + ' ' + vd.getDate() + ' ' + SHORT[vd.getMonth()];
@@ -1798,7 +1821,7 @@
     h += '<button class="dnav" data-shift="'+(-step)+'" aria-label="Previous">‹</button>';
     h += '<span class="dnlabel"><b>'+esc(label)+'</b>'+(rel ? '<small>'+rel+'</small>' : '')+'</span>';
     h += '<button class="dnav" data-shift="'+step+'" aria-label="Next">›</button>';
-    if (dayShift !== 0) h += '<button class="dntoday" data-today>'+(view === 'week' ? 'This week' : 'Today')+'</button>';
+    if (dayShift !== 0) h += '<button class="dntoday" data-today>'+(weekShown() ? 'This week' : 'Today')+'</button>';
     h += '</div>';
     return h;
   }
@@ -1839,20 +1862,26 @@
       '<button class="cog" data-settings aria-label="Settings">'+COG+'</button></div>';
     h += '<div class="quote"><p>'+esc(LINES[doy % LINES.length])+'</p></div>';
 
+    // Blocks are a top-level place now, not a mode hidden inside the week. Today
+    // and the whole week are two views of the same calendar, so they share a tab
+    // and a toggle instead of spending two slots in the row.
     h += '<div class="segrow"><div class="seg">'+
-      ['day','week','tasks','habits','goals'].map(v =>
-        '<button data-view="'+v+'"'+(view===v?' class="on"':'')+'>'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>').join('')+
+      [['day','Day'],['blocks','Blocks'],['tasks','Tasks'],['habits','Habits'],['goals','Goals']].map(v =>
+        '<button data-view="'+v[0]+'"'+(view===v[0]?' class="on"':'')+'>'+v[1]+'</button>').join('')+
       '</div>'+
-      (view==='week' && canGrid() && !manageBlocks ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
-      (view==='week' && !canGrid() && !manageBlocks ? '<button class="expand" data-weekmode="1">'+(weekMode==='days'?'See whole week':'See 3 days')+'</button>' : '')+
-      (view==='week' ? '<button class="expand" data-manageblocks="1">'+(manageBlocks?'Back to calendar':'Manage blocks')+'</button>' : '')+
+      (view==='day' ? '<div class="seg sub">'+
+        [['today','Today'],['week','Whole week']].map(m =>
+          '<button data-daymode="'+m[0]+'"'+(dayMode===m[0]?' class="on"':'')+'>'+m[1]+'</button>').join('')+
+        '</div>' : '')+
+      (weekShown() && canGrid() ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
+      (weekShown() && !canGrid() ? '<button class="expand" data-weekmode="1">'+(weekMode==='days'?'See all 7 days':'See 3 days')+'</button>' : '')+
       '</div>';
-    app.classList.toggle('wide', view==='week' && gridShown());
+    app.classList.toggle('wide', weekShown() && gridShown());
 
     h += dateNav(vd, now);
 
-    if (view === 'day')    h += dayRail(vd, now);
-    else if (view === 'week')  h += manageBlocks ? blocksManagerHTML(now) : weekView(vd, now);
+    if (view === 'day')    h += weekShown() ? weekView(vd, now) : dayRail(vd, now);
+    else if (view === 'blocks') h += blocksManagerHTML(now);
     else if (view === 'tasks')  h += tasksView(now);
     else if (view === 'habits') h += habitsView(now);
     else if (view === 'goals')  h += goalsView(now);
@@ -2320,7 +2349,7 @@
   // Swipe left/right on the Day view to step through days (phones).
   let swX = null, swY = null;
   app.addEventListener('touchstart', e => {
-    const swipeable = (view === 'day') || (view === 'week' && !manageBlocks);
+    const swipeable = (view === 'day');
     if (!swipeable || editing || settingsOpen || aiOpen || ob || taskEdit || e.touches.length !== 1){ swX = null; return; }
     swX = e.touches[0].clientX; swY = e.touches[0].clientY;
   }, { passive: true });
@@ -2331,7 +2360,7 @@
     if (!tp) return;
     const dx = tp.clientX - x, dy = tp.clientY - y;
     if (Math.abs(dx) > 70 && Math.abs(dy) < 45){
-      const step = view === 'week' ? (phoneGrid() ? 3 : 7) : 1;
+      const step = weekShown() ? (phoneGrid() ? 3 : 7) : 1;
       dayShift += (dx < 0 ? step : -step);   // swipe left = forwards
       noClick = true;                  // swallow the click this gesture would fire
       render();
@@ -2457,7 +2486,7 @@
     if ((m = t('[data-view]'))){ view = m.dataset.view; openDay = null; render(); return; }
     if ((m = t('[data-shift]'))){ dayShift += +m.dataset.shift; openDay = null; render(); return; }
     if (t('[data-today]')){ dayShift = 0; openDay = null; render(); return; }
-    if (t('[data-manageblocks]')){ manageBlocks = !manageBlocks; render(); return; }
+    if ((m = t('[data-daymode]'))){ dayMode = m.dataset.daymode; openDay = null; render(); return; }
     if (t('[data-weekmode]')){ weekMode = (weekMode === 'days' ? 'strips' : 'days'); render(); return; }
     if (t('[data-expand]')){ expanded = !expanded; render(); return; }
     if ((m = t('[data-day]'))){ const d = +m.dataset.day; openDay = (openDay === d) ? null : d; render(); return; }
