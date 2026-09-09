@@ -46,7 +46,19 @@ real browser or phone.
 
 ## Storage
 
-Today, all state lives in one `localStorage` key (`athena:v2`) as a single JSON
-blob, read and written through the `store` object at the top of `app.js`. Phase B
-swaps that object for Supabase so each user's blob syncs to their account. See
-`SPEC.md`.
+All state is one JSON blob per person, read and written through the `store`
+object at the top of `app.js`. Signed in, it lives in the `dashboards` table in
+Supabase, with a `localStorage` copy (`athena:v2`) so the app still opens
+offline. With no Supabase config, it is that local key alone.
+
+## Setting up a Supabase project
+
+1. Run `schema.sql` in the SQL Editor. It creates the `dashboards` table and the
+   row level security policies. Nothing syncs without it, and the symptom if you
+   skip it is `PGRST205: could not find the table 'public.dashboards'`.
+2. Put the project URL and publishable key in `supabase-config.js`.
+3. Set **Site URL** under Authentication to the deployed address, not
+   `localhost:3000`, or magic links will send people somewhere else entirely.
+
+One account is one email address. Signing in with a second address creates a
+second, separate planner; the two never see each other.
