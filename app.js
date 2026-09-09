@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-09.8';
+  const BUILD = '2026-09-09.9';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -472,6 +472,7 @@
     if (g('ob_name'))  ob.name  = g('ob_name').value;
     if (g('ob_start')) ob.start = g('ob_start').value || ob.start;
     if (g('ob_end'))   ob.end   = g('ob_end').value || ob.end;
+    if (g('ob_newcat')) ob.newcat = g('ob_newcat').value;
     ob.cats.forEach(id => {
       const hh = g('obp_h_' + id), dd = g('obp_d_' + id);
       if (!ob.plan[id]) ob.plan[id] = obPlanDefault(id);
@@ -609,12 +610,40 @@
   // Categories offered on a rerun: the ones you already have, plus any of the
   // suggestions you have not taken up. Yours come first and start selected.
   function obChips(){
-    if (!ob.rerun) return OB_CATS.map(c => ({ id:c.id, label:c.label, color:c.color }));
-    const list = S.categories.map(c => ({ id:c.id, label:c.label, color:c.color, mine:true }));
+    const list = ob.rerun
+      ? S.categories.map(c => ({ id:c.id, label:c.label, color:c.color, mine:true }))
+      : [];
     OB_CATS.forEach(c => {
       if (!list.some(x => x.label.toLowerCase() === c.label.toLowerCase())) list.push({ id:c.id, label:c.label, color:c.color });
     });
+    (ob.custom || []).forEach(c => {
+      if (!list.some(x => x.label.toLowerCase() === c.label.toLowerCase())) list.push(c);
+    });
     return list;
+  }
+
+  // Nobody's life fits seven suggestions. Colours are handed out from a palette,
+  // skipping anything already on screen, so two categories are never the same.
+  const OB_PALETTE = ['#A8BFD0','#B7A9CF','#CBA9C6','#9FC3AC','#C9BC9E','#98B4B8','#D3ABB3','#BFB0A0','#A9C2C9','#C7A8A8'];
+  function obAddCustom(){
+    obSync();
+    const raw = (ob.newcat || '').trim().replace(/\s+/g, ' ').slice(0, 24);
+    ob.newcat = '';
+    if (!raw) { render(); return; }
+    const taken = obChips();
+    if (taken.some(c => c.label.toLowerCase() === raw.toLowerCase())){
+      // Already there under that name; just make sure it is ticked.
+      const hit = taken.find(c => c.label.toLowerCase() === raw.toLowerCase());
+      if (hit && ob.cats.indexOf(hit.id) === -1) ob.cats.push(hit.id);
+      render(); return;
+    }
+    const used = taken.map(c => (c.color || '').toLowerCase());
+    const color = OB_PALETTE.find(c => used.indexOf(c.toLowerCase()) === -1) || OB_PALETTE[taken.length % OB_PALETTE.length];
+    const cat = { id: 'c_' + uid8(), label: raw, color: color };
+    (ob.custom = ob.custom || []).push(cat);
+    ob.cats.push(cat.id);
+    ob.plan[cat.id] = obPlanDefault(cat.id);
+    render();
   }
 
   // Settle the name and categories, which both runs share. On a rerun this only
@@ -629,8 +658,9 @@
         if (src) S.categories.push({ id:src.id, label:src.label, color:src.color });
       });
     } else {
+      const all = obChips();
       const chosen = ob.cats.length ? ob.cats : ['personal'];
-      let cats = chosen.map(id => OB_CATS.find(c => c.id === id)).filter(Boolean)
+      let cats = chosen.map(id => all.find(c => c.id === id)).filter(Boolean)
                        .map(c => ({ id:c.id, label:c.label, color:c.color }));
       if (!cats.length) cats = DEFAULT_CATS.map(c => Object.assign({}, c));
       S.categories = cats;
@@ -675,7 +705,7 @@
     });
     ob = {
       step: 0, rerun: true, name: (S.profile && S.profile.name) || '',
-      cats: S.categories.map(c => c.id), plan: plan,
+      cats: S.categories.map(c => c.id), plan: plan, custom: [], newcat: '',
       start: '07:00', end: '21:00', changes: [], skip: {}
     };
     settingsOpen = false;
@@ -695,7 +725,7 @@
 
   function onboardingHTML(){
     if (!ob) ob = { step:0, rerun:false, name:(S.profile && S.profile.name) || '', cats:[], plan:{},
-                    start:'07:00', end:'21:00', changes:[], skip:{} };
+                    custom:[], newcat:'', start:'07:00', end:'21:00', changes:[], skip:{} };
     let h = '<div class="ob"><div class="ob-mark">' + MOON + '</div>';
     if (ob.step === 0){
       h += '<h1>'+(ob.rerun ? 'Let\'s reshape your week' : 'Welcome to Athena')+'</h1>';
@@ -709,11 +739,14 @@
     } else if (ob.step === 1){
       h += '<h1>What are your days about?</h1>';
       h += '<p class="ob-sub">'+(ob.rerun
-        ? 'Yours are already ticked. Add anything new, or untick one to leave it out of this round. Nothing gets deleted.'
-        : 'Pick a few. These become your colour-coded categories, and each one gets a block in your week. Rename, recolour or change them anytime.')+'</p>';
+        ? 'Yours are already ticked. Add anything new below, or untick one to leave it out of this round. Nothing gets deleted.'
+        : 'Pick a few, and add any of your own below. These become your colour-coded categories, and each one gets a block in your week. Rename, recolour or change them anytime.')+'</p>';
       h += '<div class="ob-chips">' + obChips().map(c =>
         '<button class="ob-chip'+(ob.cats.indexOf(c.id) !== -1 ? ' on' : '')+'" data-obcat="'+c.id+'">'+
         '<span class="cd" style="background:'+tint(c.color)+'"></span>'+esc(c.label)+'</button>').join('') + '</div>';
+      h += '<div class="ob-newcat">'+
+        '<input id="ob_newcat" type="text" maxlength="24" autocomplete="off" placeholder="Something of your own" value="'+esc(ob.newcat || '')+'">'+
+        '<button class="ghost" data-obaddcat>Add</button></div>';
       h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
     } else if (ob.step === 2){
       h += '<h1>Your rhythm</h1>';
@@ -1138,15 +1171,38 @@
       .slice().sort((a,b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : byTime(a,b)));
     const past = all.filter(e => !e.rrule && e.date && e.date < today).length;
 
-    const row = (e, dateCtx) =>
-      '<div class="brow">'+
-        '<span class="cd" style="background:'+catColor(e.cat)+'"></span>'+
-        '<button class="bmain" data-editinst="'+e.id+'|'+dateCtx+'">'+
-          '<span class="bt">'+esc(e.title)+'</span>'+
-          '<span class="bw">'+esc(aiWhen(e))+'</span>'+
+    // A block is a piece of time, so draw it as one: the category colour down
+    // its edge, the hours as the headline, a height that grows with how long it
+    // runs, and the week it repeats on shown as seven days. Listed as plain rows
+    // they read as tasks, which is exactly the wrong idea.
+    const DAY1 = ['S','M','T','W','T','F','S'];
+    const when = e => {
+      if (!e.rrule){
+        const x = parseDay(e.date);
+        return '<span class="bcard-once">'+DAYS[x.getDay()]+' '+x.getDate()+' '+SHORT[x.getMonth()]+'</span>';
+      }
+      if (e.rrule.freq === 'monthly') return '<span class="bcard-once">Monthly, day '+(e.rrule.monthday || 1)+'</span>';
+      const on = e.rrule.freq === 'daily' ? [0,1,2,3,4,5,6] : (e.rrule.weekdays || []);
+      return '<span class="bcard-days'+(e.rrule.interval === 2 ? ' fort' : '')+'">'+
+        DAY1.map((d, i) => '<span class="'+(on.indexOf(i) !== -1 ? 'on' : '')+'">'+d+'</span>').join('')+
+        (e.rrule.interval === 2 ? '<em>every 2nd week</em>' : '')+'</span>';
+    };
+    const row = (e, dateCtx) => {
+      const len = e.allDay ? 0 : Math.max(0, mins(e.end) - mins(e.start));
+      // Longer blocks stand taller, but gently: a four hour block should read as
+      // bigger than a half hour one without pushing everything else off screen.
+      const tall = Math.round(Math.min(156, 76 + len * 0.19));
+      return '<div class="bcard" style="--bc:'+catColor(e.cat)+';--bh:'+tall+'px">'+
+        '<span class="bcard-edge"></span>'+
+        '<button class="bcard-main" data-editinst="'+e.id+'|'+dateCtx+'">'+
+          '<span class="bcard-top"><span class="bcard-title">'+esc(e.title)+'</span>'+
+          '<span class="bcard-len">'+(e.allDay ? 'All day' : dur(len))+'</span></span>'+
+          '<span class="bcard-time">'+(e.allDay ? '' : clockOf(e.start)+' to '+clockOf(e.end))+'</span>'+
+          when(e)+
         '</button>'+
-        '<button class="del" data-delevent="'+e.id+'" aria-label="Remove block">×</button>'+
+        '<button class="bcard-del" data-delevent="'+e.id+'" aria-label="Remove block">×</button>'+
       '</div>';
+    };
 
     let h = '<p class="slack">Everything that shapes your week. Tap one to change it, or add another.</p>';
     if (!all.length){
@@ -1448,7 +1504,14 @@
     const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'>"+esc(c.label)+"</option>").join('');
     const open = openTasks(now).sort(taskSorter(now));
 
-    let h = '<div class="gform taskadd">'+
+    // The single most useful thing to know about this screen, and the least
+    // obvious: a task is not a to-do list entry that sits here waiting. It is
+    // filed by category and turns up inside the matching block on the day.
+    let h = '<div class="tasknote"><b>Tasks find their own way into your week.</b>'+
+      '<span>Give a task a category and it appears inside the blocks that share it, ready to tick off, so you do it while you are already in that headspace. '+
+      'Add how long it takes and Athena only puts it in a block with room for it. Nothing here needs scheduling by hand.</span></div>';
+
+    h += '<div class="gform taskadd">'+
       '<input id="tk_title" type="text" placeholder="What needs doing?" autocomplete="off">'+
       '<div class="frow">'+
         '<select id="tk_cat">'+CATOPTS+'</select>'+
@@ -2305,6 +2368,7 @@
       else ob.cats.splice(i, 1);
       render(); return;
     }
+    if (t('[data-obaddcat]')){ obAddCustom(); return; }
     if ((m = t('[data-obtoggle]'))){ const i = m.dataset.obtoggle; ob.skip[i] = !ob.skip[i]; render(); return; }
     if (t('[data-obapply]')){ obApply(); return; }
     if (t('[data-obcancel]')){ ob = null; render(); return; }
@@ -2506,6 +2570,7 @@
     if (e.key === 'Enter' && e.target.id === 'auth_email'){ e.preventDefault(); sendCode(); return; }
     if (e.key === 'Enter' && e.target.id === 'auth_code'){ e.preventDefault(); verifyCode(); return; }
     if (e.key === 'Enter' && e.target.id === 'ob_name'){ e.preventDefault(); obSync(); ob.step = 1; render(); return; }
+    if (e.key === 'Enter' && e.target.id === 'ob_newcat'){ e.preventDefault(); obAddCustom(); return; }
     if (e.key === 'Enter' && e.target.id === 'sk'){
       e.preventDefault(); const v = e.target.value.trim();
       if (v){ S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
