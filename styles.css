@@ -724,3 +724,9 @@
   #soft-app .tmeta .tmins { color: var(--dim); }
   #soft-app .tfit { font-size: 11.5px; color: var(--ghost); margin: 7px 0 2px; }
   #soft-app .tfit.over { color: #E8A487; }
+
+  /* grid column counts: seven on desktop, three on a phone */
+  #soft-app .calcols.cols-7 { grid-template-columns: repeat(7, 1fr); }
+  #soft-app .calcols.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  #soft-app .calhead .hs.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  #soft-app .calhead .hs.cols-7 { grid-template-columns: repeat(7, 1fr); }

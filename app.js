@@ -184,6 +184,10 @@
   // The full 7-column grid needs real width; below this we always show strips.
   const canGrid = () => (typeof window !== 'undefined' && window.innerWidth >= 700);
   const gridShown = () => expanded && canGrid();
+  // On a phone the week is shown as three readable days by default; the strips
+  // (whole-week shape) are still one tap away.
+  let weekMode = 'days';              // 'days' | 'strips'
+  const phoneGrid = () => !canGrid() && weekMode === 'days';
 
   function firstRun(){
     // The "skip setup" default — a light generic starter. Marks onboarded.
@@ -695,6 +699,47 @@
     return h;
   }
 
+  // A real time grid over any set of days. Seven of them on a desktop, three on
+  // a phone, where seven columns leave about 45px each and nothing is readable.
+  function gridHTML(days, now, tot){
+    const H = 680, px = m => (m - DS) / SPAN * H;
+    const todayIdx = days.findIndex(d => dayKey(d) === dayKey(now));
+    const t = todayIdx >= 0 ? (now.getHours()*60 + now.getMinutes()) : -1;
+    let h = '<div class="calhead"><span class="sp"></span><span class="hs cols-'+days.length+'">' +
+      days.map((d,i) => '<span'+(i===todayIdx?' class="td"':'')+'>'+SD[d.getDay()]+' '+d.getDate()+'</span>').join('') +
+      '</span></div>';
+    let hrs = '';
+    for (let m = DS; m <= DE; m += 60) hrs += '<u style="top:'+px(m)+'px">'+clockOf(pad(Math.floor(m/60))+':00')+'</u>';
+    let cols = '';
+    days.forEach((dd, pos) => {
+      const dk = dayKey(dd);
+      let inner = '';
+      for (let m = DS + 60; m < DE; m += 60) inner += '<div class="gl" style="top:'+px(m)+'px"></div>';
+      blocksForDate(dd).filter(b => !b.allDay).forEach(b => {
+        const st = Math.max(mins(b.s), DS), en = Math.min(mins(b.e), DE);
+        if (en <= st) return;
+        const col = catColor(b.c);
+        if (b.step){
+          inner += '<button class="cb cbstep" style="top:'+px(st)+'px;height:'+Math.max(20,(en-st)/SPAN*H-2)+'px;'+
+            'background:'+col+'1F;border-left-color:'+col+'" data-gotogoal="'+b.step.gid+'">'+
+            '<b>'+esc(b.t)+'</b><em>toward a goal</em></button>';
+          return;
+        }
+        tot[b.c] = (tot[b.c]||0) + (mins(b.e) - mins(b.s));
+        inner += '<button class="cb" style="top:'+px(st)+'px;height:'+Math.max(20,(en-st)/SPAN*H-2)+'px;'+
+          'background:'+col+'2E;border-left-color:'+col+'" data-editinst="'+b.id+'|'+dk+'" '+
+          'data-uid="'+b.id+'" data-dk="'+dk+'" data-sm="'+mins(b.s)+'" data-em="'+mins(b.e)+'" data-pos="'+pos+'">'+
+          '<b>'+esc(b.t)+'</b><em>'+clockOf(b.s)+'–'+clockOf(b.e)+'</em><i class="rz"></i></button>';
+      });
+      if (pos === todayIdx && t >= DS && t <= DE) inner += '<div class="cbnow" style="top:'+px(t)+'px"></div>';
+      cols += '<div class="calcol'+(pos===todayIdx?' td':'')+'" data-newon="'+dk+'">'+inner+'</div>';
+    });
+    // the drag handler reads the column dates straight off here
+    return h + '<div class="cal"><div class="calhrs" style="height:'+H+'px">'+hrs+'</div>'+
+      '<div class="calcols cols-'+days.length+'" data-dates="'+days.map(dayKey).join(',')+'" '+
+      'style="height:'+H+'px">'+cols+'</div></div>';
+  }
+
   function weekView(vd, now){
     const ORDER = [1,2,3,4,5,6,0];
     const monday = parseDay(weekKey(vd));
@@ -712,42 +757,19 @@
     const tot = {};
     let h = '';
 
-    if (gridShown()){
-      const H = 680, px = m => (m - DS) / SPAN * H;
-      h += '<div class="calhead"><span class="sp"></span><span class="hs">' +
-        ORDER.map((d,pos) => '<span'+(pos===todayPos?' class="td"':'')+'>'+LBL[d]+'</span>').join('') + '</span></div>';
-      let hrs = '';
-      for (let m = DS; m <= DE; m += 60) hrs += '<u style="top:'+px(m)+'px">'+clockOf(pad(Math.floor(m/60))+':00')+'</u>';
-      let cols = '';
-      ORDER.forEach((d, pos) => {
-        let inner = '';
-        for (let m = DS + 60; m < DE; m += 60) inner += '<div class="gl" style="top:'+px(m)+'px"></div>';
-        blocksByDay[d].forEach(b => {
-          const st = Math.max(mins(b.s), DS), en = Math.min(mins(b.e), DE);
-          if (en <= st) return;
-          const col = catColor(b.c);
-          if (b.step){
-            inner += '<button class="cb cbstep" style="top:'+px(st)+'px;height:'+Math.max(20,(en-st)/SPAN*H-2)+'px;'+
-              'background:'+col+'1F;border-left-color:'+col+'" data-gotogoal="'+b.step.gid+'">'+
-              '<b>'+esc(b.t)+'</b><em>toward a goal</em></button>';
-            return;
-          }
-          tot[b.c] = (tot[b.c]||0) + (mins(b.e) - mins(b.s));
-          inner += '<button class="cb" style="top:'+px(st)+'px;height:'+Math.max(20,(en-st)/SPAN*H-2)+'px;'+
-            'background:'+col+'2E;border-left-color:'+col+'" data-editinst="'+b.id+'|'+dayKey(dates[d])+'" '+
-            'data-uid="'+b.id+'" data-dk="'+dayKey(dates[d])+'" data-sm="'+mins(b.s)+'" data-em="'+mins(b.e)+'" data-pos="'+pos+'">'+
-            '<b>'+esc(b.t)+'</b><em>'+clockOf(b.s)+'–'+clockOf(b.e)+'</em><i class="rz"></i></button>';
-        });
-        if (pos === todayPos && t >= DS && t <= DE) inner += '<div class="cbnow" style="top:'+px(t)+'px"></div>';
-        cols += '<div class="calcol'+(pos===todayPos?' td':'')+'" data-newon="'+dayKey(dates[d])+'">'+inner+'</div>';
-      });
-      h += '<div class="cal"><div class="calhrs" style="height:'+H+'px">'+hrs+'</div>'+
-        '<div class="calcols" style="height:'+H+'px">'+cols+'</div></div>';
+    if (gridShown()){                       // desktop: the whole week at once
+      h += gridHTML(ORDER.map(d => dates[d]), now, tot);
+      h += weekTotals(tot);
+      return h;
+    }
+    if (phoneGrid()){                       // phone: three readable days
+      const days = [0,1,2].map(i => { const d = new Date(vd); d.setDate(vd.getDate()+i); return d; });
+      h += gridHTML(days, now, tot);
       h += weekTotals(tot);
       return h;
     }
 
-    // mobile strips
+    // mobile strips: the whole week's shape at a glance
     h += '<div class="axis"><span>6am</span><span>9am</span><span>12pm</span><span>3pm</span><span>6pm</span><span>9pm</span></div>';
     ORDER.forEach((d, pos) => {
       const blocks = blocksByDay[d];
@@ -1353,18 +1375,25 @@
   function dateNav(vd, now){
     if (view !== 'day' && view !== 'week') return '';
     if (manageBlocks) return '';        // the rhythm editor is not tied to a date
-    const step = view === 'week' ? 7 : 1;
+    const step = view === 'week' ? (phoneGrid() ? 3 : 7) : 1;
     let label, rel = '';
     if (view === 'day'){
       const diff = daysBetween(dayKey(now), dayKey(vd));
       rel = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : diff === -1 ? 'Yesterday' : '';
       label = DAYS[vd.getDay()] + ' ' + vd.getDate() + ' ' + SHORT[vd.getMonth()];
     } else {
-      const mon = parseDay(weekKey(vd));
-      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-      const wdiff = Math.round(daysBetween(weekKey(now), weekKey(vd)) / 7);
-      rel = wdiff === 0 ? 'This week' : wdiff === 1 ? 'Next week' : wdiff === -1 ? 'Last week' : '';
-      label = mon.getDate() + ' ' + SHORT[mon.getMonth()] + ' – ' + sun.getDate() + ' ' + SHORT[sun.getMonth()];
+      if (phoneGrid()){
+        const end = new Date(vd); end.setDate(vd.getDate() + 2);
+        const dd = daysBetween(dayKey(now), dayKey(vd));
+        rel = dd === 0 ? 'Next three days' : '';
+        label = vd.getDate() + ' ' + SHORT[vd.getMonth()] + ' to ' + end.getDate() + ' ' + SHORT[end.getMonth()];
+      } else {
+        const mon = parseDay(weekKey(vd));
+        const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+        const wdiff = Math.round(daysBetween(weekKey(now), weekKey(vd)) / 7);
+        rel = wdiff === 0 ? 'This week' : wdiff === 1 ? 'Next week' : wdiff === -1 ? 'Last week' : '';
+        label = mon.getDate() + ' ' + SHORT[mon.getMonth()] + ' – ' + sun.getDate() + ' ' + SHORT[sun.getMonth()];
+      }
     }
     let h = '<div class="datenav">';
     h += '<button class="dnav" data-shift="'+(-step)+'" aria-label="Previous">‹</button>';
@@ -1396,6 +1425,7 @@
         '<button data-view="'+v+'"'+(view===v?' class="on"':'')+'>'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>').join('')+
       '</div>'+
       (view==='week' && canGrid() && !manageBlocks ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
+      (view==='week' && !canGrid() && !manageBlocks ? '<button class="expand" data-weekmode="1">'+(weekMode==='days'?'See whole week':'See 3 days')+'</button>' : '')+
       (view==='week' ? '<button class="expand" data-manageblocks="1">'+(manageBlocks?'Back to calendar':'Manage blocks')+'</button>' : '')+
       '</div>';
     app.classList.toggle('wide', view==='week' && gridShown());
@@ -1721,7 +1751,10 @@
       el: cb, uid: cb.dataset.uid, dk: cb.dataset.dk,
       s: +cb.dataset.sm, e: +cb.dataset.em, pos: +cb.dataset.pos,
       x: e.clientX, y: e.clientY,
-      colW: (cols.clientWidth - 36) / 7 + 6,     // column centre-to-centre distance
+      cols: (cols.dataset.dates || '').split(',').filter(Boolean),
+      colW: (() => { const list = (cols.dataset.dates||'').split(',').filter(Boolean);
+        const count = list.length || 7;
+        return (cols.clientWidth - 6 * (count - 1)) / count + 6; })(),
       resize: e.target.classList.contains('rz'), moved: false
     };
     drag.newS = drag.s; drag.newE = drag.e; drag.newPos = drag.pos;
@@ -1739,7 +1772,8 @@
       drag.el.style.height = Math.max(20, (drag.newE - drag.s) * pxMin - 2) + 'px';
     } else {
       const len = drag.e - drag.s;
-      drag.newPos = Math.max(0, Math.min(6, drag.pos + Math.round(dx / drag.colW)));
+      const last = Math.max(0, (drag.cols.length || 7) - 1);
+      drag.newPos = Math.max(0, Math.min(last, drag.pos + Math.round(dx / drag.colW)));
       drag.newS = Math.max(DS, Math.min(DS + GSPAN - len, drag.s + dm));
       drag.newE = drag.newS + len;
       drag.el.style.transform = 'translate(' + ((drag.newPos - drag.pos) * drag.colW) + 'px,' +
@@ -1757,9 +1791,8 @@
           ev.ex = ev.ex || {}; ev.ex[drag.dk] = Object.assign({}, ev.ex[drag.dk], { start:s, end:en });
         } else {
           // moved to another day
-          const monday = parseDay(weekKey(new Date()));
-          const target = new Date(monday); target.setDate(monday.getDate() + drag.newPos);
-          const newDk = dayKey(target);
+          const newDk = drag.cols[drag.newPos];
+          if (!newDk){ noClick = true; drag = null; render(); return; }
           if (!ev.rrule){
             ev.date = newDk; ev.start = s; ev.end = en;
             if (ev.ex) delete ev.ex[drag.dk];
@@ -1779,7 +1812,8 @@
   // Swipe left/right on the Day view to step through days (phones).
   let swX = null, swY = null;
   app.addEventListener('touchstart', e => {
-    if (view !== 'day' || editing || settingsOpen || aiOpen || ob || e.touches.length !== 1){ swX = null; return; }
+    const swipeable = (view === 'day') || (view === 'week' && !manageBlocks);
+    if (!swipeable || editing || settingsOpen || aiOpen || ob || taskEdit || e.touches.length !== 1){ swX = null; return; }
     swX = e.touches[0].clientX; swY = e.touches[0].clientY;
   }, { passive: true });
   app.addEventListener('touchend', e => {
@@ -1789,7 +1823,8 @@
     if (!tp) return;
     const dx = tp.clientX - x, dy = tp.clientY - y;
     if (Math.abs(dx) > 70 && Math.abs(dy) < 45){
-      dayShift += (dx < 0 ? 1 : -1);   // swipe left = next day
+      const step = view === 'week' ? (phoneGrid() ? 3 : 7) : 1;
+      dayShift += (dx < 0 ? step : -step);   // swipe left = forwards
       noClick = true;                  // swallow the click this gesture would fire
       render();
     }
@@ -1893,6 +1928,7 @@
     if ((m = t('[data-shift]'))){ dayShift += +m.dataset.shift; openDay = null; render(); return; }
     if (t('[data-today]')){ dayShift = 0; openDay = null; render(); return; }
     if (t('[data-manageblocks]')){ manageBlocks = !manageBlocks; render(); return; }
+    if (t('[data-weekmode]')){ weekMode = (weekMode === 'days' ? 'strips' : 'days'); render(); return; }
     if (t('[data-expand]')){ expanded = !expanded; render(); return; }
     if ((m = t('[data-day]'))){ const d = +m.dataset.day; openDay = (openDay === d) ? null : d; render(); return; }
     if ((m = t('[data-goal]'))){ const id = m.dataset.goal; openGoal = (openGoal === id) ? null : id; render(); return; }
