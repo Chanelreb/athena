@@ -323,6 +323,7 @@
     { id:'family',   label:'Family',   color:'#C4A8CE' },
     { id:'health',   label:'Health',   color:'#9CC0A9' },
     { id:'home',     label:'Home',     color:'#C4B79A' },
+    { id:'admin',    label:'Life admin', color:'#93B0B5' },
     { id:'creative', label:'Creative', color:'#D0A8B0' }
   ];
 
