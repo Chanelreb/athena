@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-09.7';
+  const BUILD = '2026-09-09.8';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -124,6 +124,11 @@
     /* cup */    SVG0 + '<path d="M16 26h28v12a10 10 0 0 1-10 10H26a10 10 0 0 1-10-10Z"/><path d="M44 30h5a5 5 0 0 1 0 10h-5"/><path d="M24 14c-2 3 2 5 0 8M32 12c-2 3 2 5 0 8"/></svg>'
   ];
   const MOON = SVG0 + '<path d="M44 38A14 14 0 1 1 30 24A11 11 0 1 0 44 38Z"/><path d="M13 17v6M10 20h6M50 12v5M47.5 14.5h5M17 47v5M14.5 49.5h5"/></svg>';
+  // A settings control should look like a settings control. The daily drawing is
+  // lovely and told you nothing about what tapping it would do.
+  const COG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+
+    '<circle cx="12" cy="12" r="3.2"/>'+
+    '<path d="M19.4 14.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 1 1-4 0v-.11a1.7 1.7 0 0 0-1.1-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.05H3a2 2 0 1 1 0-4h.11a1.7 1.7 0 0 0 1.56-1.1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1.05-1.56V3a2 2 0 1 1 4 0v.11a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1.05H21a2 2 0 1 1 0 4h-.11a1.7 1.7 0 0 0-1.56 1.04Z"/></svg>';
 
   /* ---------- daily lines (generic) ---------- */
   const LINES = [
@@ -425,53 +430,256 @@
     { id:'creative', label:'Creative', color:'#D0A8B0' }
   ];
 
+  // Starting guesses, so nobody faces seven empty boxes. Deliberately modest:
+  // too low is a nudge to raise it, too high is a week you resent on sight.
+  const OB_PLAN = {
+    work:  { hours: 20, days: 5 },  study:    { hours: 10, days: 5 },
+    family:{ hours: 10, days: 7 },  health:   { hours:  4, days: 4 },
+    home:  { hours:  5, days: 7 },  admin:    { hours:  2, days: 2 },
+    creative:{ hours: 4, days: 2 }
+  };
+  const obPlanDefault = id => Object.assign({ hours: 4, days: 3 }, OB_PLAN[id]);
+
+  // Which weekdays a "3 days a week" answer should mean. Spelled out rather
+  // than computed, because an even spread by arithmetic gives you Saturday when
+  // you plainly meant Thursday. 0 is Sunday.
+  const OB_DAYS = {
+    1: [3], 2: [2,4], 3: [1,3,5], 4: [1,2,4,5],
+    5: [1,2,3,4,5], 6: [1,2,3,4,5,6], 7: [0,1,2,3,4,5,6]
+  };
+
+  // What a category already occupies in a normal week, used to prefill the
+  // numbers on a rerun and to work out what is actually missing.
+  function obWeeklyMins(catId){
+    return (S.events || []).reduce((sum, e) => {
+      if (e.cat !== catId || !e.rrule || !e.rrule.weekdays || !e.rrule.weekdays.length) return sum;
+      const len = mins(e.end) - mins(e.start);
+      if (len <= 0) return sum;
+      return sum + (len * e.rrule.weekdays.length) / (e.rrule.interval || 1);
+    }, 0);
+  }
+  function obWeeklyDays(catId){
+    const seen = {};
+    (S.events || []).forEach(e => {
+      if (e.cat === catId && e.rrule && e.rrule.weekdays) e.rrule.weekdays.forEach(d => { seen[d] = 1; });
+    });
+    return Object.keys(seen).length;
+  }
+
   function obSync(){
     if (!ob) return;
     const g = id => document.getElementById(id);
     if (g('ob_name'))  ob.name  = g('ob_name').value;
     if (g('ob_start')) ob.start = g('ob_start').value || ob.start;
     if (g('ob_end'))   ob.end   = g('ob_end').value || ob.end;
+    ob.cats.forEach(id => {
+      const hh = g('obp_h_' + id), dd = g('obp_d_' + id);
+      if (!ob.plan[id]) ob.plan[id] = obPlanDefault(id);
+      if (hh) ob.plan[id].hours = Math.max(0, Math.min(80, parseFloat(hh.value) || 0));
+      if (dd) ob.plan[id].days  = Math.max(1, Math.min(7, parseInt(dd.value, 10) || 1));
+    });
   }
 
-  function obBuildStarter(startT, endT){
-    const cats = S.categories;
-    const byLabel = l => cats.find(c => c.label.toLowerCase() === l.toLowerCase());
-    const firstOf = (...labels) => { for (const l of labels){ const c = byLabel(l); if (c) return c.id; } return cats[0].id; };
-    const health   = firstOf('Health', 'Fitness');
-    const workish  = firstOf('Work', 'Study');
-    const personal = firstOf('Family', 'Home', 'Personal', 'Creative');
-    const from = weekKey(new Date());
-    const everyday = { freq:'weekly', interval:1, weekdays:[0,1,2,3,4,5,6], from };
-    const weekdays = { freq:'weekly', interval:1, weekdays:[1,2,3,4,5], from };
-    const addMin = (t, m) => fmtM(mins(t) + m);
-    const ev = o => Object.assign({ id:'ev_'+uid8(), note:'', allDay:false, ex:{}, skip:[], date:null }, o);
+  /* ---- turning hours a week into actual blocks in actual days ----
+     The answers are a budget, not a timetable. This turns them into one, by
+     walking each weekday and dropping each category into the earliest gap that
+     will hold it. Existing blocks are obstacles, never overwritten, so the same
+     code serves a first run and a rerun years later. Lunch is treated as a wall
+     so nothing is scheduled straight through the middle of the day. */
+  const OB_LUNCH = [12 * 60 + 30, 13 * 60];
 
-    const events = [ ev({ title:'Morning', cat:health, start:startT, end:addMin(startT, 30), rrule:everyday }) ];
-    if (byLabel('Work') || byLabel('Study'))
-      events.push(ev({ title:(byLabel('Work') ? 'Focus time' : 'Study block'), cat:workish, start:'09:00', end:'11:00', rrule:weekdays }));
-    events.push(ev({ title:'Lunch', cat:personal, start:'12:30', end:'13:00', rrule:everyday }));
-    events.push(ev({ title:'Wind down', cat:personal, start:endT, end:addMin(endT, 30), rrule:everyday }));
-    S.events = events;
-
-    const habits = [];
-    if (byLabel('Health') || byLabel('Fitness')){
-      habits.push({ id:'hb_'+uid8(), label:'Move your body', cat:health, target:1 });
-      habits.push({ id:'hb_'+uid8(), label:'Water', cat:health, target:4 });
+  function obBusy(weekday){
+    const busy = (S.events || [])
+      .filter(e => e.rrule && e.rrule.weekdays && e.rrule.weekdays.indexOf(weekday) !== -1)
+      .map(e => [mins(e.start), mins(e.end)])
+      .filter(x => x[1] > x[0]);
+    busy.push(OB_LUNCH.slice());
+    return busy.sort((a, b) => a[0] - b[0]);
+  }
+  // Earliest point in [from,to] with `len` minutes free. Null if there is none.
+  function obFirstFit(busy, from, to, len){
+    let t = from;
+    for (let i = 0; i < busy.length; i++){
+      const a = busy[i][0], b = busy[i][1];
+      if (b <= t) continue;
+      if (a - t >= len) return t;
+      if (b > t) t = b;
     }
-    S.habits = habits;
+    return (to - t >= len) ? t : null;
+  }
+
+  // The changes setup wants to make, as a list a person can read and veto.
+  function obPlanChanges(startT, endT){
+    const dayStart = mins(startT), dayEnd = mins(endT);
+    const changes = [];
+    const busy = {};
+    for (let d = 0; d < 7; d++) busy[d] = obBusy(d);
+
+    // Biggest commitments first: the big rocks go in before the sand, or they
+    // never fit at all.
+    const wants = ob.cats
+      .map(id => ({ id: id, hours: (ob.plan[id] || obPlanDefault(id)).hours, days: (ob.plan[id] || obPlanDefault(id)).days }))
+      .sort((a, b) => b.hours - a.hours);
+
+    wants.forEach(w => {
+      const cat = S.categories.find(c => c.id === w.id);
+      const label = cat ? cat.label : w.id;
+      const have = obWeeklyMins(w.id);
+      const want = Math.round(w.hours * 60);
+
+      if (want >= have + 15){
+        let short = want - have;
+        const days = OB_DAYS[Math.max(1, Math.min(7, Math.round(w.days)))];
+        // Round the per-day slice to a quarter hour so the week reads tidily.
+        const per = Math.max(15, Math.round((short / days.length) / 15) * 15);
+        days.forEach(d => {
+          if (short < 15) return;
+          const len = Math.min(per, short);
+          const at = obFirstFit(busy[d], dayStart, dayEnd, len);
+          if (at === null) return;            // that day is full; try the rest
+          changes.push({ kind:'add', cat:w.id, label:label, weekday:d, start:fmtM(at), end:fmtM(at + len), mins:len });
+          busy[d].push([at, at + len]);
+          busy[d].sort((a, b) => a[0] - b[0]);
+          short -= len;
+        });
+      } else if (want <= have - 15){
+        // Asking for less than is already there. Shorten the blocks rather than
+        // delete them: the shape of the week is the part someone arranged and
+        // cares about, and "you wanted less Health" is a thin reason to take
+        // Tuesday evening away entirely. Only drop one when no sensible length
+        // is left, which is also what asking for zero means.
+        const ratio = want / have;
+        (S.events || [])
+          .filter(e => e.cat === w.id && e.rrule && e.rrule.weekdays && e.rrule.weekdays.length)
+          .forEach(e => {
+            const len = mins(e.end) - mins(e.start);
+            if (len <= 0) return;
+            const cut = Math.round((len * ratio) / 5) * 5;      // to the nearest five minutes
+            const base = { cat:w.id, label:label, id:e.id, title:e.title,
+                           start:e.start, end:e.end, days:e.rrule.weekdays.slice() };
+            if (cut < 15) changes.push(Object.assign({ kind:'drop', mins:len }, base));
+            else if (cut < len) changes.push(Object.assign({ kind:'trim', mins:len - cut, newEnd:fmtM(mins(e.start) + cut) }, base));
+          });
+      }
+    });
+    return changes;
+  }
+
+  function obApplyChanges(changes){
+    const from = weekKey(new Date());
+    const byDay = {};
+    changes.forEach((c, i) => {
+      if (ob.skip[i] || c.kind !== 'add') return;
+      // Blocks for the same category at the same time collapse into one
+      // repeating block rather than seven identical singles.
+      const key = c.cat + '|' + c.start + '|' + c.end;
+      (byDay[key] = byDay[key] || { c: c, days: [] }).days.push(c.weekday);
+    });
+    Object.keys(byDay).forEach(k => {
+      const g = byDay[k];
+      S.events.push({
+        id: 'ev_' + uid8(), title: g.c.label, cat: g.c.cat, note: '', allDay: false,
+        start: g.c.start, end: g.c.end, date: null, ex: {}, skip: [],
+        rrule: { freq:'weekly', interval:1, weekdays:g.days.sort((a,b)=>a-b), monthday:1, from:from, until:null }
+      });
+    });
+    changes.forEach((c, i) => {
+      if (ob.skip[i] || c.kind !== 'trim') return;
+      const e = S.events.find(x => x.id === c.id);
+      if (e) e.end = c.newEnd;
+    });
+    const drops = {};
+    changes.forEach((c, i) => { if (!ob.skip[i] && c.kind === 'drop') drops[c.id] = 1; });
+    if (Object.keys(drops).length) S.events = S.events.filter(e => !drops[e.id]);
+  }
+
+  // Two small habits, so the Habits tab is not an empty room on day one. Only
+  // for a first run, and only if there is somewhere sensible to file them.
+  function obSeedHabits(){
+    if (ob && ob.rerun) return;
+    if ((S.habits || []).length) return;
+    const health = S.categories.find(c => /health|fitness/i.test(c.label));
+    if (!health) return;
+    S.habits = [
+      { id:'hb_'+uid8(), label:'Move your body', cat:health.id, target:1 },
+      { id:'hb_'+uid8(), label:'Water',          cat:health.id, target:4 }
+    ];
+  }
+
+  // Categories offered on a rerun: the ones you already have, plus any of the
+  // suggestions you have not taken up. Yours come first and start selected.
+  function obChips(){
+    if (!ob.rerun) return OB_CATS.map(c => ({ id:c.id, label:c.label, color:c.color }));
+    const list = S.categories.map(c => ({ id:c.id, label:c.label, color:c.color, mine:true }));
+    OB_CATS.forEach(c => {
+      if (!list.some(x => x.label.toLowerCase() === c.label.toLowerCase())) list.push({ id:c.id, label:c.label, color:c.color });
+    });
+    return list;
+  }
+
+  // Settle the name and categories, which both runs share. On a rerun this only
+  // ever adds a category: removing one would orphan the blocks and tasks
+  // already filed under it, and nobody expects a setup wizard to do that.
+  function obCommitProfile(){
+    S.profile.name = (ob.name || '').trim().slice(0, 40);
+    if (ob.rerun){
+      ob.cats.forEach(id => {
+        if (S.categories.some(c => c.id === id)) return;
+        const src = obChips().find(c => c.id === id);
+        if (src) S.categories.push({ id:src.id, label:src.label, color:src.color });
+      });
+    } else {
+      const chosen = ob.cats.length ? ob.cats : ['personal'];
+      let cats = chosen.map(id => OB_CATS.find(c => c.id === id)).filter(Boolean)
+                       .map(c => ({ id:c.id, label:c.label, color:c.color }));
+      if (!cats.length) cats = DEFAULT_CATS.map(c => Object.assign({}, c));
+      S.categories = cats;
+    }
   }
 
   function obFinish(){
     obSync();
-    S.profile.name = (ob.name || '').trim().slice(0, 40);
-    const chosen = ob.cats.length ? ob.cats : ['personal'];
-    let cats = chosen.map(id => OB_CATS.find(c => c.id === id)).filter(Boolean).map(c => ({ id:c.id, label:c.label, color:c.color }));
-    if (!cats.length) cats = DEFAULT_CATS.map(c => Object.assign({}, c));
-    S.categories = cats;
-    obBuildStarter(ob.start || '07:00', ob.end || '21:00');
+    obCommitProfile();
+    ob.skip = {};
+    obApplyChanges(obPlanChanges(ob.start || '07:00', ob.end || '21:00'));
+    obSeedHabits();
     S.profile.onboarded = true;
     ob = null; view = 'day';
     save(); render();
+  }
+
+  // A rerun changes an existing week, so it shows its working first and only
+  // touches anything once it has been agreed to.
+  function obReview(){
+    obSync();
+    obCommitProfile();               // categories must exist before we schedule
+    ob.changes = obPlanChanges(ob.start || '07:00', ob.end || '21:00');
+    ob.skip = {};
+    ob.step = 5;
+    save(); render();
+  }
+
+  function obApply(){
+    markUndo('Setup changes applied');
+    obApplyChanges(ob.changes || []);
+    S.profile.onboarded = true;
+    ob = null; view = 'week'; manageBlocks = true;   // land where they can adjust
+    save(); render();
+  }
+
+  function obStartRerun(){
+    const plan = {};
+    S.categories.forEach(c => {
+      const m = obWeeklyMins(c.id), d = obWeeklyDays(c.id);
+      plan[c.id] = m > 0 ? { hours: Math.round(m / 60 * 2) / 2, days: d || 1 } : obPlanDefault(c.id);
+    });
+    ob = {
+      step: 0, rerun: true, name: (S.profile && S.profile.name) || '',
+      cats: S.categories.map(c => c.id), plan: plan,
+      start: '07:00', end: '21:00', changes: [], skip: {}
+    };
+    settingsOpen = false;
+    render();
   }
 
   function obSkip(){
@@ -483,21 +691,29 @@
     save(); render();
   }
 
+  const DAY3 = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
   function onboardingHTML(){
-    if (!ob) ob = { step:0, name:(S.profile && S.profile.name) || '', cats:[], start:'07:00', end:'21:00' };
+    if (!ob) ob = { step:0, rerun:false, name:(S.profile && S.profile.name) || '', cats:[], plan:{},
+                    start:'07:00', end:'21:00', changes:[], skip:{} };
     let h = '<div class="ob"><div class="ob-mark">' + MOON + '</div>';
     if (ob.step === 0){
-      h += '<h1>Welcome to Athena</h1>';
-      h += '<p class="ob-sub">A calm place to plan your days. A couple of quick questions and it\'s yours.</p>';
+      h += '<h1>'+(ob.rerun ? 'Let\'s reshape your week' : 'Welcome to Athena')+'</h1>';
+      h += '<p class="ob-sub">'+(ob.rerun
+        ? 'The same few questions, filled in with what you have now. Change whatever you like. Nothing moves until you say so at the end.'
+        : 'A calm place to plan your days. A couple of quick questions and it\'s yours.')+'</p>';
       h += '<label class="fld"><span>What should we call you?</span><input id="ob_name" type="text" autocomplete="given-name" placeholder="Your name" value="'+esc(ob.name)+'"></label>';
       h += '<div class="ob-actions"><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
-      h += '<button class="linkish ob-skip" data-obskip>Skip, just set me up</button>';
+      h += ob.rerun ? '<button class="linkish ob-skip" data-obcancel>Cancel</button>'
+                    : '<button class="linkish ob-skip" data-obskip>Skip, just set me up</button>';
     } else if (ob.step === 1){
       h += '<h1>What are your days about?</h1>';
-      h += '<p class="ob-sub">Pick a few. These become your colour-coded categories. Rename, recolour or change them anytime.</p>';
-      h += '<div class="ob-chips">' + OB_CATS.map(c =>
+      h += '<p class="ob-sub">'+(ob.rerun
+        ? 'Yours are already ticked. Add anything new, or untick one to leave it out of this round. Nothing gets deleted.'
+        : 'Pick a few. These become your colour-coded categories, and each one gets a block in your week. Rename, recolour or change them anytime.')+'</p>';
+      h += '<div class="ob-chips">' + obChips().map(c =>
         '<button class="ob-chip'+(ob.cats.indexOf(c.id) !== -1 ? ' on' : '')+'" data-obcat="'+c.id+'">'+
-        '<span class="cd" style="background:'+tint(c.color)+'"></span>'+c.label+'</button>').join('') + '</div>';
+        '<span class="cd" style="background:'+tint(c.color)+'"></span>'+esc(c.label)+'</button>').join('') + '</div>';
       h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
     } else if (ob.step === 2){
       h += '<h1>Your rhythm</h1>';
@@ -505,6 +721,66 @@
       h += '<div class="fld two"><label><span>Day starts</span><input id="ob_start" type="time" value="'+ob.start+'"></label>'+
         '<label><span>Wind down</span><input id="ob_end" type="time" value="'+ob.end+'"></label></div>';
       h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
+    } else if (ob.step === 3){
+      // The budget. Hours a week is how people actually think about their time;
+      // days is what turns that into a shape rather than one enormous Monday.
+      const chips = obChips();
+      h += '<h1>How much time do your days need?</h1>';
+      h += '<p class="ob-sub">Roughly is plenty. Athena turns these into blocks and finds room for them between '+
+        clockOf(ob.start)+' and '+clockOf(ob.end)+'. You can move anything afterwards.</p>';
+      if (!ob.cats.length){
+        h += '<p class="ob-sub">Go back a step and pick at least one category.</p>';
+      } else {
+        h += '<div class="obplan">' + ob.cats.map(id => {
+          const c = chips.find(x => x.id === id) || { label:id, color:'#9CC0A9' };
+          const p = ob.plan[id] || (ob.plan[id] = obPlanDefault(id));
+          return '<div class="obplan-row">'+
+            '<span class="obplan-name"><span class="cd" style="background:'+tint(c.color)+'"></span>'+esc(c.label)+'</span>'+
+            '<span class="obplan-nums">'+
+              '<label><input id="obp_h_'+id+'" type="number" inputmode="decimal" min="0" max="80" step="0.5" value="'+p.hours+'"><span>hrs a week</span></label>'+
+              '<label><input id="obp_d_'+id+'" type="number" inputmode="numeric" min="1" max="7" step="1" value="'+p.days+'"><span>days</span></label>'+
+            '</span></div>';
+        }).join('') + '</div>';
+        const tot = ob.cats.reduce((s, id) => s + ((ob.plan[id] || {}).hours || 0), 0);
+        h += '<p class="obplan-tot">'+dur(Math.round(tot * 60))+' a week in all, about '+dur(Math.round(tot * 60 / 7))+' a day.</p>';
+      }
+      h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
+      if (ob.rerun) h += '<button class="linkish ob-skip" data-obcancel>Cancel</button>';
+    } else if (ob.step === 5){
+      // Rerun only: show the working before touching a week someone lives in.
+      const ch = ob.changes || [];
+      h += '<h1>Here is what I would change</h1>';
+      if (!ch.length){
+        h += '<p class="ob-sub">Nothing needs moving. Your week already matches what you asked for.</p>';
+        h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obcancel>Done</button></div>';
+      } else {
+        h += '<p class="ob-sub">Untick anything you would rather leave alone. Nothing changes until you tap Apply, and Undo will still be there afterwards.</p>';
+        h += '<div class="obdiff">';
+        ch.forEach((c, i) => {
+          const on = !ob.skip[i];
+          const cat = S.categories.find(x => x.id === c.cat);
+          const col = tint(cat ? cat.color : '#9CC0A9');
+          const verb = c.kind === 'add' ? 'Add' : c.kind === 'trim' ? 'Shorten' : 'Remove';
+          const detail = c.kind === 'add'
+            ? DAY3[c.weekday]+', '+clockOf(c.start)+' to '+clockOf(c.end)
+            : c.kind === 'trim'
+              ? clockOf(c.start)+' to '+clockOf(c.end)+' becomes '+clockOf(c.start)+' to '+clockOf(c.newEnd)+', on '+c.days.map(d => DAY3[d]).join(', ')
+              : esc(c.title || c.label)+', '+clockOf(c.start)+' to '+clockOf(c.end)+' on '+c.days.map(d => DAY3[d]).join(', ');
+          h += '<button class="obdiff-row'+(on ? ' on' : '')+'" data-obtoggle="'+i+'">'+
+            '<span class="obdiff-box">'+(on ? TICK : '')+'</span>'+
+            '<span class="cd" style="background:'+col+'"></span>'+
+            '<span class="obdiff-txt"><b>'+verb+' '+esc(c.label)+'</b>'+
+            '<span>'+detail+'</span></span></button>';
+        });
+        h += '</div>';
+        const kept = ch.filter((c, i) => !ob.skip[i]);
+        h += '<p class="obplan-tot">'+kept.length+' of '+ch.length+' selected: '+
+          kept.filter(c => c.kind==='add').length+' to add, '+
+          kept.filter(c => c.kind==='trim').length+' to shorten, '+
+          kept.filter(c => c.kind==='drop').length+' to remove.</p>';
+        h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obapply>Apply</button></div>';
+        h += '<button class="linkish ob-skip" data-obcancel>Cancel, change nothing</button>';
+      }
     } else {
       const cc = S.categories.map(c => tint(c.color));
       const dot = i => '<b style="background:'+(cc[i % (cc.length || 1)] || '#9CC0A9')+'"></b>';
@@ -1480,7 +1756,9 @@
 
   function render(){
     if ((loadFailed || bootBroken) && !workLocal){ app.classList.remove('wide'); paint(loadFailedHTML()); return; }
-    if (needsOnboarding()){ app.classList.remove('wide'); paint(onboardingHTML()); return; }
+    // `ob` is also set when someone reruns setup from Settings, which is why
+    // this is not gated on needsOnboarding alone.
+    if (ob || needsOnboarding()){ app.classList.remove('wide'); paint(onboardingHTML()); return; }
     const now = new Date();
     const vd = viewDate();
     const hr = now.getHours();
@@ -1489,10 +1767,13 @@
     const doy = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
     let h = '';
 
-    h += '<div class="greet"><div class="gtxt"><h1>'+greet+name+'</h1>'+
+    // The daily drawing now sits with the greeting where it belongs, and the
+    // settings control is a cog that looks like what it does.
+    h += '<div class="greet"><div class="gtxt"><h1>'+greet+name+
+      '<span class="namemotif" aria-hidden="true">'+(hr >= 20 || hr < 5 ? MOON : MOTIFS[doy % MOTIFS.length])+'</span></h1>'+
       '<p>'+DAYS[now.getDay()]+' '+now.getDate()+' '+MON[now.getMonth()]+' · '+
       clockOf(pad(now.getHours())+':'+pad(now.getMinutes()))+'</p></div>'+
-      '<button class="motif" data-settings aria-label="Settings">'+(hr >= 20 || hr < 5 ? MOON : MOTIFS[doy % MOTIFS.length])+'</button></div>';
+      '<button class="cog" data-settings aria-label="Settings">'+COG+'</button></div>';
     h += '<div class="quote"><p>'+esc(LINES[doy % LINES.length])+'</p></div>';
 
     h += '<div class="segrow"><div class="seg">'+
@@ -1628,6 +1909,10 @@
     });
     h += '</div>';
     h += '<button class="go" data-addcat>+ Add category</button>';
+    h += '<div class="modal-h" style="margin-top:8px">Your week</div>';
+    h += '<button class="ghost" data-obrerun>Walk me through setup again</button>';
+    h += '<p class="setnote">The same questions as the first time, filled in with what you have now. '+
+      'Change the hours, add a category, and Athena shows you exactly what it would move before anything happens.</p>';
     h += '<div class="modal-h" style="margin-top:8px">Account</div>';
     if (cloud && session){
       h += '<div class="acctrow"><span class="acctmail">'+esc(session.user.email || 'Signed in')+'</span>'+
@@ -2005,9 +2290,24 @@
     if (t('[data-forceupdate]')){ forceUpdate(); return; }
 
     // onboarding
-    if (t('[data-obnext]')){ obSync(); ob.step = Math.min(3, ob.step + 1); render(); return; }
-    if (t('[data-obback]')){ obSync(); ob.step = Math.max(0, ob.step - 1); render(); return; }
-    if ((m = t('[data-obcat]'))){ obSync(); const id = m.dataset.obcat; const i = ob.cats.indexOf(id); if (i === -1) ob.cats.push(id); else ob.cats.splice(i, 1); render(); return; }
+    // A first run ends on the explainer (step 4) and builds. A rerun skips the
+    // explainer, having read it once, and ends on the review (step 5).
+    if (t('[data-obrerun]')){ obStartRerun(); return; }
+    if (t('[data-obnext]')){
+      obSync();
+      if (ob.rerun && ob.step === 3){ obReview(); return; }
+      ob.step = Math.min(4, ob.step + 1); render(); return;
+    }
+    if (t('[data-obback]')){ obSync(); ob.step = ob.step === 5 ? 3 : Math.max(0, ob.step - 1); render(); return; }
+    if ((m = t('[data-obcat]'))){
+      obSync(); const id = m.dataset.obcat; const i = ob.cats.indexOf(id);
+      if (i === -1){ ob.cats.push(id); if (!ob.plan[id]) ob.plan[id] = obPlanDefault(id); }
+      else ob.cats.splice(i, 1);
+      render(); return;
+    }
+    if ((m = t('[data-obtoggle]'))){ const i = m.dataset.obtoggle; ob.skip[i] = !ob.skip[i]; render(); return; }
+    if (t('[data-obapply]')){ obApply(); return; }
+    if (t('[data-obcancel]')){ ob = null; render(); return; }
     if (t('[data-obfinish]')){ obFinish(); return; }
     if (t('[data-obskip]')){ obSkip(); return; }
 

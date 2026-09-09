@@ -55,6 +55,19 @@
     opacity: .17; margin-top: -3px; pointer-events: none;
   }
   #soft-app .motif svg { width: 100%; height: 100%; display: block; }
+  /* The daily drawing, inline with the greeting: decoration, not a control. */
+  #soft-app .namemotif {
+    display: inline-block; width: 26px; height: 26px; vertical-align: -5px;
+    margin-left: 9px; opacity: .3; color: var(--live); pointer-events: none;
+  }
+  #soft-app .namemotif svg { width: 100%; height: 100%; display: block; }
+  #soft-app .cog {
+    flex: 0 0 auto; width: 26px; height: 26px; margin-top: 4px; padding: 0;
+    background: none; border: 0; color: var(--dim); cursor: pointer;
+    opacity: .75; transition: opacity .15s, transform .25s;
+  }
+  #soft-app .cog:hover { opacity: 1; transform: rotate(35deg); }
+  #soft-app .cog svg { width: 100%; height: 100%; display: block; }
   #soft-app .greet h1 {
     font-family: var(--serif); font-size: 25px; font-weight: 400;
     margin: 0; letter-spacing: -0.01em; line-height: 1.2;
@@ -745,6 +758,45 @@
     border-radius: 12px; padding: 11px 14px; font-size: 13px; line-height: 1.45; margin: 18px 0 4px;
   }
   #soft-app .modal .savewarn { margin: 0 0 12px; }
+
+  /* setup: hours a week and days, one row per category */
+  #soft-app .obplan { display: flex; flex-direction: column; gap: 8px; text-align: left; }
+  #soft-app .obplan-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--raise); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+  }
+  #soft-app .obplan-name { display: flex; align-items: center; gap: 8px; flex: 1 1 120px; min-width: 0; font-size: 14.5px; }
+  #soft-app .obplan-name .cd { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+  #soft-app .obplan-nums { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  #soft-app .obplan-nums label { display: flex; align-items: center; gap: 5px; }
+  #soft-app .obplan-nums input {
+    width: 58px; background: var(--bg); border: 1px solid var(--line); color: var(--text);
+    border-radius: 9px; padding: 8px 6px; font: inherit; font-size: 15px; text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  #soft-app .obplan-nums input:focus { outline: none; border-color: var(--ghost); }
+  #soft-app .obplan-nums span { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  #soft-app .obplan-tot { color: var(--dim); font-size: 13px; margin: 14px 0 0; }
+
+  /* setup rerun: the proposed changes, each one refusable */
+  #soft-app .obdiff { display: flex; flex-direction: column; gap: 7px; text-align: left; margin-top: 4px; }
+  #soft-app .obdiff-row {
+    display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
+    background: var(--raise); border: 1px solid var(--line); border-radius: 12px;
+    padding: 11px 12px; font: inherit; color: var(--text); cursor: pointer; opacity: .5;
+  }
+  #soft-app .obdiff-row.on { opacity: 1; border-color: var(--ghost); }
+  #soft-app .obdiff-box {
+    flex: 0 0 auto; width: 18px; height: 18px; border-radius: 6px; margin-top: 1px;
+    border: 1px solid var(--ghost); display: flex; align-items: center; justify-content: center;
+  }
+  #soft-app .obdiff-row.on .obdiff-box { background: var(--live); border-color: var(--live); }
+  #soft-app .obdiff-box svg { width: 11px; height: 11px; display: block; }
+  #soft-app .obdiff-row .cd { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; margin-top: 5px; }
+  #soft-app .obdiff-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  #soft-app .obdiff-txt b { font-weight: 600; font-size: 14px; }
+  #soft-app .obdiff-txt span { color: var(--dim); font-size: 12.5px; }
+  #soft-app .setnote { color: var(--dim); font-size: 12.5px; line-height: 1.5; margin: 8px 0 0; }
 
   /* the actual reason a load failed, so it can be reported rather than guessed */
   #soft-app .errdetail {
