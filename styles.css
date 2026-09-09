@@ -453,6 +453,14 @@
   #soft-app .login-box .go[disabled] { opacity: .6; cursor: default; }
   #soft-app .login-msg { color: var(--text); font-size: 14px; line-height: 1.5; margin: 16px auto 0; max-width: 36ch; background: var(--live-soft); padding: 12px 14px; border-radius: 12px; }
   #soft-app .login-fine { color: var(--ghost); font-size: 12.5px; margin-top: 18px; }
+  /* The code is the thing being typed, so let it be the biggest thing on screen.
+     Wide letter spacing makes six digits readable as six digits. */
+  #soft-app .login-box input.codebox {
+    text-align: center; font-size: 28px; letter-spacing: .38em; text-indent: .38em;
+    font-variant-numeric: tabular-nums; padding: 15px 14px;
+  }
+  #soft-app .login-alt { display: flex; justify-content: center; gap: 18px; margin-top: 18px; flex-wrap: wrap; }
+  #soft-app .login-alt .linkish { font-size: 13.5px; }
 
   /* ===== Guided setup ===== */
   #soft-app .ob { max-width: 460px; margin: 0 auto; padding: 34px 6px 44px; }

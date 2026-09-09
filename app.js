@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-09.6';
+  const BUILD = '2026-09-09.7';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1400,6 +1400,13 @@
   function keepDrafts(){
     app.addEventListener('input',  e => { if (e.target.id) drafts[e.target.id] = e.target.type==='checkbox'?e.target.checked:e.target.value; });
     app.addEventListener('change', e => { if (e.target.id) drafts[e.target.id] = e.target.type==='checkbox'?e.target.checked:e.target.value; });
+    // Six digits in means they are done typing, or the phone has just autofilled
+    // the code from the email. Making them reach for a button after that is a
+    // small insult, so submit it.
+    app.addEventListener('input', e => {
+      if (e.target.id !== 'auth_code' || authBusy) return;
+      if (e.target.value.replace(/\D/g, '').length === 6) verifyCode();
+    });
   }
   const clearDraft = id => { delete drafts[id]; };
   const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
@@ -1990,7 +1997,9 @@
     let m;
 
     // auth
-    if (t('[data-sendlink]')){ sendMagicLink(); return; }
+    if (t('[data-sendcode]')){ sendCode(); return; }
+    if (t('[data-verifycode]')){ verifyCode(); return; }
+    if (t('[data-authback]')){ authStep = 'email'; authMsg = ''; renderAuth(); return; }
     if (t('[data-signout]')){ if (sb) sb.auth.signOut().catch(()=>{}); settingsOpen = false; return; }
     if (t('[data-export]')){ exportBackup(); return; }
     if (t('[data-forceupdate]')){ forceUpdate(); return; }
@@ -2194,7 +2203,8 @@
   }
 
   app.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && e.target.id === 'auth_email'){ e.preventDefault(); sendMagicLink(); return; }
+    if (e.key === 'Enter' && e.target.id === 'auth_email'){ e.preventDefault(); sendCode(); return; }
+    if (e.key === 'Enter' && e.target.id === 'auth_code'){ e.preventDefault(); verifyCode(); return; }
     if (e.key === 'Enter' && e.target.id === 'ob_name'){ e.preventDefault(); obSync(); ob.step = 1; render(); return; }
     if (e.key === 'Enter' && e.target.id === 'sk'){
       e.preventDefault(); const v = e.target.value.trim();
@@ -2226,18 +2236,39 @@
   let started = false;
   let authMsg = '';
   let authBusy = false;
+  // Sign-in is a code you type, not a link you tap. A link opens in whichever
+  // browser the mail app chooses, so on a phone the session lands somewhere
+  // other than where you were, and an app on the home screen has no address bar
+  // to paste it into: there is no way to finish signing in at all. A code never
+  // leaves the app. The email still carries a link as well, for laptops.
+  let authStep = 'email';        // 'email' | 'code'
+  let authEmail = '';
 
   function loginHTML(){
     let h = '<div class="login">';
     h += '<div class="login-mark">' + MOON + '</div>';
-    h += '<h1>Athena</h1>';
-    h += '<p class="login-sub">A calm place to plan your days. Sign in and it syncs across your phone and laptop.</p>';
-    h += '<div class="login-box">'+
-      '<input id="auth_email" type="email" inputmode="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@email.com">'+
-      '<button class="go" data-sendlink'+(authBusy?' disabled':'')+'>'+(authBusy?'Sending…':'Email me a sign-in link')+'</button>'+
-      '</div>';
-    if (authMsg) h += '<p class="login-msg">' + esc(authMsg) + '</p>';
-    h += '<p class="login-fine">No passwords. We email you a one-time link.</p>';
+    if (authStep === 'code'){
+      h += '<h1>Check your email</h1>';
+      h += '<p class="login-sub">We sent a six digit code to <b>'+esc(authEmail)+'</b>. Enter it below to finish signing in.</p>';
+      h += '<div class="login-box">'+
+        '<input id="auth_code" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" '+
+          'maxlength="6" placeholder="123456" class="codebox">'+
+        '<button class="go" data-verifycode'+(authBusy?' disabled':'')+'>'+(authBusy?'Checking…':'Sign in')+'</button>'+
+        '</div>';
+      if (authMsg) h += '<p class="login-msg">' + esc(authMsg) + '</p>';
+      h += '<div class="login-alt"><button class="linkish" data-sendcode>Send a new code</button>'+
+        '<button class="linkish" data-authback>Use a different email</button></div>';
+      h += '<p class="login-fine">The code lasts an hour. The email has a link in it too, if you would rather tap that on a computer.</p>';
+    } else {
+      h += '<h1>Athena</h1>';
+      h += '<p class="login-sub">A calm place to plan your days. Sign in and it syncs across your phone and laptop.</p>';
+      h += '<div class="login-box">'+
+        '<input id="auth_email" type="email" inputmode="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@email.com">'+
+        '<button class="go" data-sendcode'+(authBusy?' disabled':'')+'>'+(authBusy?'Sending…':'Email me a sign-in code')+'</button>'+
+        '</div>';
+      if (authMsg) h += '<p class="login-msg">' + esc(authMsg) + '</p>';
+      h += '<p class="login-fine">No passwords. We email you a six digit code.</p>';
+    }
     h += '</div>';
     return h;
   }
@@ -2246,20 +2277,53 @@
     app.innerHTML = loginHTML();
     const i = document.getElementById('auth_email');
     if (i && drafts['auth_email']) i.value = drafts['auth_email'];
+    const c = document.getElementById('auth_code');
+    if (c) c.focus();
   }
-  async function sendMagicLink(){
+
+  async function sendCode(){
+    // On the code step this is "send a new one", so fall back to the address we
+    // already have rather than an input that is no longer on screen.
     const i = document.getElementById('auth_email');
-    const email = ((i && i.value) || '').trim();
+    const email = (((i && i.value) || authEmail) || '').trim();
     if (!email || email.indexOf('@') === -1){ authMsg = 'Enter a valid email address.'; renderAuth(); if (i) i.focus(); return; }
     if (!sb){ authMsg = 'Sign-in is not configured.'; renderAuth(); return; }
     authBusy = true; authMsg = ''; renderAuth();
     try {
       const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
       authBusy = false;
-      authMsg = error ? ('Could not send the link: ' + error.message)
-                      : 'Check your email. A sign-in link is on its way to ' + email + '.';
+      if (error){
+        authMsg = /rate|limit|seconds/i.test(error.message || '')
+          ? 'That is too many emails for now. Wait a few minutes and try once more.'
+          : 'Could not send the code: ' + error.message;
+      } else {
+        authEmail = email; authStep = 'code';
+        authMsg = '';
+      }
     } catch(e){ authBusy = false; authMsg = 'Something went wrong. Please try again.'; }
     renderAuth();
+  }
+
+  async function verifyCode(){
+    const c = document.getElementById('auth_code');
+    const token = ((c && c.value) || '').replace(/\D/g, '');
+    if (token.length < 6){ authMsg = 'Enter the six digit code from the email.'; renderAuth(); return; }
+    authBusy = true; authMsg = ''; renderAuth();
+    try {
+      const { error } = await sb.auth.verifyOtp({ email: authEmail, token, type: 'email' });
+      authBusy = false;
+      if (error){
+        // Supabase answers "token has expired or is invalid" for a mistyped code
+        // and an old one alike, so do not pretend to know which. Telling someone
+        // their code expired when they fat-fingered a digit sends them off for a
+        // new email they did not need.
+        authMsg = 'That code did not work. Check the digits, or send a new one if the email has been sitting a while.';
+        renderAuth();
+        return;
+      }
+      // onAuthStateChange starts the app; nothing else to do here.
+      authMsg = ''; authStep = 'email';
+    } catch(e){ authBusy = false; authMsg = 'Something went wrong. Please try again.'; renderAuth(); }
   }
 
   function startApp(){
