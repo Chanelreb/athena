@@ -6,6 +6,17 @@
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
+  "share_target": {
+    "action": "share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [{ "name": "photos", "accept": ["image/*"] }]
+    }
+  },
   "background_color": "#26232C",
   "theme_color": "#2C2932",
   "icons": [

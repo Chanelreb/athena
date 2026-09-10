@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.7';
+  const BUILD = '2026-09-10.8';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1640,6 +1640,56 @@
       if (url) el.src = url;
       else el.replaceWith(Object.assign(document.createElement('div'), { className: 'note-img missing', textContent: 'Photo unavailable' }));
     }
+  }
+
+  /* ---- arriving from an Android share ----
+     The service worker has parked whatever was shared and bounced us back here
+     with a flag. Turn it into a note, then empty the cache, so a photo shared
+     from the gallery lands in Athena the way it would in any other app. iOS
+     cannot do this: only an App Store app can appear in its share sheet. */
+  async function consumeShare(){
+    if (!/[?&]shared=1/.test(location.search)) return;
+    // Clear the flag first, so a refresh cannot import the same thing twice.
+    try { history.replaceState(null, '', location.pathname); } catch(_){}
+    if (!window.caches) return;
+    let meta = null;
+    const files = [];
+    try {
+      const cache = await caches.open('athena-share');
+      const metaRes = await cache.match('./__share/meta');
+      if (!metaRes) return;
+      meta = await metaRes.json();
+      for (let i = 0; i < (meta.files || []).length; i++){
+        const key = meta.files[i];
+        const r = await cache.match(key);
+        if (r){
+          const b = await r.blob();
+          files.push(new File([b], 'shared-' + i + '.jpg', { type: b.type || 'image/jpeg' }));
+        }
+        await cache.delete(key);
+      }
+      await cache.delete('./__share/meta');
+    } catch(_){ return; }
+    if (!meta) return;
+
+    const text = [meta.text, meta.url].filter(Boolean).join('\n').trim();
+    const given = (meta.title || '').trim();
+    const lines = text ? text.split('\n') : [];
+    const title = given || (lines.length ? lines[0].slice(0, 140) : (files.length ? 'Shared photo' : ''));
+    if (!title && !text && !files.length) return;
+
+    // When the title had to be borrowed from the first line, that line is now
+    // the title, and repeating it underneath just looks like a mistake.
+    const body = (!given && lines.length && lines[0].slice(0, 140) === title)
+      ? lines.slice(1).join('\n').trim()
+      : text;
+
+    const n = newNote('text');
+    n.title = title.slice(0, 140);
+    n.body = body.slice(0, 8000);
+    view = 'notes'; noteEdit = n;
+    save(); render();
+    if (files.length) await addNoteImages(files, n);
   }
 
   // The one line that best names this note, for when it becomes something else.
@@ -3406,6 +3456,7 @@
     load().then(() => {
       applyTheme();
       render();
+      consumeShare();      // anything Android handed us on the way in
       setInterval(() => {
         const ae = document.activeElement;
         if (editing || settingsOpen || aiOpen || taskEdit) return;
