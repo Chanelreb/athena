@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.8';
+  const BUILD = '2026-09-10.9';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -177,7 +177,10 @@
     const ev = (o) => Object.assign({ id:'ev_'+uid8(), note:'', allDay:false, ex:{}, skip:[] }, o);
     const wk = (weekdays, interval) => ({ freq:'weekly', interval:interval||1, weekdays, monthday:1, from, until:null });
     return [
-      ev({ title:'Morning routine', cat:'health',   start:'07:00', end:'07:30', rrule:wk(every) }),
+      // Just "Morning". A routine is now a real thing in Athena, and a block
+      // called "Morning routine" sitting beside an actual morning routine is
+      // precisely the confusion worth designing out.
+      ev({ title:'Morning',         cat:'health',   start:'07:00', end:'07:30', rrule:wk(every) }),
       ev({ title:'Focus block',     cat:'work',     start:'09:00', end:'11:00', rrule:wk(wd) }),
       ev({ title:'Lunch',           cat:'personal', start:'12:30', end:'13:00', rrule:wk(every) }),
       ev({ title:'Movement',        cat:'health',   start:'17:30', end:'18:00', rrule:wk([1,3,5]) }),
@@ -208,6 +211,10 @@
     // { id, kind:'text'|'list', title, body, items:[{id,text,done}],
     //   color, cat, pinned, archived, createdAt, updatedAt }
     notes: [],
+    // A routine is to habits what a block is to tasks: a container that happens
+    // at a time and holds an ordered set of small things.
+    // { id, name, time:'HH:MM', weekdays:[0-6], cat, habits:[habitId] }
+    routines: [],
     completions: {}   // { 'YYYY-MM-DD': { <itemId>: true | <number> } }
   });
 
@@ -963,7 +970,7 @@
   // Everything that appears on a given day: real events, scheduled goal steps,
   // and tasks with a time of their own.
   function blocksForDate(D){
-    const all = eventsOnDate(D).concat(stepBlocksOnDate(D)).concat(taskBlocksOnDate(D));
+    const all = eventsOnDate(D).concat(stepBlocksOnDate(D)).concat(taskBlocksOnDate(D)).concat(routineBlocksOnDate(D));
     all.sort((a,b) => (a.allDay?-1:0)-(b.allDay?-1:0) || mins(a.s||'00:00') - mins(b.s||'00:00'));
     return all;
   }
@@ -1013,7 +1020,7 @@
       total++;
       if (b.step ? isDone('w:' + b.step.sid, weekKey(now)) : isDone(b.id, dk)) done++;
     });
-    habitList().forEach(hb => { total++; if (isDone(hb.id, dk, hb.target)) done++; });
+    activeHabits(now).forEach(hb => { total++; if (isDone(hb.id, dk, hb.target)) done++; });
     return { done, total };
   }
   // The ring lives on the Day view with its number beside it, not crammed inside
@@ -1373,10 +1380,13 @@
       const b = it.b;
       const isStep = !!b.step;
       const isTask = !!b.task;
+      const isRoutine = !!b.routine;
+      const rp = isRoutine ? routineProgress(b.routine, vd) : null;
       const live = t >= mins(b.s) && t < mins(b.e);
       const past = t >= mins(b.e);
       const done = isStep ? isDone('w:' + b.step.sid, weekKey(vd))
                  : isTask ? taskDone(b.task, vd)
+                 : isRoutine ? (rp.total > 0 && rp.done === rp.total)
                  : isDone(b.id, dk);
       const col = catColor(b.c);
       let dotStyle = '';
@@ -1385,14 +1395,16 @@
       else if (!past) dotStyle = 'border-color:'+col;
       const doneAct = isStep ? 'data-stepweek="'+b.step.gid+':'+b.step.sid+'|'+dk+'"'
                     : isTask ? 'data-tasktoggle="'+b.task.id+'|'+dk+'"'
+                    : isRoutine ? 'data-routinedone="'+b.routine.id+'|'+dk+'"'
                     : 'data-done="'+b.id+'|'+dk+'"';
-      h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+(isTask?' astask':'')+((justDone === (isStep ? b.step.sid : b.id))?' just':'')+'">'+
+      h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+(isTask?' astask':'')+(isRoutine?' asroutine':'')+((justDone === (isStep ? b.step.sid : b.id))?' just':'')+'">'+
         '<div class="clock">'+clockOf(b.s)+'</div>'+
         '<div class="track"><button class="dot" '+doneAct+' style="'+dotStyle+'" '+
           'aria-label="'+(done ? 'Undo ' : 'Tick off ')+esc(b.t)+'">'+TICK+'</button></div>'+
         '<div class="card"><div class="cardrow">'+
         '<button class="cardmain" '+doneAct+'>'+
-        '<div class="t">'+esc(b.t)+(isTask?'<em class="tasktag">· task</em>':'')+'</div>'+
+        '<div class="t">'+esc(b.t)+(isTask?'<em class="tasktag">· task</em>':'')+
+          (isRoutine?'<em class="tasktag">'+rp.done+' of '+rp.total+'</em>':'')+'</div>'+
         (b.n?'<div class="n">'+esc(b.n)+'</div>':'');
       if (live){
         const pct = ((t - mins(b.s)) / (mins(b.e) - mins(b.s))) * 100;
@@ -1402,8 +1414,29 @@
       h += '</button>'+
         (isStep ? '<button class="editdot" data-gotogoal="'+b.step.gid+'" aria-label="Open goal">›</button>'
          : isTask ? '<button class="editdot" data-taskedit="'+b.task.id+'" aria-label="Edit task">⋯</button>'
+         : isRoutine ? '<button class="editdot" data-gotoroutine="'+b.routine.id+'" aria-label="Edit routine">⋯</button>'
                   : '<button class="editdot" data-editinst="'+b.id+'|'+dk+'" aria-label="Edit">⋯</button>')+
         '</div>';
+      // The routine's own steps, listed unless the whole thing is done. This is
+      // the point of a routine: you work down it, you do not go hunting.
+      if (isRoutine && rp.total && !done){
+        h += '<div class="rsteps">' + routineHabits(b.routine).map(hb => {
+          const hcol = catColor(hb.c);
+          if (hb.target){
+            const v = compVal(hb.id, dk) || 0;
+            let pips = '';
+            for (let i = 0; i < hb.target; i++)
+              pips += '<span class="pip'+(i<v?' on':'')+'" style="'+(i<v?'background:'+hcol+';border-color:'+hcol:'')+'"></span>';
+            return '<button class="rstep'+(v>=hb.target?' done':'')+'" data-pip="'+hb.id+':'+hb.target+'">'+
+              '<span class="rmark" style="border-color:'+hcol+'"></span><span class="rl">'+esc(hb.l)+'</span>'+
+              '<span class="pips">'+pips+'</span></button>';
+          }
+          const on = isDone(hb.id, dk);
+          return '<button class="rstep'+(on?' done':'')+(justDone===hb.id?' just':'')+'" data-done="'+hb.id+'">'+
+            '<span class="rmark" style="'+(on?'background:'+hcol+';border-color:'+hcol:'border-color:'+hcol)+'">'+TICK+'</span>'+
+            '<span class="rl">'+esc(hb.l)+'</span></button>';
+        }).join('') + '</div>';
+      }
       // Tasks waiting in this block's category. An appointment is not a block,
       // so it does not collect a queue of its own.
       const bt = (isStep || isTask) ? [] : tasksForCat(b.c, vd);
@@ -1486,10 +1519,47 @@
     }));
     return out;
   }
+
+  /* ---- routines ----
+     A habit inside a routine is not also a loose chip. It happens when its
+     routine happens, which is the whole reason for putting it in one: you do
+     not decide separately when to take your vitamins, you take them as part of
+     the morning. On a day its routine does not run, it does not come up at all
+     and does not count against the day. */
+  const routinesAll = () => (S.routines || []);
+  const runsOn = (r, D) => !(r.weekdays || []).length || r.weekdays.indexOf(D.getDay()) !== -1;
+  const routinesOnDate = D => routinesAll().filter(r => r.time && runsOn(r, D)).slice()
+    .sort((a, b) => mins(a.time) - mins(b.time));
+  const routineOf = habitId => routinesAll().find(r => (r.habits || []).indexOf(habitId) !== -1) || null;
+  const looseHabits = () => habitList().filter(h => !routineOf(h.id));
+  function routineHabits(r){
+    const all = habitList();
+    return (r.habits || []).map(id => all.find(h => h.id === id)).filter(Boolean);
+  }
+  // Everything that counts toward today: loose habits, plus the members of any
+  // routine actually running today.
+  function activeHabits(D){
+    const out = looseHabits();
+    routinesAll().forEach(r => { if (runsOn(r, D) && r.time) routineHabits(r).forEach(h => out.push(h)); });
+    return out;
+  }
+  function routineProgress(r, D){
+    const hs = routineHabits(r), dk = dayKey(D);
+    return { done: hs.filter(h => isDone(h.id, dk, h.target)).length, total: hs.length };
+  }
+  function routineBlocksOnDate(D){
+    const dk = dayKey(D);
+    return routinesOnDate(D).map(r => ({
+      id: r.id, uid: 'routine:' + r.id + '@' + dk,
+      t: r.name, n: '', c: r.cat || (routineHabits(r)[0] || {}).c || (S.categories[0] || {}).id,
+      allDay: false, s: r.time, e: fmtM(Math.min(24 * 60 - 1, mins(r.time) + 30)),
+      routine: r
+    }));
+  }
   function chipsHTML(now){
     const dk = dayKey(now);
     let h = '<div class="chips">';
-    habitList().forEach(d => {
+    looseHabits().forEach(d => {
       const col = catColor(d.c);
       const tint = 'background:'+col+'22;border-color:'+col+'55';
       if (d.target){
@@ -1855,6 +1925,65 @@
     });
   }
 
+  const RD = ['S','M','T','W','T','F','S'];
+
+  function routineDays(r){
+    const wd = (r.weekdays || []).slice().sort();
+    if (!wd.length || wd.length === 7) return 'Every day';
+    if (wd.length === 5 && wd.indexOf(0) === -1 && wd.indexOf(6) === -1) return 'Weekdays';
+    if (wd.length === 2 && wd.indexOf(0) !== -1 && wd.indexOf(6) !== -1) return 'Weekends';
+    return wd.map(d => SD[d]).join(' & ');
+  }
+
+  function routinesView(now){
+    const rs = routinesAll();
+    const spare = habitList().filter(h => h.own && !routineOf(h.id));
+    let h = '<p class="slack">A routine is a handful of habits you do together, at a time. '+
+      'Its habits turn up in your day inside the routine, and nowhere else, so you are not deciding twice when to take your vitamins.</p>';
+
+    if (!rs.length)
+      h += '<p class="park-empty">No routines yet. A morning one is the usual place to start.</p>';
+
+    rs.forEach(r => {
+      const hs = routineHabits(r);
+      const p = routineProgress(r, now);
+      const col = catColor(r.cat || (hs[0] || {}).c || (S.categories[0] || {}).id);
+      h += '<div class="rcard" style="--rc:'+col+'">';
+      h += '<div class="rhead"><span class="rbar"></span>'+
+        '<div class="rname"><input type="text" data-rname="'+r.id+'" value="'+esc(r.name)+'" autocomplete="off">'+
+        '<small>'+(hs.length ? p.done+' of '+p.total+' done today' : 'No habits in it yet')+'</small></div>'+
+        '<button class="del" data-delroutine="'+r.id+'" aria-label="Remove routine">×</button></div>';
+      h += '<div class="rwhen">'+
+        '<label><span>At</span><input type="time" data-rtime="'+r.id+'" value="'+esc(r.time || '07:00')+'"></label>'+
+        '<span class="rdays">'+RD.map((d, i) =>
+          '<button class="'+(runsOn(r, { getDay: () => i }) ? 'on' : '')+'" data-rwd="'+r.id+':'+i+'">'+d+'</button>').join('')+
+        '</span></div>';
+      h += '<div class="rlist">' + (hs.length ? hs.map((hb, i) =>
+        '<div class="rrow"><span class="cd" style="background:'+catColor(hb.c)+'"></span>'+
+        '<span class="rrl">'+esc(hb.l)+'</span>'+
+        '<button class="rmove" data-rup="'+r.id+':'+hb.id+'"'+(i === 0 ? ' disabled' : '')+' aria-label="Move up">↑</button>'+
+        '<button class="rmove" data-rdown="'+r.id+':'+hb.id+'"'+(i === hs.length-1 ? ' disabled' : '')+' aria-label="Move down">↓</button>'+
+        '<button class="del" data-rout="'+r.id+':'+hb.id+'" aria-label="Take out of the routine">×</button></div>').join('')
+        : '<p class="park-empty" style="margin:2px 0 0">Add a habit below, or make a new one.</p>') + '</div>';
+      h += '<div class="radd">'+
+        '<input type="text" id="rnew_'+r.id+'" placeholder="New habit for this routine" autocomplete="off">'+
+        '<button class="ghost" data-raddnew="'+r.id+'">Add</button></div>';
+      if (spare.length)
+        h += '<div class="radd"><select id="rpick_'+r.id+'"><option value="">Move an existing habit in…</option>'+
+          spare.map(s => '<option value="'+s.id+'">'+esc(s.l)+'</option>').join('')+'</select>'+
+          '<button class="ghost" data-raddexisting="'+r.id+'">Move</button></div>';
+      h += '</div>';
+    });
+
+    h += '<h2>Add a routine</h2><div class="gform">'+
+      '<input id="ro_name" type="text" placeholder="Morning routine" autocomplete="off">'+
+      '<div class="frow"><input id="ro_time" type="time" value="07:00">'+
+      '<select id="ro_days"><option value="all">Every day</option><option value="wd" selected>Weekdays</option><option value="we">Weekends</option></select></div>'+
+      '<button class="go" data-addroutine>Add routine</button>'+
+      '<small class="gform-hint">You can change the days one at a time once it exists.</small></div>';
+    return h;
+  }
+
   function habitsView(now){
     const today = dayKey(now);
     const monday = parseDay(weekKey(now));
@@ -1864,8 +1993,11 @@
     h += '<h2>The last four weeks</h2>';
     h += '<div class="habhead"><div class="hdow">' + ['M','T','W','T','F','S','S'].map(x=>'<span>'+x+'</span>').join('') + '</div></div>';
 
+    // The history shows every habit, routine members included: their streaks are
+    // the thing worth looking at, even though they are ticked inside a routine.
     habitList().forEach(d => {
       const col = catColor(d.c);
+      const inR = routineOf(d.id);
       let cells = '', count = 0, elapsed = 0;
       for (let i = 0; i < 28; i++){
         const dd = new Date(start); dd.setDate(start.getDate() + i);
@@ -1882,7 +2014,8 @@
         else if (i > 0) break;
       }
       h += '<div class="hab"><div class="hl"><b>'+esc(d.l)+'</b>'+
-        '<small>'+count+' of '+elapsed+' days'+(streak>1?' · <em>'+streak+' day run</em>':'')+'</small></div>'+
+        '<small>'+count+' of '+elapsed+' days'+(streak>1?' · <em>'+streak+' day run</em>':'')+
+        (inR ? ' · <em class="inroutine">'+esc(inR.name)+'</em>' : '')+'</small></div>'+
         '<div class="hgrid">'+cells+'</div>'+
         (d.own ? '<button class="del" data-delhabit="'+d.id+'" aria-label="Remove habit">×</button>' : '')+
         '</div>';
@@ -2315,6 +2448,18 @@
       addNoteImages(files, n);
     });
 
+    // A routine's name and time edit in place, saved as you go, with no render
+    // in between so the cursor stays where you put it.
+    app.addEventListener('input', e => {
+      const id = e.target.dataset && (e.target.dataset.rname || e.target.dataset.rtime);
+      if (!id) return;
+      const r = routinesAll().find(x => x.id === id);
+      if (!r) return;
+      if (e.target.dataset.rname) r.name = e.target.value.slice(0, 60);
+      else if (e.target.value) r.time = e.target.value;
+      save();
+    });
+
     // Picking a photo. noteSync first, or whatever was being typed is lost to
     // the re-render that follows the upload.
     app.addEventListener('change', e => {
@@ -2442,7 +2587,7 @@
           '<button data-daymode="'+m[0]+'"'+(dayMode===m[0]?' class="on"':'')+'>'+m[1]+'</button>').join('')+
         '</div>' : '')+
       (view==='grow' ? '<div class="seg sub">'+
-        [['habits','Habits'],['goals','Goals']].map(m =>
+        [['habits','Habits'],['goals','Goals'],['routines','Routines']].map(m =>
           '<button data-growmode="'+m[0]+'"'+(growMode===m[0]?' class="on"':'')+'>'+m[1]+'</button>').join('')+
         '</div>' : '')+
       (weekShown() && canGrid() ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
@@ -2455,7 +2600,9 @@
     if (view === 'day')    h += weekShown() ? weekView(vd, now) : dayRail(vd, now);
     else if (view === 'blocks') h += blocksManagerHTML(now);
     else if (view === 'tasks')  h += tasksView(now);
-    else if (view === 'grow')   h += growMode === 'goals' ? goalsView(now) : habitsView(now);
+    else if (view === 'grow')   h += growMode === 'goals' ? goalsView(now)
+                                   : growMode === 'routines' ? routinesView(now)
+                                   : habitsView(now);
     else if (view === 'notes')  h += notesView(now);
 
     // parked thoughts + everyday chips live under the Day view
@@ -3067,6 +3214,92 @@
     if (t('[data-today]')){ dayShift = 0; openDay = null; render(); return; }
     if ((m = t('[data-daymode]'))){ dayMode = m.dataset.daymode; openDay = null; render(); return; }
     if ((m = t('[data-growmode]'))){ growMode = m.dataset.growmode; openGoal = null; render(); return; }
+
+    // ---- routines ----
+    if ((m = t('[data-gotoroutine]'))){ view = 'grow'; growMode = 'routines'; render(); return; }
+    if (t('[data-addroutine]')){
+      const nm = ((document.getElementById('ro_name') || {}).value || '').trim();
+      if (!nm){ const i = document.getElementById('ro_name'); if (i) i.focus(); return; }
+      const days = (document.getElementById('ro_days') || {}).value || 'wd';
+      S.routines = routinesAll().concat([{
+        id: 'ro_' + uid8(), name: nm.slice(0, 60),
+        time: (document.getElementById('ro_time') || {}).value || '07:00',
+        weekdays: days === 'all' ? [0,1,2,3,4,5,6] : days === 'we' ? [0,6] : [1,2,3,4,5],
+        cat: (S.categories[0] || {}).id, habits: []
+      }]);
+      clearDraft('ro_name'); save(); render(); return;
+    }
+    if ((m = t('[data-delroutine]'))){
+      // The habits themselves are not the routine's to delete: they go back to
+      // being loose, with their history intact.
+      markUndo('Routine removed');
+      S.routines = routinesAll().filter(r => r.id !== m.dataset.delroutine);
+      save(); render(); return;
+    }
+    if ((m = t('[data-rwd]'))){
+      const parts = m.dataset.rwd.split(':'), r = routinesAll().find(x => x.id === parts[0]), d = +parts[1];
+      if (r){
+        const wd = (r.weekdays || []).slice();
+        const i = wd.indexOf(d);
+        if (i === -1) wd.push(d); else wd.splice(i, 1);
+        r.weekdays = wd.sort();
+        save(); render();
+      }
+      return;
+    }
+    if ((m = t('[data-raddnew]'))){
+      const rid = m.dataset.raddnew, r = routinesAll().find(x => x.id === rid);
+      const i = document.getElementById('rnew_' + rid);
+      const v = ((i && i.value) || '').trim();
+      if (!r || !v){ if (i) i.focus(); return; }
+      const hb = { id: 'hb_' + uid8(), label: v.slice(0, 80), cat: r.cat || (S.categories[0] || {}).id, target: 1 };
+      S.habits = (S.habits || []).concat([hb]);
+      r.habits = (r.habits || []).concat([hb.id]);
+      clearDraft('rnew_' + rid); save(); render();
+      const f = document.getElementById('rnew_' + rid); if (f) f.focus();
+      return;
+    }
+    if ((m = t('[data-raddexisting]'))){
+      const rid = m.dataset.raddexisting, r = routinesAll().find(x => x.id === rid);
+      const sel = document.getElementById('rpick_' + rid);
+      const id = (sel && sel.value) || '';
+      if (r && id && (r.habits || []).indexOf(id) === -1){ r.habits = (r.habits || []).concat([id]); save(); render(); }
+      return;
+    }
+    if ((m = t('[data-rout]'))){
+      const parts = m.dataset.rout.split(':'), r = routinesAll().find(x => x.id === parts[0]);
+      if (r){ r.habits = (r.habits || []).filter(id => id !== parts[1]); save(); render(); }
+      return;
+    }
+    if ((m = t('[data-rup]')) || (m = t('[data-rdown]'))){
+      const up = !!m.dataset.rup;
+      const parts = (m.dataset.rup || m.dataset.rdown).split(':');
+      const r = routinesAll().find(x => x.id === parts[0]);
+      if (r){
+        const ids = (r.habits || []).slice(), i = ids.indexOf(parts[1]), j = up ? i - 1 : i + 1;
+        if (i !== -1 && j >= 0 && j < ids.length){ const tmp = ids[i]; ids[i] = ids[j]; ids[j] = tmp; r.habits = ids; save(); render(); }
+      }
+      return;
+    }
+    if ((m = t('[data-routinedone]'))){
+      // Tapping the routine itself is "I did the whole thing", which is how
+      // people actually think about a morning routine they got through.
+      const parts = m.dataset.routinedone.split('|');
+      const r = routinesAll().find(x => x.id === parts[0]);
+      if (r){
+        const hs = routineHabits(r), dk2 = parts[1];
+        const p = routineProgress(r, parseDay(dk2));
+        const all = p.total > 0 && p.done === p.total;
+        hs.forEach(hb => {
+          const on = isDone(hb.id, dk2, hb.target);
+          if (all && on){ const mm = S.completions[dk2]; if (mm){ delete mm[hb.id]; if (!Object.keys(mm).length) delete S.completions[dk2]; } }
+          else if (!all && !on){ const mm = S.completions[dk2] || (S.completions[dk2] = {}); mm[hb.id] = hb.target ? hb.target : true; }
+        });
+        if (!all) markJustDone(r.id);
+        save(); render(); maybeCelebrate();
+      }
+      return;
+    }
 
     // ---- notes ----
     if (t('[data-notequick]')){
