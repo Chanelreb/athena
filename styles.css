@@ -385,6 +385,42 @@
   #soft-app .rz { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: ns-resize; }
   #soft-app .cbnow { position: absolute; left: 0; right: 0; height: 2px; background: var(--live); z-index: 3; }
 
+  /* a long unbroken run, mentioned before it happens */
+  #soft-app .breakhint {
+    font-size: 12.5px; color: var(--dim); margin: 10px 0 0;
+    padding: 9px 12px; border-radius: 10px; background: var(--raise);
+    border: 1px solid var(--line);
+  }
+  #soft-app .breakhint .linkish { font-size: 12.5px; }
+
+  /* how the day went */
+  #soft-app .review {
+    margin-top: 18px; padding: 16px 18px 18px; border-radius: 14px;
+    background: var(--live-soft); border: 1px solid var(--line);
+  }
+  #soft-app .review-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  #soft-app .review-h b { flex: 1; font-family: var(--serif); font-weight: 400; font-size: 19px; }
+  #soft-app .rvrow { display: flex; align-items: baseline; gap: 9px; padding: 3px 0; }
+  #soft-app .rvn {
+    font-family: var(--serif); font-size: 24px; line-height: 1;
+    min-width: 34px; text-align: right; font-variant-numeric: tabular-nums;
+  }
+  #soft-app .rvl { font-size: 13.5px; color: var(--dim); }
+  #soft-app .rvbar-h {
+    font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ghost); margin: 16px 0 8px;
+  }
+  #soft-app .rvlist { list-style: none; margin: 0; padding: 0; }
+  #soft-app .rvlist li {
+    display: flex; gap: 10px; align-items: baseline; font-size: 13.5px;
+    padding: 4px 0; color: var(--dim);
+  }
+  #soft-app .rvlist li em {
+    font-style: normal; font-size: 11.5px; color: var(--ghost);
+    font-variant-numeric: tabular-nums; margin-left: auto;
+  }
+  #soft-app .rvlist li.more { color: var(--ghost); font-size: 12px; }
+
   /* ===== the day as a grid ===== */
   #soft-app .daygrid { display: flex; margin-top: 6px; }
   #soft-app .dcol {

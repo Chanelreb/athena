@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.18';
+  const BUILD = '2026-09-10.19';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1554,6 +1554,90 @@
     return h + '<div class="ddet-act"><button class="linkish" data-editinst="'+b.id+'|'+dk+'">Edit this block</button></div></div>';
   }
 
+  /* The longest stretch of blocks with no real gap between them. Athena can see
+     this coming and it costs nothing to mention it, which is a kinder thing to
+     do than let someone find out at four o'clock. */
+  function longestRun(blocks){
+    const list = blocks.filter(b => !b.allDay).slice().sort((a, b) => mins(a.s) - mins(b.s));
+    let best = null, from = null, to = null;
+    list.forEach(b => {
+      const s = mins(b.s), e = mins(b.e);
+      if (from === null){ from = s; to = e; }
+      else if (s - to <= 10){ to = Math.max(to, e); }        // a ten minute gap is not a break
+      else { if (!best || to - from > best.mins) best = { mins: to - from, from: fmtM(from), at: fmtM(to) }; from = s; to = e; }
+    });
+    if (from !== null && (!best || to - from > best.mins)) best = { mins: to - from, from: fmtM(from), at: fmtM(to) };
+    return best;
+  }
+
+  /* ---- how the day actually went ----
+     Athena collects all of this and has never once shown it back. A day you
+     kept is worth seeing whole, and a day you did not is worth seeing honestly
+     rather than letting it roll quietly into tomorrow. */
+  let reviewOpen = false;
+
+  function dayReviewHTML(vd){
+    const dk = dayKey(vd);
+    const blocks = blocksForDate(vd).filter(b => !b.allDay);
+    const kept = [], missed = [];
+    blocks.forEach(b => {
+      let done;
+      if (b.step) done = isDone('w:' + b.step.sid, weekKey(vd));
+      else if (b.task) done = taskDone(b.task, vd);
+      else if (b.routine){ const p = routineProgress(b.routine, vd); done = p.total > 0 && p.done === p.total; }
+      else done = isDone(b.id, dk);
+      (done ? kept : missed).push(b);
+    });
+    const habits = activeHabits(vd);
+    const habitsDone = habits.filter(hb => isDone(hb.id, dk, hb.target));
+    const tasksDone = (S.tasks || []).filter(tk => taskDone(tk, vd) && (tk.doneAt === dk || !!tk.repeat));
+
+    // Planned against tracked, by category. This is the number that makes every
+    // estimate in Athena mean something.
+    const spent = spentDay(dk), byCat = {};
+    Object.keys(spent).forEach(ref => {
+      let cat = null;
+      if (ref.indexOf('tk_') === 0){ const tk = findTask(ref.slice(3)); cat = tk && tk.cat; }
+      else if (ref.indexOf('ro_') === 0){ const r = routinesAll().find(x => x.id === ref.slice(3)); cat = r && r.cat; }
+      else { const ev = findEvent(ref); cat = ev && ev.cat; }
+      byCat[cat || 'other'] = (byCat[cat || 'other'] || 0) + spent[ref];
+    });
+    const tracked = Object.keys(byCat).reduce((a, k) => a + byCat[k], 0);
+    const planned = blocks.filter(b => !b.step && !b.task).reduce((a, b) => a + (mins(b.e) - mins(b.s)), 0);
+
+    let h = '<div class="review"><div class="review-h"><b>How today went</b>'+
+      '<button class="ddet-x" data-reviewclose aria-label="Close">×</button></div>';
+    h += '<div class="rvrow"><span class="rvn">'+kept.length+'</span><span class="rvl">of '+blocks.length+' block'+(blocks.length!==1?'s':'')+' kept</span></div>';
+    if (habits.length)
+      h += '<div class="rvrow"><span class="rvn">'+habitsDone.length+'</span><span class="rvl">of '+habits.length+' habit'+(habits.length!==1?'s':'')+'</span></div>';
+    if (tasksDone.length)
+      h += '<div class="rvrow"><span class="rvn">'+tasksDone.length+'</span><span class="rvl">task'+(tasksDone.length!==1?'s':'')+' finished</span></div>';
+
+    if (tracked){
+      h += '<div class="rvbar-h">'+dur(tracked)+' tracked'+(planned ? ' against '+dur(planned)+' planned' : '')+'</div>';
+      h += '<div class="balbar">' + Object.keys(byCat).map(cid => {
+        const c = S.categories.find(x => x.id === cid);
+        return '<i style="width:'+(byCat[cid]/tracked*100)+'%;background:'+(c ? tint(c.color) : '#8A867F')+'"></i>';
+      }).join('') + '</div>';
+      h += '<div class="balkey">' + Object.keys(byCat).map(cid => {
+        const c = S.categories.find(x => x.id === cid);
+        return '<span><b style="background:'+(c ? tint(c.color) : '#8A867F')+'"></b>'+
+          esc(c ? c.label : 'Other')+' '+dur(byCat[cid])+'</span>';
+      }).join('') + '</div>';
+    } else {
+      h += '<p class="tfit quiet">No time tracked today. Aim the focus timer at a block and this fills itself in.</p>';
+    }
+
+    if (missed.length){
+      h += '<div class="rvbar-h">Left undone</div><ul class="rvlist">' +
+        missed.slice(0, 6).map(b => '<li>'+esc(b.t)+'<em>'+clockOf(b.s)+'</em></li>').join('') +
+        (missed.length > 6 ? '<li class="more">and '+(missed.length - 6)+' more</li>' : '') + '</ul>';
+    } else if (blocks.length){
+      h += '<p class="tfit quiet">Every block kept. That is the whole day.</p>';
+    }
+    return h + '</div>';
+  }
+
   function dayRail(vd, now){
     const isToday = dayKey(vd) === dayKey(now);
     // Only "today" has a live moment; other days render as plain, unstyled time.
@@ -1593,6 +1677,12 @@
       h += '<p class="slack">Nothing scheduled '+(isToday ? 'today' : 'this day')+'. '+
         '<button class="linkish" data-newon="'+dk+'">Add something</button>, or enjoy the open day.</p>';
     }
+
+    // A long unbroken run is worth noticing before you live it, not after.
+    const run = longestRun(blocks);
+    if (run && run.mins >= 180)
+      h += '<p class="breakhint">'+dur(run.mins)+' back to back from '+clockOf(run.from)+
+        '. <button class="linkish" data-addbreak="'+run.at+'|'+dk+'">Put a break in</button></p>';
 
     // The day drawn as a grid: hour lines, blocks placed and sized by the clock,
     // a line at now. Detail that will not fit inside a block opens underneath it.
@@ -1635,8 +1725,11 @@
         '<button class="linkish" data-newon="'+dk+'">Add a block for today</button></div>';
     }
 
+    if (reviewOpen) h += dayReviewHTML(vd);
+
     h += '<div class="dayadd"><button data-newon="'+dk+'">+ New event</button>'+
-      '<button class="ai-btn" data-aiopen>✦ Ask your AI</button></div>';
+      '<button class="ai-btn" data-aiopen>✦ Ask your AI</button>'+
+      (reviewOpen ? '' : '<button data-review>How today went</button>')+'</div>';
     return h;
   }
 
@@ -4094,6 +4187,16 @@
       render(); return;
     }
     if (t('[data-dayclose]')){ openDayBlock = ''; render(); return; }
+    if (t('[data-review]')){ reviewOpen = true; render(); return; }
+    if (t('[data-reviewclose]')){ reviewOpen = false; render(); return; }
+    if ((m = t('[data-addbreak]'))){
+      // A break is a block like any other, so it is editable, movable and
+      // yours to delete. Athena just picks the moment and gets out of the way.
+      const parts = m.dataset.addbreak.split('|');
+      openEditor({ date: parts[1], title: 'Break', cat: (S.categories[0] || {}).id });
+      if (editing){ editing.start = parts[0]; editing.end = fmtM(Math.min(DE, mins(parts[0]) + 15)); render(); }
+      return;
+    }
     if ((m = t('[data-autofill]'))){
       if (!S.profile) S.profile = blank().profile;
       S.profile.autofill = !!m.checked;
