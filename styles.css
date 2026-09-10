@@ -809,6 +809,9 @@
     border-radius: 12px; padding: 12px 16px; font: inherit; font-weight: 600; cursor: pointer;
   }
   #soft-app .notenew button.ghost { background: var(--raise); border: 1px solid var(--line); color: var(--dim); font-weight: 400; }
+  #soft-app .notenew { flex-wrap: wrap; }
+  #soft-app .notenew input { flex: 1 1 100%; }
+  @media (min-width: 480px) { #soft-app .notenew input { flex: 1 1 auto; } }
   #soft-app .notesearch { margin-bottom: 14px; }
   #soft-app .notesearch input {
     width: 100%; background: var(--raise); border: 1px solid var(--line); color: var(--text);

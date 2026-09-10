@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.5';
+  const BUILD = '2026-09-10.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1690,6 +1690,7 @@
         '<input id="nt_quick" type="text" placeholder="Take a note…" autocomplete="off">'+
         '<button data-notequick>Add</button>'+
         '<button class="ghost" data-notenew="list" aria-label="New checklist">+ List</button>'+
+        '<button class="ghost" data-notephoto aria-label="New note with a photo">+ Photo</button>'+
         '</div>';
     }
     if (notesAll().length >= 5 || q)
@@ -2967,6 +2968,21 @@
       if (v) n.title = v.slice(0, 140);
       clearDraft('nt_quick');
       noteEdit = n; save(); render(); return;
+    }
+    // Starting from a photo, which is how anyone with a picture in their hand
+    // actually thinks about it. Making them invent a note first was a hop too
+    // many, and hid the feature behind a step nobody would guess at.
+    if (t('[data-notephoto]')){
+      if (!cloud || !session){ alert('Photos need an account, so they are stored safely and reach your other devices. Sign in first.'); return; }
+      const i = document.getElementById('nt_quick');
+      const v = ((i && i.value) || '').trim();
+      const n = newNote('text');
+      if (v) n.title = v.slice(0, 140);
+      clearDraft('nt_quick');
+      noteEdit = n; save(); render();
+      // Still inside the tap that got us here, so the picker is allowed to open.
+      const f = document.getElementById('ne_file'); if (f) f.click();
+      return;
     }
     if ((m = t('[data-notepin]'))){
       const n = findNote(m.dataset.notepin);
