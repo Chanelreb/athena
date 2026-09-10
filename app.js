@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.6';
+  const BUILD = '2026-09-10.7';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1574,26 +1574,39 @@
     });
   }
 
-  async function addNoteImage(file){
-    if (!cloud || !session){ imgBusy = ''; alert('Photos need an account, so they can be stored safely and reach your other devices. Sign in first.'); return; }
-    const n = noteEdit;
+  // Takes a list, because a drop can carry several at once and doing them one
+  // at a time with a count is friendlier than a silent pause.
+  async function addNoteImages(files, note){
+    const list = Array.prototype.filter.call(files || [], f => /^image\//.test(f.type || ''));
+    if (!list.length) return;
+    if (!cloud || !session){ alert('Photos need an account, so they can be stored safely and reach your other devices. Sign in first.'); return; }
+    const n = note || noteEdit;
     if (!n) return;
-    if ((n.images || []).length >= IMG_PER_NOTE){ alert('That is ' + IMG_PER_NOTE + ' photos, which is plenty for one note.'); return; }
-    imgBusy = 'Adding photo…'; render();
-    try {
-      const shrunk = await shrinkImage(file);
-      const id = 'im_' + uid8();
-      const path = session.user.id + '/' + n.id + '/' + id + '.jpg';
-      const { error } = await sb.storage.from('note-images')
-        .upload(path, shrunk.blob, { contentType: 'image/jpeg', upsert: false });
-      if (error) throw error;
-      n.images = (n.images || []).concat([{ id: id, path: path, w: shrunk.w, h: shrunk.h }]);
-      touchNote(n); save();
-    } catch (e){
-      alert('Could not add that photo. ' + ((e && e.message) || '') +
-        (/unreadable/.test((e && e.message) || '') ? ' Some iPhone photos need to be shared as JPEG rather than HEIC.' : ''));
-    } finally { imgBusy = ''; render(); }
+    const room = IMG_PER_NOTE - (n.images || []).length;
+    if (room <= 0){ alert('That is ' + IMG_PER_NOTE + ' photos, which is plenty for one note.'); return; }
+    const take = list.slice(0, room);
+    for (let i = 0; i < take.length; i++){
+      imgBusy = take.length > 1 ? ('Adding ' + (i + 1) + ' of ' + take.length + '…') : 'Adding photo…';
+      render();
+      try {
+        const shrunk = await shrinkImage(take[i]);
+        const id = 'im_' + uid8();
+        const path = session.user.id + '/' + n.id + '/' + id + '.jpg';
+        const { error } = await sb.storage.from('note-images')
+          .upload(path, shrunk.blob, { contentType: 'image/jpeg', upsert: false });
+        if (error) throw error;
+        n.images = (n.images || []).concat([{ id: id, path: path, w: shrunk.w, h: shrunk.h }]);
+        touchNote(n); save();
+      } catch (e){
+        const msg = (e && e.message) || '';
+        alert('Could not add that photo. ' + msg +
+          (/unreadable/.test(msg) ? ' Some formats cannot be read here, such as a raw iPhone HEIC opened on a Windows browser.' : ''));
+      }
+    }
+    if (list.length > room) alert('Added ' + room + '. A note holds ' + IMG_PER_NOTE + ' photos.');
+    imgBusy = ''; render();
   }
+  const addNoteImage = file => addNoteImages([file]);
 
   async function removeNoteImage(n, imgId){
     const img = (n.images || []).find(x => x.id === imgId);
@@ -1748,7 +1761,9 @@
           '<input id="ne_file" type="file" accept="image/*" hidden></label>'
         : '')+
       '</div>'+
-      (!cloud || !session ? '<small class="gform-hint">Photos need an account, so they are stored safely and reach your other devices.</small>' : '')+
+      (!cloud || !session
+        ? '<small class="gform-hint">Photos need an account, so they are stored safely and reach your other devices.</small>'
+        : '<small class="gform-hint">On a computer you can also paste a picture straight in, or drag one onto this note.</small>')+
       '</div>';
     h += '<div class="fld"><span>Colour</span><div class="ne-colors">'+NOTE_COLORS.map(c =>
       '<button class="ne-color c-'+c+(c===(n.color||'none')?' on':'')+'" data-notecolor="'+c+'" aria-label="'+c+'"></button>').join('')+'</div></div>';
@@ -2198,6 +2213,58 @@
       if (e.target.id !== 'auth_code' || authBusy) return;
       if (e.target.value.replace(/\D/g, '').length === 6) verifyCode();
     });
+    /* Paste and drop, for the laptop. On a phone the picker is the whole story,
+       but at a desk a screenshot lives on the clipboard and a photo lives in a
+       folder, and making someone save one out and pick it back up is silly.
+
+       Paste only counts while a note is open, so it can never be ambiguous
+       about where the picture is meant to land. A drop onto the board, where
+       there is no open note, makes a new one and holds it open to be titled. */
+    document.addEventListener('paste', e => {
+      if (!noteEdit) return;
+      const items = (e.clipboardData && e.clipboardData.items) || [];
+      const files = [];
+      for (let i = 0; i < items.length; i++){
+        if (items[i].type && items[i].type.indexOf('image/') === 0){
+          const f = items[i].getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (!files.length) return;              // ordinary text paste: leave it alone
+      e.preventDefault();
+      noteSync();
+      addNoteImages(files);
+    });
+
+    const dropOK = () => !!noteEdit || view === 'notes';
+    const carriesFiles = dt => dt && Array.prototype.indexOf.call(dt.types || [], 'Files') !== -1;
+    let dragOn = false;
+    const setDrag = on => {
+      if (dragOn === on) return;
+      dragOn = on;
+      app.classList.toggle('dropping', on);
+    };
+    window.addEventListener('dragover', e => {
+      if (!dropOK() || !carriesFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      setDrag(true);
+    });
+    // relatedTarget is null when the pointer leaves the window entirely.
+    window.addEventListener('dragleave', e => { if (!e.relatedTarget) setDrag(false); });
+    window.addEventListener('drop', e => {
+      if (!dropOK() || !carriesFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      setDrag(false);
+      const files = e.dataTransfer.files;
+      if (!Array.prototype.some.call(files || [], f => /^image\//.test(f.type || ''))) return;
+      if (noteEdit){ noteSync(); addNoteImages(files); return; }
+      if (!cloud || !session){ alert('Photos need an account, so they can be stored safely and reach your other devices. Sign in first.'); return; }
+      const n = newNote('text');
+      noteEdit = n; save(); render();
+      addNoteImages(files, n);
+    });
+
     // Picking a photo. noteSync first, or whatever was being typed is lost to
     // the re-render that follows the upload.
     app.addEventListener('change', e => {

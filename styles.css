@@ -882,6 +882,14 @@
   #soft-app .ne-imgadd:hover { border-color: var(--ghost); color: var(--text); }
   #soft-app .ne-imgadd.busy { cursor: progress; color: var(--ghost); border-style: solid; }
 
+  /* dragging a picture over the board or an open note */
+  #soft-app.dropping .noteboard,
+  #soft-app.dropping .notenew {
+    outline: 2px dashed var(--live); outline-offset: 6px; border-radius: 12px;
+  }
+  #soft-app.dropping .note-modal { outline: 2px dashed var(--live); outline-offset: -6px; }
+  #soft-app.dropping .noteboard .note { pointer-events: none; }
+
   #soft-app .note-more, #soft-app .note-meta { font-size: 11.5px; color: var(--ghost); margin-top: 6px; }
   #soft-app .note-cat { display: flex; align-items: center; gap: 6px; margin-top: 9px; font-size: 11.5px; color: var(--ghost); }
   #soft-app .note-cat b { width: 8px; height: 8px; border-radius: 50%; display: block; }
