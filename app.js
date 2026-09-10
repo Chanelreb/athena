@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.2';
+  const BUILD = '2026-09-10.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -124,6 +124,8 @@
     /* cup */    SVG0 + '<path d="M16 26h28v12a10 10 0 0 1-10 10H26a10 10 0 0 1-10-10Z"/><path d="M44 30h5a5 5 0 0 1 0 10h-5"/><path d="M24 14c-2 3 2 5 0 8M32 12c-2 3 2 5 0 8"/></svg>'
   ];
   const MOON = SVG0 + '<path d="M44 38A14 14 0 1 1 30 24A11 11 0 1 0 44 38Z"/><path d="M13 17v6M10 20h6M50 12v5M47.5 14.5h5M17 47v5M14.5 49.5h5"/></svg>';
+  const PIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+
+    '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6Z"/></svg>';
   // A settings control should look like a settings control. The daily drawing is
   // lovely and told you nothing about what tapping it would do.
   const COG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+
@@ -202,6 +204,10 @@
     // block shares its category. { id, title, note, cat, priority, due, repeat, doneAt }
     tasks: [],
     parked: [],
+    // Notes are for keeping, Park is for today's scratch. A note is
+    // { id, kind:'text'|'list', title, body, items:[{id,text,done}],
+    //   color, cat, pinned, archived, createdAt, updatedAt }
+    notes: [],
     completions: {}   // { 'YYYY-MM-DD': { <itemId>: true | <number> } }
   });
 
@@ -215,6 +221,7 @@
   // Today and the whole week are the same calendar at two zoom levels, so they
   // share the Day tab. Blocks got the slot that Week used to hold.
   let dayMode = 'today';              // 'today' | 'week'
+  let growMode = 'habits';            // Grow tab: 'habits' | 'goals'
   let expanded = (typeof window !== 'undefined' && window.innerWidth >= 900);
   let editing = null;                 // event-editor state, or null
   // Which day/week you're looking at, as an offset in days from today. Day view
@@ -1498,6 +1505,155 @@
     h += '</div>';
     return h;
   }
+  /* ==========================================================================
+     Notes — a board for things worth keeping.
+     Park is the scratchpad for today; this is the shelf. A note is either prose
+     or a tickable list, and its checkboxes are its own business: they never
+     become tasks, because a packing list is not six things on your day.
+     ========================================================================== */
+  let noteEdit = null;        // the note being edited, or null
+  let noteSearch = '';
+  let notesArchived = false;  // showing the archive rather than the board
+
+  // Named colours rather than hex, so each one can be a pale wash on stone and
+  // a deep tint in the dark without storing two values or computing a blend.
+  const NOTE_COLORS = ['none','rose','amber','sage','sky','lilac','stone'];
+
+  const notesAll = () => (S.notes || []);
+  function noteMatches(n, q){
+    if (!q) return true;
+    const hay = (n.title + ' ' + n.body + ' ' + (n.items || []).map(i => i.text).join(' ')).toLowerCase();
+    return hay.indexOf(q) !== -1;
+  }
+  function newNote(kind){
+    const n = {
+      id: 'nt_' + uid8(), kind: kind === 'list' ? 'list' : 'text',
+      title: '', body: '', items: [], color: 'none', cat: null,
+      pinned: false, archived: false,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    };
+    S.notes = notesAll().concat([n]);
+    return n;
+  }
+  const findNote = id => notesAll().find(n => n.id === id);
+  function touchNote(n){ n.updatedAt = new Date().toISOString(); }
+
+  function noteCardHTML(n){
+    const done = (n.items || []).filter(i => i.done).length;
+    const cat = n.cat ? S.categories.find(c => c.id === n.cat) : null;
+    let h = '<div class="note c-'+esc(n.color || 'none')+'" data-noteopen="'+n.id+'">';
+    h += '<button class="note-pin'+(n.pinned?' on':'')+'" data-notepin="'+n.id+'" '+
+      'aria-label="'+(n.pinned?'Unpin':'Pin to top')+'">'+PIN+'</button>';
+    if (n.title) h += '<div class="note-t">'+esc(n.title)+'</div>';
+    if (n.kind === 'list'){
+      const show = (n.items || []).slice(0, 6);
+      h += '<ul class="note-list">' + show.map(i =>
+        '<li class="'+(i.done?'done':'')+'"><button data-noteitem="'+n.id+':'+i.id+'" aria-label="'+
+        (i.done?'Untick':'Tick')+' '+esc(i.text)+'"><span class="mark">'+TICK+'</span></button>'+
+        '<span>'+esc(i.text)+'</span></li>').join('') + '</ul>';
+      if ((n.items || []).length > 6) h += '<div class="note-more">+'+((n.items||[]).length - 6)+' more</div>';
+      if ((n.items || []).length) h += '<div class="note-meta">'+done+' of '+n.items.length+' done</div>';
+    } else if (n.body){
+      h += '<div class="note-b">'+esc(n.body)+'</div>';
+    }
+    if (!n.title && !n.body && !(n.items || []).length) h += '<div class="note-b empty">Empty note</div>';
+    if (cat) h += '<div class="note-cat"><b style="background:'+catColor(cat.id)+'"></b>'+esc(cat.label)+'</div>';
+    h += '</div>';
+    return h;
+  }
+
+  function notesView(now){
+    const q = noteSearch.trim().toLowerCase();
+    const live = notesAll().filter(n => !!n.archived === notesArchived);
+    const shown = live.filter(n => noteMatches(n, q));
+    const pinned = shown.filter(n => n.pinned);
+    const rest = shown.filter(n => !n.pinned);
+    const archivedCount = notesAll().filter(n => n.archived).length;
+
+    let h = '';
+    if (!notesArchived){
+      h += '<div class="notenew">'+
+        '<input id="nt_quick" type="text" placeholder="Take a note…" autocomplete="off">'+
+        '<button data-notequick>Add</button>'+
+        '<button class="ghost" data-notenew="list" aria-label="New checklist">+ List</button>'+
+        '</div>';
+    }
+    if (notesAll().length >= 5 || q)
+      h += '<div class="notesearch"><input id="nt_search" type="search" placeholder="Search notes…" '+
+        'autocomplete="off" value="'+esc(noteSearch)+'"></div>';
+
+    if (!shown.length){
+      h += '<p class="park-empty">' + (q
+        ? 'Nothing matches “'+esc(noteSearch)+'”.'
+        : notesArchived
+          ? 'Nothing archived yet.'
+          : 'No notes yet. Anything worth keeping: a list, a half-formed idea, the wifi password.') + '</p>';
+    }
+    if (pinned.length){
+      h += '<h2>Pinned <span class="tcount">'+pinned.length+'</span></h2>';
+      h += '<div class="noteboard">'+pinned.map(noteCardHTML).join('')+'</div>';
+    }
+    if (rest.length){
+      if (pinned.length) h += '<h2>Everything else <span class="tcount">'+rest.length+'</span></h2>';
+      h += '<div class="noteboard">'+rest.map(noteCardHTML).join('')+'</div>';
+    }
+    if (archivedCount || notesArchived){
+      h += '<div class="dayadd" style="margin-top:18px"><button data-notearchiveview>'+
+        (notesArchived ? 'Back to your notes' : 'Archived ('+archivedCount+')')+'</button></div>';
+    }
+    return h;
+  }
+
+  function noteEditorHTML(){
+    const n = noteEdit;
+    const CATOPTS = '<option value="">No category</option>' + S.categories.map(c =>
+      "<option value='"+c.id+"'"+(c.id===n.cat?' selected':'')+">"+esc(c.label)+"</option>").join('');
+    let h = '<div class="modal-back" data-notecancel></div><div class="modal note-modal c-'+esc(n.color||'none')+'">';
+    h += '<div class="modal-h">'+(n.kind === 'list' ? 'Checklist' : 'Note')+'</div>';
+    h += '<label class="fld"><span>Title</span><input id="ne_title" type="text" value="'+esc(n.title)+'" autocomplete="off" placeholder="Optional"></label>';
+    if (n.kind === 'list'){
+      h += '<div class="fld"><span>Items</span><div class="ne-items">';
+      (n.items || []).forEach(i => {
+        h += '<div class="ne-item">'+
+          '<button class="ne-tick'+(i.done?' on':'')+'" data-noteitem="'+n.id+':'+i.id+'" aria-label="Tick">'+TICK+'</button>'+
+          '<input type="text" data-noteitemtext="'+i.id+'" value="'+esc(i.text)+'" autocomplete="off">'+
+          '<button class="del" data-noteitemdel="'+i.id+'" aria-label="Remove">×</button></div>';
+      });
+      h += '</div><div class="ne-add"><input id="ne_newitem" type="text" placeholder="Add an item" autocomplete="off">'+
+        '<button class="ghost" data-noteadditem>Add</button></div></div>';
+    } else {
+      h += '<label class="fld"><span>Note</span><textarea id="ne_body" rows="7" placeholder="Anything worth keeping">'+esc(n.body)+'</textarea></label>';
+    }
+    h += '<div class="fld"><span>Colour</span><div class="ne-colors">'+NOTE_COLORS.map(c =>
+      '<button class="ne-color c-'+c+(c===(n.color||'none')?' on':'')+'" data-notecolor="'+c+'" aria-label="'+c+'"></button>').join('')+'</div></div>';
+    h += '<label class="fld"><span>Category</span><select id="ne_cat">'+CATOPTS+'</select></label>';
+    h += '<div class="ne-row">'+
+      '<button class="ghost" data-notepin="'+n.id+'">'+(n.pinned ? 'Unpin' : 'Pin to top')+'</button>'+
+      '<button class="ghost" data-notearchive="'+n.id+'">'+(n.archived ? 'Unarchive' : 'Archive')+'</button>'+
+      (n.kind === 'text'
+        ? '<button class="ghost" data-notetolist="'+n.id+'">Turn into a checklist</button>'
+        : '<button class="ghost" data-notetotext="'+n.id+'">Turn into a note</button>')+
+      '</div>';
+    h += '<div class="modal-actions"><button class="del" data-notedelete="'+n.id+'">Delete</button>'+
+      '<span style="flex:1"></span><button class="ghost" data-notecancel>Cancel</button>'+
+      '<button class="go" data-notesave>Save</button></div></div>';
+    return h;
+  }
+
+  // Read the editor's fields back into the note. Called before anything that
+  // re-renders the modal, so typing is never lost to a colour tap.
+  function noteSync(){
+    if (!noteEdit) return;
+    const g = id => document.getElementById(id);
+    if (g('ne_title')) noteEdit.title = g('ne_title').value.slice(0, 140);
+    if (g('ne_body'))  noteEdit.body  = g('ne_body').value.slice(0, 8000);
+    if (g('ne_cat'))   noteEdit.cat   = g('ne_cat').value || null;
+    (noteEdit.items || []).forEach(i => {
+      const el = document.querySelector('[data-noteitemtext="'+i.id+'"]');
+      if (el) i.text = el.value.slice(0, 200);
+    });
+  }
+
   function habitsView(now){
     const today = dayKey(now);
     const monday = parseDay(weekKey(now));
@@ -1899,10 +2055,21 @@
       if (e.target.id !== 'auth_code' || authBusy) return;
       if (e.target.value.replace(/\D/g, '').length === 6) verifyCode();
     });
+    // Notes filter as you type. Re-rendering blows the field away, so put the
+    // cursor back exactly where it was afterwards.
+    app.addEventListener('input', e => {
+      if (e.target.id !== 'nt_search') return;
+      noteSearch = e.target.value;
+      const pos = e.target.selectionStart;
+      render();
+      const el = document.getElementById('nt_search');
+      if (el){ el.focus(); try { el.setSelectionRange(pos, pos); } catch(_){} }
+    });
   }
   const clearDraft = id => { delete drafts[id]; };
   const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
-    'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','tk_when','tk_mins'];
+    'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','te_at','tk_when','tk_mins',
+    'ne_title','ne_body','ne_cat','ne_newitem'];
   const clearModalDrafts = () => MODAL_IDS.forEach(clearDraft);
 
   function paint(h){
@@ -1997,12 +2164,16 @@
     // and the whole week are two views of the same calendar, so they share a tab
     // and a toggle instead of spending two slots in the row.
     h += '<div class="segrow"><div class="seg">'+
-      [['day','Day'],['blocks','Blocks'],['tasks','Tasks'],['habits','Habits'],['goals','Goals']].map(v =>
+      [['day','Day'],['blocks','Blocks'],['tasks','Tasks'],['grow','Grow'],['notes','Notes']].map(v =>
         '<button data-view="'+v[0]+'"'+(view===v[0]?' class="on"':'')+'>'+v[1]+'</button>').join('')+
       '</div>'+
       (view==='day' ? '<div class="seg sub">'+
         [['today','Today'],['week','Whole week']].map(m =>
           '<button data-daymode="'+m[0]+'"'+(dayMode===m[0]?' class="on"':'')+'>'+m[1]+'</button>').join('')+
+        '</div>' : '')+
+      (view==='grow' ? '<div class="seg sub">'+
+        [['habits','Habits'],['goals','Goals']].map(m =>
+          '<button data-growmode="'+m[0]+'"'+(growMode===m[0]?' class="on"':'')+'>'+m[1]+'</button>').join('')+
         '</div>' : '')+
       (weekShown() && canGrid() ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
       (weekShown() && !canGrid() ? '<button class="expand" data-weekmode="1">'+(weekMode==='days'?'See all 7 days':'See 3 days')+'</button>' : '')+
@@ -2014,8 +2185,8 @@
     if (view === 'day')    h += weekShown() ? weekView(vd, now) : dayRail(vd, now);
     else if (view === 'blocks') h += blocksManagerHTML(now);
     else if (view === 'tasks')  h += tasksView(now);
-    else if (view === 'habits') h += habitsView(now);
-    else if (view === 'goals')  h += goalsView(now);
+    else if (view === 'grow')   h += growMode === 'goals' ? goalsView(now) : habitsView(now);
+    else if (view === 'notes')  h += notesView(now);
 
     // parked thoughts + everyday chips live under the Day view
     if (view === 'day'){ h += parkHTML(dayKey(vd)); }
@@ -2041,6 +2212,7 @@
     if (undoState) h += '<div class="undobar"><span>'+esc(undoState.label)+'</span><button data-undo>Undo</button></div>';
     if (editing) h += editorHTML();
     if (taskEdit) h += taskEditorHTML();
+    if (noteEdit) h += noteEditorHTML();
     if (settingsOpen) h += settingsHTML();
     if (aiOpen) h += aiHTML();
 
@@ -2617,13 +2789,99 @@
     // re-render editor when repeat/all-day changes handled in 'change' listener below
 
     if ((m = t('[data-editinst]'))){ const [id, dk] = m.dataset.editinst.split('|'); openEditor({ id, date: dk }); return; }
-    if ((m = t('[data-gotogoal]'))){ view = 'goals'; openGoal = m.dataset.gotogoal; render(); return; }
+    if ((m = t('[data-gotogoal]'))){ view = 'grow'; growMode = 'goals'; openGoal = m.dataset.gotogoal; render(); return; }
     if ((m = t('[data-newon]'))){ openEditor({ date: m.dataset.newon }); return; }
 
     if ((m = t('[data-view]'))){ view = m.dataset.view; openDay = null; render(); return; }
     if ((m = t('[data-shift]'))){ dayShift += +m.dataset.shift; openDay = null; render(); return; }
     if (t('[data-today]')){ dayShift = 0; openDay = null; render(); return; }
     if ((m = t('[data-daymode]'))){ dayMode = m.dataset.daymode; openDay = null; render(); return; }
+    if ((m = t('[data-growmode]'))){ growMode = m.dataset.growmode; openGoal = null; render(); return; }
+
+    // ---- notes ----
+    if (t('[data-notequick]')){
+      const i = document.getElementById('nt_quick');
+      const v = ((i && i.value) || '').trim();
+      if (!v) { if (i) i.focus(); return; }
+      const n = newNote('text'); n.title = v.slice(0, 140);
+      clearDraft('nt_quick'); save(); render();
+      const f = document.getElementById('nt_quick'); if (f) f.focus();   // keep capturing
+      return;
+    }
+    if ((m = t('[data-notenew]'))){
+      const i = document.getElementById('nt_quick');
+      const v = ((i && i.value) || '').trim();
+      const n = newNote(m.dataset.notenew);
+      if (v) n.title = v.slice(0, 140);
+      clearDraft('nt_quick');
+      noteEdit = n; save(); render(); return;
+    }
+    if ((m = t('[data-notepin]'))){
+      const n = findNote(m.dataset.notepin);
+      if (n){ n.pinned = !n.pinned; touchNote(n); if (noteEdit) noteSync(); save(); render(); }
+      return;
+    }
+    if ((m = t('[data-noteitem]'))){
+      const parts = m.dataset.noteitem.split(':');
+      const n = findNote(parts[0]);
+      const it = n && (n.items || []).find(x => x.id === parts[1]);
+      if (it){ if (noteEdit) noteSync(); it.done = !it.done; touchNote(n); save(); render(); }
+      return;
+    }
+    if ((m = t('[data-noteopen]'))){ noteEdit = findNote(m.dataset.noteopen) || null; render(); return; }
+    if ((m = t('[data-notecolor]'))){ noteSync(); noteEdit.color = m.dataset.notecolor; render(); return; }
+    if (t('[data-noteadditem]')){
+      noteSync();
+      const i = document.getElementById('ne_newitem');
+      const v = ((i && i.value) || '').trim();
+      if (v){ noteEdit.items = (noteEdit.items || []).concat([{ id:'ni_'+uid8(), text:v.slice(0,200), done:false }]); }
+      clearDraft('ne_newitem'); render();
+      const f = document.getElementById('ne_newitem'); if (f) f.focus();
+      return;
+    }
+    if ((m = t('[data-noteitemdel]'))){
+      noteSync();
+      noteEdit.items = (noteEdit.items || []).filter(x => x.id !== m.dataset.noteitemdel);
+      render(); return;
+    }
+    if ((m = t('[data-notetolist]'))){
+      // Each line becomes an item, so a note jotted as a list actually becomes one.
+      noteSync();
+      const lines = String(noteEdit.body || '').split('\n').map(s => s.trim()).filter(Boolean);
+      noteEdit.items = (noteEdit.items || []).concat(lines.map(s => ({ id:'ni_'+uid8(), text:s.slice(0,200), done:false })));
+      noteEdit.body = ''; noteEdit.kind = 'list'; render(); return;
+    }
+    if ((m = t('[data-notetotext]'))){
+      noteSync();
+      const lines = (noteEdit.items || []).map(i => i.text);
+      noteEdit.body = (String(noteEdit.body || '') + (noteEdit.body ? '\n' : '') + lines.join('\n')).slice(0, 8000);
+      noteEdit.items = []; noteEdit.kind = 'text'; render(); return;
+    }
+    if ((m = t('[data-notearchive]'))){
+      noteSync();
+      const n = findNote(m.dataset.notearchive);
+      if (n){ n.archived = !n.archived; if (n.archived) n.pinned = false; touchNote(n); }
+      noteEdit = null; clearModalDrafts(); save(); render(); return;
+    }
+    if ((m = t('[data-notedelete]'))){
+      markUndo('Note deleted');
+      S.notes = notesAll().filter(n => n.id !== m.dataset.notedelete);
+      noteEdit = null; clearModalDrafts(); save(); render(); return;
+    }
+    if (t('[data-notesave]')){
+      noteSync();
+      const n = noteEdit;
+      // An untouched blank note is a slip, not a thing to keep.
+      if (n && !n.title && !n.body && !(n.items || []).length) S.notes = notesAll().filter(x => x.id !== n.id);
+      else if (n) touchNote(n);
+      noteEdit = null; clearModalDrafts(); save(); render(); return;
+    }
+    if (t('[data-notecancel]')){
+      const n = noteEdit;
+      if (n && !n.title && !n.body && !(n.items || []).length) S.notes = notesAll().filter(x => x.id !== n.id);
+      noteEdit = null; clearModalDrafts(); save(); render(); return;
+    }
+    if (t('[data-notearchiveview]')){ notesArchived = !notesArchived; noteSearch = ''; render(); return; }
     if (t('[data-weekmode]')){ weekMode = (weekMode === 'days' ? 'strips' : 'days'); render(); return; }
     if (t('[data-expand]')){ expanded = !expanded; render(); return; }
     if ((m = t('[data-day]'))){ const d = +m.dataset.day; openDay = (openDay === d) ? null : d; render(); return; }
@@ -2742,7 +3000,13 @@
       if (v){ S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
     }
     if (e.key === 'Enter' && e.target.id === 'tk_title'){ e.preventDefault(); const b = app.querySelector('[data-addtask]'); if (b) b.click(); return; }
-    if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit)){ editing = null; taskEdit = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input'; clearDraft('ai_ask'); clearModalDrafts(); render(); }
+    if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
+    if (e.key === 'Enter' && e.target.id === 'ne_newitem'){ e.preventDefault(); const b = app.querySelector('[data-noteadditem]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit || noteEdit)){
+      if (noteEdit){ const b = app.querySelector('[data-notecancel]'); if (b){ b.click(); return; } }
+      editing = null; taskEdit = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input';
+      clearDraft('ai_ask'); clearModalDrafts(); render();
+    }
   });
 
   // Re-flow the layout when the screen size or orientation changes, so views
@@ -2904,7 +3168,7 @@
 
   function userBusy(){
     const ae = document.activeElement;
-    return !!(editing || settingsOpen || aiOpen || ob || taskEdit ||
+    return !!(editing || settingsOpen || aiOpen || ob || taskEdit || noteEdit ||
       (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
   }
   function applyUpdate(){

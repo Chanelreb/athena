@@ -794,6 +794,117 @@
   #soft-app .seg.sub { flex: 0 0 auto; }
   #soft-app .seg.sub button { font-size: 12.5px; padding: 7px 11px; }
 
+  /* ===== Notes =====
+     A board of cards, laid out in columns so a short note does not leave a hole
+     under a long one. Pinned and unpinned get their own container, because a
+     single column flow cannot keep pinned things at the top. */
+  #soft-app .notenew { display: flex; gap: 8px; margin-bottom: 12px; }
+  #soft-app .notenew input {
+    flex: 1; min-width: 0; background: var(--raise); border: 1px solid var(--line);
+    color: var(--text); border-radius: 12px; padding: 12px 14px; font: inherit; font-size: 15px;
+  }
+  #soft-app .notenew input:focus { outline: none; border-color: var(--ghost); }
+  #soft-app .notenew button {
+    flex: 0 0 auto; background: var(--live); color: var(--on-live); border: 0;
+    border-radius: 12px; padding: 12px 16px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  #soft-app .notenew button.ghost { background: var(--raise); border: 1px solid var(--line); color: var(--dim); font-weight: 400; }
+  #soft-app .notesearch { margin-bottom: 14px; }
+  #soft-app .notesearch input {
+    width: 100%; background: var(--raise); border: 1px solid var(--line); color: var(--text);
+    border-radius: 12px; padding: 10px 13px; font: inherit; font-size: 14px;
+  }
+  #soft-app .notesearch input:focus { outline: none; border-color: var(--ghost); }
+
+  #soft-app .noteboard { column-count: 1; column-gap: 10px; margin-bottom: 6px; }
+  @media (min-width: 460px) { #soft-app .noteboard { column-count: 2; } }
+  @media (min-width: 760px) { #soft-app .noteboard { column-count: 3; } }
+  #soft-app .note {
+    break-inside: avoid; position: relative; display: block; width: 100%;
+    background: var(--note-bg, var(--raise)); border: 1px solid var(--note-line, var(--line));
+    border-radius: 13px; padding: 13px 14px; margin: 0 0 10px; cursor: pointer;
+    text-align: left; color: var(--text);
+  }
+  #soft-app .note:hover { border-color: var(--ghost); }
+  #soft-app .note-t { font-size: 15px; font-weight: 600; line-height: 1.35; margin-bottom: 5px; padding-right: 22px; }
+  #soft-app .note-b { font-size: 13.5px; line-height: 1.55; color: var(--dim); white-space: pre-wrap; word-break: break-word; }
+  #soft-app .note-b.empty { font-style: italic; opacity: .6; }
+  #soft-app .note-pin {
+    position: absolute; top: 9px; right: 9px; width: 24px; height: 24px; padding: 4px;
+    background: none; border: 0; color: var(--ghost); cursor: pointer; opacity: .55; border-radius: 7px;
+  }
+  #soft-app .note-pin svg { width: 100%; height: 100%; display: block; }
+  #soft-app .note-pin.on { opacity: 1; color: var(--live); }
+  #soft-app .note-pin:hover { opacity: 1; }
+  #soft-app .note-list { list-style: none; margin: 2px 0 0; padding: 0; }
+  #soft-app .note-list li { display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; font-size: 13.5px; line-height: 1.45; }
+  #soft-app .note-list li.done span { text-decoration: line-through; color: var(--ghost); }
+  #soft-app .note-list button {
+    flex: 0 0 auto; margin-top: 2px; padding: 0; background: none; border: 0; cursor: pointer;
+  }
+  #soft-app .note-list .mark {
+    width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--ghost);
+    display: grid; place-items: center;
+  }
+  #soft-app .note-list .mark svg { width: 8px; height: 8px; opacity: 0; }
+  #soft-app .note-list li.done .mark { background: var(--live); border-color: var(--live); }
+  #soft-app .note-list li.done .mark svg { opacity: 1; }
+  #soft-app .note-more, #soft-app .note-meta { font-size: 11.5px; color: var(--ghost); margin-top: 6px; }
+  #soft-app .note-cat { display: flex; align-items: center; gap: 6px; margin-top: 9px; font-size: 11.5px; color: var(--ghost); }
+  #soft-app .note-cat b { width: 8px; height: 8px; border-radius: 50%; display: block; }
+
+  /* Note colours are named, so each theme can answer for itself rather than
+     storing two hexes or blending one at runtime. */
+  #soft-app .c-none  { --note-bg: var(--raise);  --note-line: var(--line); }
+  #soft-app .c-rose  { --note-bg: #4A3038; --note-line: #63414B; }
+  #soft-app .c-amber { --note-bg: #4A3B28; --note-line: #654F35; }
+  #soft-app .c-sage  { --note-bg: #2F4235; --note-line: #415A48; }
+  #soft-app .c-sky   { --note-bg: #2C3D4C; --note-line: #3D5468; }
+  #soft-app .c-lilac { --note-bg: #3B3350; --note-line: #52476C; }
+  #soft-app .c-stone { --note-bg: #3D3B36; --note-line: #55524B; }
+  html[data-theme="light"] #soft-app .c-rose  { --note-bg: #F7E7E7; --note-line: #E4CBCB; }
+  html[data-theme="light"] #soft-app .c-amber { --note-bg: #F8EEDC; --note-line: #E6D5B8; }
+  html[data-theme="light"] #soft-app .c-sage  { --note-bg: #E7F0E7; --note-line: #CBDBCC; }
+  html[data-theme="light"] #soft-app .c-sky   { --note-bg: #E4EDF4; --note-line: #C7D8E4; }
+  html[data-theme="light"] #soft-app .c-lilac { --note-bg: #EDE8F5; --note-line: #D8CFE6; }
+  html[data-theme="light"] #soft-app .c-stone { --note-bg: #EEEBE4; --note-line: #DBD6CB; }
+
+  /* note editor */
+  #soft-app .note-modal { background: var(--note-bg, var(--bg)); }
+  #soft-app .ne-items { display: flex; flex-direction: column; gap: 6px; }
+  #soft-app .ne-item { display: flex; align-items: center; gap: 8px; }
+  #soft-app .ne-item input {
+    flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); color: var(--text);
+    border-radius: 9px; padding: 9px 11px; font: inherit; font-size: 14.5px;
+  }
+  #soft-app .ne-tick {
+    flex: 0 0 auto; width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid var(--ghost);
+    background: none; cursor: pointer; display: grid; place-items: center; padding: 0;
+  }
+  #soft-app .ne-tick svg { width: 10px; height: 10px; opacity: 0; }
+  #soft-app .ne-tick.on { background: var(--live); border-color: var(--live); }
+  #soft-app .ne-tick.on svg { opacity: 1; }
+  #soft-app .ne-add { display: flex; gap: 8px; margin-top: 9px; }
+  #soft-app .ne-add input {
+    flex: 1; min-width: 0; background: var(--bg); border: 1px dashed var(--line); color: var(--text);
+    border-radius: 9px; padding: 9px 11px; font: inherit; font-size: 14.5px;
+  }
+  #soft-app .ne-add .ghost { flex: 0 0 auto; }
+  #soft-app .ne-colors { display: flex; gap: 7px; flex-wrap: wrap; }
+  #soft-app .ne-color {
+    width: 30px; height: 30px; border-radius: 9px; cursor: pointer; padding: 0;
+    background: var(--note-bg); border: 1px solid var(--note-line);
+  }
+  #soft-app .ne-color.on { box-shadow: 0 0 0 2px var(--live); }
+  #soft-app .ne-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 14px; }
+  #soft-app .ne-row .ghost { flex: 1 1 auto; font-size: 13px; padding: 9px 12px; }
+  #soft-app .note-modal textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--text);
+    border-radius: 11px; padding: 11px 13px; font: inherit; font-size: 15px; line-height: 1.55;
+    resize: vertical; box-sizing: border-box;
+  }
+  #soft-app .note-modal textarea:focus { outline: none; border-color: var(--ghost); }
+
   /* setup: adding a category of your own */
   #soft-app .ob-newcat { display: flex; gap: 8px; margin-top: 12px; }
   #soft-app .ob-newcat input {
