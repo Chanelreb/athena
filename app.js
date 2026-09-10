@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.9';
+  const BUILD = '2026-09-10.10';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1622,7 +1622,29 @@
   const IMG_QUALITY = 0.82;
   const IMG_PER_NOTE = 6;
   let imgBusy = '';              // message while a photo is being added
+  // Why the last photo failed. An alert is useless for this: it vanishes, it
+  // cannot be screenshotted on a phone, and by the time anyone asks "what did
+  // it say" the answer is gone. This sits on the screen until it is fixed.
+  let imgError = '';
   const imgUrls = {};            // path -> { url, exp } signed-URL cache
+
+  // Turn whatever came back into something a person can act on, and keep the
+  // raw wording too, because that is what actually identifies the fault.
+  function photoProblem(e){
+    const msg = (e && (e.message || e.error || e.statusCode)) ? String(e.message || e.error || e.statusCode) : String(e || 'unknown');
+    let plain = '';
+    if (/bucket not found|does not exist/i.test(msg))
+      plain = 'The photo store has not been created in Supabase yet. The storage part of the setup SQL did not take.';
+    else if (/row-level security|violates|not authorized|403|unauthorized/i.test(msg))
+      plain = 'Supabase refused the upload. The bucket exists but its three permission rules are missing or wrong.';
+    else if (/unreadable/i.test(msg))
+      plain = 'This device could not read that image file.';
+    else if (/encode/i.test(msg))
+      plain = 'This device could not shrink that image. It may be very large.';
+    else if (/network|fetch|load failed/i.test(msg))
+      plain = 'The upload could not reach Supabase. Check the connection and try again.';
+    return { plain: plain, raw: msg };
+  }
 
   function shrinkImage(file){
     return new Promise((resolve, reject) => {
@@ -1647,19 +1669,32 @@
   // Takes a list, because a drop can carry several at once and doing them one
   // at a time with a count is friendlier than a silent pause.
   async function addNoteImages(files, note){
-    const list = Array.prototype.filter.call(files || [], f => /^image\//.test(f.type || ''));
-    if (!list.length) return;
-    if (!cloud || !session){ alert('Photos need an account, so they can be stored safely and reach your other devices. Sign in first.'); return; }
+    imgError = '';
+    const all = Array.prototype.slice.call(files || []);
+    if (!all.length) return;
+    // Some phones hand back a file with no MIME type at all. Trusting the type
+    // alone means the file is silently dropped and nothing whatever happens,
+    // which is the worst kind of failure: there is nothing to report.
+    const list = all.filter(f => /^image\//.test(f.type || '') ||
+      /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp)$/i.test(f.name || ''));
+    if (!list.length){
+      imgError = 'That did not look like an image. [' +
+        all.map(f => (f.name || 'no name') + ', ' + (f.type || 'no type') + ', ' + Math.round((f.size || 0) / 1024) + 'KB').join(' | ') +
+        '] · v' + BUILD;
+      render(); return;
+    }
+    if (!cloud || !session){ imgError = 'Not signed in on this device, so there is nowhere safe to put a photo.'; render(); return; }
     const n = note || noteEdit;
     if (!n) return;
     const room = IMG_PER_NOTE - (n.images || []).length;
-    if (room <= 0){ alert('That is ' + IMG_PER_NOTE + ' photos, which is plenty for one note.'); return; }
+    if (room <= 0){ imgError = 'That is already ' + IMG_PER_NOTE + ' photos, which is plenty for one note.'; render(); return; }
     const take = list.slice(0, room);
     for (let i = 0; i < take.length; i++){
       imgBusy = take.length > 1 ? ('Adding ' + (i + 1) + ' of ' + take.length + '…') : 'Adding photo…';
       render();
       try {
-        const shrunk = await shrinkImage(take[i]);
+        const f = take[i];
+        const shrunk = await shrinkImage(f);
         const id = 'im_' + uid8();
         const path = session.user.id + '/' + n.id + '/' + id + '.jpg';
         const { error } = await sb.storage.from('note-images')
@@ -1668,12 +1703,17 @@
         n.images = (n.images || []).concat([{ id: id, path: path, w: shrunk.w, h: shrunk.h }]);
         touchNote(n); save();
       } catch (e){
-        const msg = (e && e.message) || '';
-        alert('Could not add that photo. ' + msg +
-          (/unreadable/.test(msg) ? ' Some formats cannot be read here, such as a raw iPhone HEIC opened on a Windows browser.' : ''));
+        const p = photoProblem(e);
+        const f = take[i];
+        // Everything needed to work out what went wrong, in one screenshottable
+        // line: the plain reason, the exact wording, and what was being sent.
+        imgError = (p.plain ? p.plain + ' ' : '') + '[' + p.raw + '] · ' +
+          Math.round((f.size || 0) / 1024) + 'KB ' + (f.type || 'unknown type') + ' · v' + BUILD;
+        if (typeof console !== 'undefined') console.error('Athena photo failed:', e, f && f.type, f && f.size);
+        break;                       // one clear failure beats six identical ones
       }
     }
-    if (list.length > room) alert('Added ' + room + '. A note holds ' + IMG_PER_NOTE + ' photos.');
+    if (!imgError && list.length > room) imgError = 'Added ' + room + '. A note holds ' + IMG_PER_NOTE + ' photos.';
     imgBusy = ''; render();
   }
   const addNoteImage = file => addNoteImages([file]);
@@ -1881,6 +1921,7 @@
           '<input id="ne_file" type="file" accept="image/*" hidden></label>'
         : '')+
       '</div>'+
+      (imgError ? '<div class="errdetail"><b>Photo did not go</b><span>'+esc(imgError)+'</span></div>' : '')+
       (!cloud || !session
         ? '<small class="gform-hint">Photos need an account, so they are stored safely and reach your other devices.</small>'
         : '<small class="gform-hint">On a computer you can also paste a picture straight in, or drag one onto this note.</small>')+
@@ -3346,7 +3387,7 @@
       if (it){ if (noteEdit) noteSync(); it.done = !it.done; touchNote(n); save(); render(); }
       return;
     }
-    if ((m = t('[data-noteopen]'))){ noteEdit = findNote(m.dataset.noteopen) || null; render(); return; }
+    if ((m = t('[data-noteopen]'))){ noteEdit = findNote(m.dataset.noteopen) || null; imgError = ''; render(); return; }
     if ((m = t('[data-notecolor]'))){ noteSync(); noteEdit.color = m.dataset.notecolor; render(); return; }
     if (t('[data-noteadditem]')){
       noteSync();
@@ -3386,7 +3427,7 @@
       noteSync();
       const n = findNote(m.dataset.notearchive);
       if (n){ n.archived = !n.archived; if (n.archived) n.pinned = false; touchNote(n); }
-      noteEdit = null; clearModalDrafts(); save(); render(); return;
+      noteEdit = null; imgError = ''; clearModalDrafts(); save(); render(); return;
     }
     if ((m = t('[data-notedelete]'))){
       const gone = findNote(m.dataset.notedelete);
@@ -3408,12 +3449,12 @@
       // An untouched blank note is a slip, not a thing to keep. A photo counts.
       if (n && noteIsBlank(n)) S.notes = notesAll().filter(x => x.id !== n.id);
       else if (n) touchNote(n);
-      noteEdit = null; clearModalDrafts(); save(); render(); return;
+      noteEdit = null; imgError = ''; clearModalDrafts(); save(); render(); return;
     }
     if (t('[data-notecancel]')){
       const n = noteEdit;
       if (n && noteIsBlank(n)) S.notes = notesAll().filter(x => x.id !== n.id);
-      noteEdit = null; clearModalDrafts(); save(); render(); return;
+      noteEdit = null; imgError = ''; clearModalDrafts(); save(); render(); return;
     }
     if (t('[data-notearchiveview]')){ notesArchived = !notesArchived; noteSearch = ''; render(); return; }
     if ((m = t('[data-notemaketask]'))){
@@ -3429,7 +3470,7 @@
         due: null, dateType: 'by', mins: null, repeat: null, at: null,
         createdAt: stamp, doneAt: null
       })));
-      noteEdit = null; clearModalDrafts(); save(); render(); return;
+      noteEdit = null; imgError = ''; clearModalDrafts(); save(); render(); return;
     }
     if ((m = t('[data-notemakeblock]'))){
       noteSync();
