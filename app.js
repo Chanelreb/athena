@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.1';
+  const BUILD = '2026-09-10.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -211,6 +211,7 @@
   let openDay = null;                 // week strips: which day is expanded
   let openGoal = null;
   let openBlockTasks = null;          // which block has its task list expanded
+  let openBlockLater = null;          // ...and which has its "later" pile open
   // Today and the whole week are the same calendar at two zoom levels, so they
   // share the Day tab. Blocks got the slot that Week used to hold.
   let dayMode = 'today';              // 'today' | 'week'
@@ -1109,6 +1110,20 @@
     return out;
   }
 
+  /* Is this a chance worth taking now, or can it wait?
+     Deliberately counts chances rather than days: a task due in a fortnight is
+     urgent if its category only has one block left before then, and relaxed if
+     it has six. A task with no deadline is always worth offering, because a
+     block is the only thing that will ever prompt it. */
+  function taskIsSoon(tk, d, homes){
+    if (!tk.due) return true;
+    const today = dayKey(d);
+    if (tk.due <= today) return true;                              // overdue or due today
+    const chances = (homes[tk.cat] || []).filter(k => k <= tk.due).length;
+    if (chances <= 2) return true;                                 // running out of blocks
+    return daysBetween(today, tk.due) <= 7;                        // or simply close
+  }
+
   // A task with a time of its own has a place on the rail already, so it never
   // queues inside a block as well.
   const tasksForCat = (catId, d) =>
@@ -1301,6 +1316,9 @@
     const allDay = all.filter(b => b.allDay);
     const blocks = all.filter(b => !b.allDay);
 
+    // Scanned once here: both the block queues and the "nowhere to go" list
+    // need to know when each category next has a block.
+    const soon = upcomingHomes(vd);
     const items = [];
     blocks.forEach((b,i) => {
       items.push({ type:'block', b:b });
@@ -1382,19 +1400,36 @@
       // Tasks waiting in this block's category. An appointment is not a block,
       // so it does not collect a queue of its own.
       const bt = (isStep || isTask) ? [] : tasksForCat(b.c, vd);
+      // Split by whether this is a chance worth taking now. A block that lists
+      // everything outstanding in its category looks daunting and hides the two
+      // things that actually matter today, so the rest is folded away rather
+      // than removed: still one tap from here, just not shouting.
+      const btSoon = bt.filter(tk => taskIsSoon(tk, vd, soon));
+      const btLater = bt.filter(tk => btSoon.indexOf(tk) === -1);
       if (bt.length){
         const openHere = openBlockTasks === b.uid;
-        const est = totalMins(bt);                       // estimated work waiting
+        const laterHere = openBlockLater === b.uid;
+        const est = totalMins(btSoon);                   // work worth doing now
         const blockLen = mins(b.e) - mins(b.s);          // room available
-        h += '<div class="btasks"><button class="taskchip'+(openHere?' on':'')+'" data-blocktasks="'+b.uid+'">'+
-          bt.length+' task'+(bt.length !== 1 ? 's' : '')+(est ? ' · '+dur(est) : '')+
-          '<em>'+(openHere ? '▴' : '▾')+'</em></button>';
-        if (openHere){
+        h += '<div class="btasks">';
+        if (btSoon.length)
+          h += '<button class="taskchip'+(openHere?' on':'')+'" data-blocktasks="'+b.uid+'">'+
+            btSoon.length+' task'+(btSoon.length !== 1 ? 's' : '')+(est ? ' · '+dur(est) : '')+
+            '<em>'+(openHere ? '▴' : '▾')+'</em></button>';
+        if (btLater.length)
+          h += '<button class="taskchip later'+(laterHere?' on':'')+'" data-blocklater="'+b.uid+'">'+
+            '+'+btLater.length+' later<em>'+(laterHere ? '▴' : '▾')+'</em></button>';
+        if (openHere && btSoon.length){
           if (est) h += '<div class="tfit'+(est > blockLen ? ' over' : '')+'">'+
             (est > blockLen
               ? dur(est)+' of tasks, only '+dur(blockLen)+' here'
               : dur(est)+' of tasks in a '+dur(blockLen)+' block')+'</div>';
-          h += '<div class="tlist inblock">'+bt.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
+          h += '<div class="tlist inblock">'+btSoon.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
+        }
+        if (laterHere && btLater.length){
+          h += '<div class="tfit quiet">Not due for a while, and there are other '+esc(catOf(b.c).label)+
+            ' blocks before then. Here if you want them.</div>';
+          h += '<div class="tlist inblock">'+btLater.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
         }
         h += '</div>';
       }
@@ -1413,7 +1448,6 @@
     // either. A Life admin task with a Life admin block tomorrow and a deadline
     // next week is not stranded, it is simply not today's problem, and flagging
     // it here just teaches people to ignore this section.
-    const soon = upcomingHomes(vd);
     const homeless = openTasks(vd)
       .filter(tk => {
         if (tk.at || blockedCats[tk.cat] || !taskAvailableOn(tk, vd)) return false;
@@ -2548,6 +2582,7 @@
       taskEdit = null; clearModalDrafts(); save(); render(); return;
     }
     if ((m = t('[data-blocktasks]'))){ openBlockTasks = (openBlockTasks === m.dataset.blocktasks) ? null : m.dataset.blocktasks; render(); return; }
+    if ((m = t('[data-blocklater]'))){ openBlockLater = (openBlockLater === m.dataset.blocklater) ? null : m.dataset.blocklater; render(); return; }
     if (t('[data-toggledone]')){ showDone = !showDone; render(); return; }
     if (t('[data-addtask]')){
       const ti = (document.getElementById('tk_title') || {}).value || '';
