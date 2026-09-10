@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.15';
+  const BUILD = '2026-09-10.16';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1083,7 +1083,11 @@
   //   'by'  this has to be finished by then, so it surfaces until it is done
   function taskAvailableOn(tk, d){
     if (!tk.due) return true;
-    if (tk.dateType === 'on') return tk.due === dayKey(d);
+    // A "do on" task used to appear on its day and nowhere else, so missing it
+    // made it disappear, which is the opposite of what a deadline is for. It
+    // now stays from its day onward until it is actually done, and the sorter
+    // puts it at the top as overdue. Days before its date still leave it alone.
+    if (tk.dateType === 'on') return tk.due <= dayKey(d);
     return true;
   }
   // Urgency first, then priority, then soonest, then oldest.
@@ -1146,7 +1150,7 @@
   // A task with a time of its own has a place on the rail already, so it never
   // queues inside a block as well.
   const tasksForCat = (catId, d) =>
-    openTasks(d).filter(tk => !tk.at && tk.cat === catId && taskAvailableOn(tk, d)).sort(taskSorter(d));
+    openTasks(d).filter(tk => !taskAtOn(tk, d) && tk.cat === catId && taskAvailableOn(tk, d)).sort(taskSorter(d));
 
   /* ---- placing tasks by hand ----
      A task can be pinned to one block on one day: "do this during Work on
@@ -1162,7 +1166,7 @@
 
   function tasksForBlock(b, d){
     if (b.step || b.task || b.routine) return [];
-    const open = openTasks(d).filter(tk => !tk.at && taskAvailableOn(tk, d));
+    const open = openTasks(d).filter(tk => !taskAtOn(tk, d) && taskAvailableOn(tk, d));
     const mine = open.filter(tk => pinnedTo(tk, b, d));
     if (!autofillOn()) return mine.sort(taskSorter(d));
     // A task pinned elsewhere today has been placed already, so it does not
@@ -1174,7 +1178,7 @@
   // What is still waiting to be given a place today.
   function unplacedTasks(d){
     return openTasks(d)
-      .filter(tk => !tk.at && !pinnedSomewhere(tk, d) && taskAvailableOn(tk, d))
+      .filter(tk => !taskAtOn(tk, d) && !pinnedSomewhere(tk, d) && taskAvailableOn(tk, d))
       .sort(taskSorter(d));
   }
   const totalMins = list => list.reduce((a, tk) => a + (tk.mins || 0), 0);
@@ -1597,9 +1601,15 @@
     // it here just teaches people to ignore this section.
     const homeless = openTasks(vd)
       .filter(tk => {
-        if (tk.at || blockedCats[tk.cat] || !taskAvailableOn(tk, vd)) return false;
+        // taskAtOn rather than tk.at: an appointment whose day has been and gone
+        // has no slot today, so it is back to needing somewhere to go.
+        // taskAtOn rather than tk.at: an appointment whose day has been and gone
+        // has no slot today, so it is back to needing somewhere to go.
+        if (taskAtOn(tk, vd) || blockedCats[tk.cat] || !taskAvailableOn(tk, vd)) return false;
         const next = (soon[tk.cat] || [])[0];
-        return !(next && (!tk.due || next <= tk.due));   // a home in time is not homelessness
+        // Overdue falls out of this on its own: a block coming tomorrow is not
+        // "in time" for something that was due yesterday.
+        return !(next && (!tk.due || next <= tk.due));
       })
       .sort(taskSorter(vd));
     if (homeless.length){
@@ -2497,8 +2507,13 @@
         if (tk.priority === 'high') bits.push('High');
         if (tk.due){ const dl = dueLabel(tk.due, vd, tk.dateType); bits.push(dl.text); }
         if (tk.mins) bits.push(dur(tk.mins));
+        // Tickable from here too. Something overdue whose category has no block
+        // today shows in this panel and nowhere else, so without a tick there
+        // would be no way to finish it short of opening the editor.
+        const col = catColor(tk.cat);
         return '<div class="ptask" draggable="true" data-dragtask="'+tk.id+'">'+
-          '<span class="cd" style="background:'+catColor(tk.cat)+'"></span>'+
+          '<button class="ptick" data-tasktoggle="'+tk.id+'|'+dayKey(vd)+'" aria-label="Tick off '+esc(tk.title)+'">'+
+            '<span class="mark" style="border-color:'+col+'">'+TICK+'</span></button>'+
           '<span class="pt"><b>'+esc(tk.title)+'</b>'+
           (bits.length ? '<em>'+esc(bits.join(' · '))+'</em>' : '')+'</span></div>';
       }).join('') + '</div>';
