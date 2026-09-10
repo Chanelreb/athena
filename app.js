@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.13';
+  const BUILD = '2026-09-10.14';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1338,6 +1338,171 @@
   const blockHeight = len => Math.round(Math.min(176, Math.max(56, 59 + len * 0.489)));
   const gapHeight   = len => Math.round(Math.min(120, Math.max(34, 26 + len * 0.30)));
 
+  /* ==========================================================================
+     The day as a grid.
+     The same drawing as the week, one day wide: real hour lines, blocks placed
+     and sized by the clock, a line at now. Because it is genuinely proportional
+     here, the lines can be drawn and be right.
+
+     A block is wide enough to hold its own detail, so what used to sit in a
+     list lives inside the block: the tick, the time, and the tasks waiting in
+     it. Overlapping blocks share the width rather than hiding each other.
+     ========================================================================== */
+  const DAY_H = 1120;                       // 30 minutes is about 36px
+  let openDayBlock = null;                  // which block has its detail open
+
+  // Blocks that overlap each other share the width. Worked out per cluster, so
+  // one clash at 9am does not squeeze the whole day into half-width columns.
+  function layOut(list){
+    const items = list.map(b => ({ b: b, s: Math.max(mins(b.s), DS), e: Math.min(mins(b.e), DE) }))
+      .filter(x => x.e > x.s).sort((a, b) => a.s - b.s || b.e - a.e);
+    let i = 0;
+    while (i < items.length){
+      let end = items[i].e, j = i + 1;
+      while (j < items.length && items[j].s < end){ end = Math.max(end, items[j].e); j++; }
+      const cluster = items.slice(i, j);
+      const lanes = [];
+      cluster.forEach(x => {
+        let lane = 0;
+        while (lane < lanes.length && lanes[lane] > x.s) lane++;
+        lanes[lane] = x.e;
+        x.lane = lane;
+      });
+      cluster.forEach(x => { x.of = lanes.length; });
+      i = j;
+    }
+    return items;
+  }
+
+  function dayGridHTML(vd, now, soonHomes){
+    const dk = dayKey(vd);
+    const isToday = dk === dayKey(now);
+    const t = isToday ? (now.getHours() * 60 + now.getMinutes()) : -1;
+    const px = m => (m - DS) / SPAN * DAY_H;
+    const all = blocksForDate(vd);
+    const allDay = all.filter(b => b.allDay);
+    const laid = layOut(all.filter(b => !b.allDay));
+
+    let h = '';
+    if (allDay.length){
+      h += '<div class="allday">' + allDay.map(b =>
+        '<button class="adchip" data-editinst="'+b.id+'|'+dk+'" style="border-color:'+catColor(b.c)+'55">'+
+        '<span class="sw" style="background:'+catColor(b.c)+'"></span>'+esc(b.t)+'</button>').join('') + '</div>';
+    }
+
+    let hrs = '', lines = '';
+    for (let m = DS; m <= DE; m += 60){
+      hrs += '<u style="top:'+px(m)+'px">'+clockOf(pad(Math.floor(m/60))+':00')+'</u>';
+      if (m > DS) lines += '<div class="gl" style="top:'+px(m)+'px"></div>';
+    }
+
+    let body = lines;
+    laid.forEach(x => {
+      const b = x.b, hgt = Math.max(22, px(x.e) - px(x.s) - 2);
+      const col = catColor(b.c);
+      const isStep = !!b.step, isTask = !!b.task, isRoutine = !!b.routine;
+      const rp = isRoutine ? routineProgress(b.routine, vd) : null;
+      const done = isStep ? isDone('w:' + b.step.sid, weekKey(vd))
+                 : isTask ? taskDone(b.task, vd)
+                 : isRoutine ? (rp.total > 0 && rp.done === rp.total)
+                 : isDone(b.id, dk);
+      const live = t >= x.s && t < x.e;
+      const doneAct = isStep ? 'data-stepweek="'+b.step.gid+':'+b.step.sid+'|'+dk+'"'
+                    : isTask ? 'data-tasktoggle="'+b.task.id+'|'+dk+'"'
+                    : isRoutine ? 'data-routinedone="'+b.routine.id+'|'+dk+'"'
+                    : 'data-done="'+b.id+'|'+dk+'"';
+      const waiting = (isStep || isTask || isRoutine) ? [] : tasksForCat(b.c, vd).filter(tk => taskIsSoon(tk, vd, soonHomes));
+      const w = 100 / (x.of || 1), left = w * (x.lane || 0);
+      body += '<div class="dblk'+(done ? ' done' : '')+(live ? ' live' : '')+(justDone === b.id ? ' just' : '')+'" '+
+        'style="top:'+px(x.s)+'px;height:'+hgt+'px;left:calc('+left+'% + 3px);width:calc('+w+'% - 6px);'+
+        'background:'+col+'2E;border-left-color:'+col+'">'+
+        (hgt >= 30 ? '<button class="dtick" '+doneAct+' style="'+(done ? 'background:'+col+';border-color:'+col : 'border-color:'+col)+'" '+
+          'aria-label="'+(done ? 'Undo ' : 'Tick off ')+esc(b.t)+'">'+TICK+'</button>' : '')+
+        '<button class="dmain" data-dayblock="'+esc(b.uid || b.id)+'">'+
+          '<b>'+esc(b.t)+(isRoutine ? ' <em class="dcount">'+rp.done+'/'+rp.total+'</em>' : '')+'</b>'+
+          (hgt >= 46 ? '<em>'+clockOf(b.s)+' – '+clockOf(b.e)+'</em>' : '')+
+          (waiting.length && hgt >= 62 ? '<em class="dtasks">'+waiting.length+' task'+(waiting.length !== 1 ? 's' : '')+
+            (totalMins(waiting) ? ' · '+dur(totalMins(waiting)) : '')+'</em>' : '')+
+        '</button></div>';
+    });
+    if (isToday && t >= DS && t <= DE) body += '<div class="cbnow" style="top:'+px(t)+'px"></div>';
+
+    h += '<div class="daygrid"><div class="calhrs" style="height:'+DAY_H+'px">'+hrs+'</div>'+
+      '<div class="dcol" style="height:'+DAY_H+'px" data-newon="'+dk+'">'+body+'</div></div>';
+    return h;
+  }
+
+  /* What will not fit inside a block. A half hour block is about 36px tall,
+     which holds a name and a time and nothing else, so the tasks waiting in it
+     and a routine's steps open underneath the grid rather than being crammed in
+     or, worse, lost. Defaults to whatever is happening now, so on most days the
+     right thing is already open. */
+  function dayDetailHTML(vd, now, soonHomes){
+    const dk = dayKey(vd);
+    const isToday = dk === dayKey(now);
+    const t = isToday ? (now.getHours() * 60 + now.getMinutes()) : -1;
+    const blocks = blocksForDate(vd).filter(b => !b.allDay);
+    const key = b => String(b.uid || b.id);
+    let b = openDayBlock ? blocks.find(x => key(x) === openDayBlock) : null;
+    if (!b && openDayBlock === null) b = blocks.find(x => t >= mins(x.s) && t < mins(x.e));
+    if (!b) return '';
+
+    const col = catColor(b.c);
+    const live = t >= mins(b.s) && t < mins(b.e);
+    let h = '<div class="ddet" style="--dc:'+col+'">'+
+      '<div class="ddet-h"><b>'+esc(b.t)+'</b><span>'+clockOf(b.s)+' – '+clockOf(b.e)+
+      (live ? ' · now' : '')+'</span>'+
+      '<button class="ddet-x" data-dayclose aria-label="Close">×</button></div>';
+
+    if (b.routine){
+      const hs = routineHabits(b.routine);
+      h += hs.length
+        ? '<div class="rsteps">' + hs.map(hb => {
+            const hcol = catColor(hb.c);
+            if (hb.target){
+              const v = compVal(hb.id, dk) || 0;
+              let pips = '';
+              for (let i = 0; i < hb.target; i++)
+                pips += '<span class="pip'+(i<v?' on':'')+'" style="'+(i<v?'background:'+hcol+';border-color:'+hcol:'')+'"></span>';
+              return '<button class="rstep'+(v>=hb.target?' done':'')+'" data-pip="'+hb.id+':'+hb.target+'">'+
+                '<span class="rmark" style="border-color:'+hcol+'"></span><span class="rl">'+esc(hb.l)+'</span>'+
+                '<span class="pips">'+pips+'</span></button>';
+            }
+            const on = isDone(hb.id, dk);
+            return '<button class="rstep'+(on?' done':'')+(justDone===hb.id?' just':'')+'" data-done="'+hb.id+'">'+
+              '<span class="rmark" style="'+(on?'background:'+hcol+';border-color:'+hcol:'border-color:'+hcol)+'">'+TICK+'</span>'+
+              '<span class="rl">'+esc(hb.l)+'</span></button>';
+          }).join('') + '</div>'
+        : '<p class="tfit quiet">No habits in this routine yet.</p>';
+      return h + '<div class="ddet-act"><button class="linkish" data-gotoroutine="'+b.routine.id+'">Edit this routine</button></div></div>';
+    }
+    if (b.step)
+      return h + '<p class="tfit quiet">A step toward a goal.</p>'+
+        '<div class="ddet-act"><button class="linkish" data-gotogoal="'+b.step.gid+'">Open the goal</button></div></div>';
+    if (b.task)
+      return h + '<p class="tfit quiet">An appointment: a task with a time of its own.</p>'+
+        '<div class="ddet-act"><button class="linkish" data-taskedit="'+b.task.id+'">Edit this task</button></div></div>';
+
+    const bt = tasksForCat(b.c, vd);
+    const soon = bt.filter(tk => taskIsSoon(tk, vd, soonHomes));
+    const later = bt.filter(tk => soon.indexOf(tk) === -1);
+    const est = totalMins(soon), room = mins(b.e) - mins(b.s);
+    if (soon.length){
+      if (est) h += '<div class="tfit'+(est > room ? ' over' : '')+'">'+
+        (est > room ? dur(est)+' of tasks, only '+dur(room)+' here'
+                    : dur(est)+' of tasks in a '+dur(room)+' block')+'</div>';
+      h += '<div class="tlist inblock">'+soon.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
+    } else {
+      h += '<p class="tfit quiet">Nothing waiting in '+esc(catOf(b.c).label)+' right now.</p>';
+    }
+    if (later.length){
+      const open = openBlockLater === key(b);
+      h += '<button class="taskchip later'+(open?' on':'')+'" data-blocklater="'+key(b)+'">+'+later.length+' later<em>'+(open?'▴':'▾')+'</em></button>';
+      if (open) h += '<div class="tlist inblock">'+later.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
+    }
+    return h + '<div class="ddet-act"><button class="linkish" data-editinst="'+b.id+'|'+dk+'">Edit this block</button></div></div>';
+  }
+
   function dayRail(vd, now){
     const isToday = dayKey(vd) === dayKey(now);
     // Only "today" has a live moment; other days render as plain, unstyled time.
@@ -1378,138 +1543,10 @@
         '<button class="linkish" data-newon="'+dk+'">Add something</button>, or enjoy the open day.</p>';
     }
 
-    if (allDay.length){
-      h += '<div class="allday">' + allDay.map(b =>
-        '<button class="adchip" data-editinst="'+b.id+'|'+dk+'" style="border-color:'+catColor(b.c)+'55">'+
-        '<span class="sw" style="background:'+catColor(b.c)+'"></span>'+esc(b.t)+'</button>').join('') + '</div>';
-    }
-
-    items.forEach(it => {
-      if (it.type === 'gap'){
-        const live = t >= it.from && t < it.to;
-        const span = it.to - it.from;
-        // Inside a gap the mapping from minutes to pixels really is linear, so
-        // hour marks and the now line can be placed here and be honestly right.
-        // Across the whole rail they could not be: the heights are floored and
-        // capped, and a line labelled 9am that is not at 9am is worse than none.
-        const gh = gapHeight(span);
-        const at = m => ((m - it.from) / span * 100).toFixed(2) + '%';
-        let marks = '';
-        for (let m = Math.ceil(it.from / 60) * 60; m < it.to; m += 60){
-          if (m - it.from < 18 || it.to - m < 18) continue;   // too close to an edge to read
-          marks += '<u style="top:'+at(m)+'">'+clockOf(pad(Math.floor(m/60))+':00')+'</u>';
-        }
-        if (live) marks += '<span class="nowline" style="top:'+at(t)+'"><i></i>now</span>';
-        // The marks sit on the item, not the card, so their labels land in the
-        // same left gutter as every block's start time rather than across the
-        // gap's own text.
-        h += '<div class="item gap '+(live?'live':(t>=it.to?'past':'future'))+'" style="--ih:'+gh+'px">'+
-          '<div class="gapmarks">'+marks+'</div>'+
-          '<div class="clock"></div><div class="track"></div>'+
-          '<div class="card"><div class="t">'+
-          (live ? dur(it.to - t) + ' before ' + esc(it.next.t) : dur(span) + ' open') +
-          '</div></div></div>';
-        return;
-      }
-      const b = it.b;
-      const isStep = !!b.step;
-      const isTask = !!b.task;
-      const isRoutine = !!b.routine;
-      const rp = isRoutine ? routineProgress(b.routine, vd) : null;
-      const live = t >= mins(b.s) && t < mins(b.e);
-      const past = t >= mins(b.e);
-      const done = isStep ? isDone('w:' + b.step.sid, weekKey(vd))
-                 : isTask ? taskDone(b.task, vd)
-                 : isRoutine ? (rp.total > 0 && rp.done === rp.total)
-                 : isDone(b.id, dk);
-      const col = catColor(b.c);
-      let dotStyle = '';
-      if (done) dotStyle = 'background:'+col+';border-color:'+col;
-      else if (live) dotStyle = 'background:var(--live);border-color:var(--live)';
-      else if (!past) dotStyle = 'border-color:'+col;
-      const doneAct = isStep ? 'data-stepweek="'+b.step.gid+':'+b.step.sid+'|'+dk+'"'
-                    : isTask ? 'data-tasktoggle="'+b.task.id+'|'+dk+'"'
-                    : isRoutine ? 'data-routinedone="'+b.routine.id+'|'+dk+'"'
-                    : 'data-done="'+b.id+'|'+dk+'"';
-      h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+(isTask?' astask':'')+(isRoutine?' asroutine':'')+((justDone === (isStep ? b.step.sid : b.id))?' just':'')+'"'+
-        ' style="--ih:'+blockHeight(mins(b.e) - mins(b.s))+'px">'+
-        '<div class="clock">'+clockOf(b.s)+(live ? '<em>now</em>' : '')+'</div>'+
-        '<div class="track"><button class="dot" '+doneAct+' style="'+dotStyle+'" '+
-          'aria-label="'+(done ? 'Undo ' : 'Tick off ')+esc(b.t)+'">'+TICK+'</button></div>'+
-        '<div class="card"><div class="cardrow">'+
-        '<button class="cardmain" '+doneAct+'>'+
-        '<div class="t">'+esc(b.t)+(isTask?'<em class="tasktag">· task</em>':'')+
-          (isRoutine?'<em class="tasktag">'+rp.done+' of '+rp.total+'</em>':'')+'</div>'+
-        (b.n?'<div class="n">'+esc(b.n)+'</div>':'');
-      if (live){
-        const pct = ((t - mins(b.s)) / (mins(b.e) - mins(b.s))) * 100;
-        h += '<div class="meter"><i style="width:'+pct.toFixed(1)+'%"></i></div>'+
-          '<div class="left">'+dur(mins(b.e)-t)+' to go</div>';
-      }
-      h += '</button>'+
-        (isStep ? '<button class="editdot" data-gotogoal="'+b.step.gid+'" aria-label="Open goal">›</button>'
-         : isTask ? '<button class="editdot" data-taskedit="'+b.task.id+'" aria-label="Edit task">⋯</button>'
-         : isRoutine ? '<button class="editdot" data-gotoroutine="'+b.routine.id+'" aria-label="Edit routine">⋯</button>'
-                  : '<button class="editdot" data-editinst="'+b.id+'|'+dk+'" aria-label="Edit">⋯</button>')+
-        '</div>';
-      // The routine's own steps, listed unless the whole thing is done. This is
-      // the point of a routine: you work down it, you do not go hunting.
-      if (isRoutine && rp.total && !done){
-        h += '<div class="rsteps">' + routineHabits(b.routine).map(hb => {
-          const hcol = catColor(hb.c);
-          if (hb.target){
-            const v = compVal(hb.id, dk) || 0;
-            let pips = '';
-            for (let i = 0; i < hb.target; i++)
-              pips += '<span class="pip'+(i<v?' on':'')+'" style="'+(i<v?'background:'+hcol+';border-color:'+hcol:'')+'"></span>';
-            return '<button class="rstep'+(v>=hb.target?' done':'')+'" data-pip="'+hb.id+':'+hb.target+'">'+
-              '<span class="rmark" style="border-color:'+hcol+'"></span><span class="rl">'+esc(hb.l)+'</span>'+
-              '<span class="pips">'+pips+'</span></button>';
-          }
-          const on = isDone(hb.id, dk);
-          return '<button class="rstep'+(on?' done':'')+(justDone===hb.id?' just':'')+'" data-done="'+hb.id+'">'+
-            '<span class="rmark" style="'+(on?'background:'+hcol+';border-color:'+hcol:'border-color:'+hcol)+'">'+TICK+'</span>'+
-            '<span class="rl">'+esc(hb.l)+'</span></button>';
-        }).join('') + '</div>';
-      }
-      // Tasks waiting in this block's category. An appointment is not a block,
-      // so it does not collect a queue of its own.
-      const bt = (isStep || isTask) ? [] : tasksForCat(b.c, vd);
-      // Split by whether this is a chance worth taking now. A block that lists
-      // everything outstanding in its category looks daunting and hides the two
-      // things that actually matter today, so the rest is folded away rather
-      // than removed: still one tap from here, just not shouting.
-      const btSoon = bt.filter(tk => taskIsSoon(tk, vd, soon));
-      const btLater = bt.filter(tk => btSoon.indexOf(tk) === -1);
-      if (bt.length){
-        const openHere = openBlockTasks === b.uid;
-        const laterHere = openBlockLater === b.uid;
-        const est = totalMins(btSoon);                   // work worth doing now
-        const blockLen = mins(b.e) - mins(b.s);          // room available
-        h += '<div class="btasks">';
-        if (btSoon.length)
-          h += '<button class="taskchip'+(openHere?' on':'')+'" data-blocktasks="'+b.uid+'">'+
-            btSoon.length+' task'+(btSoon.length !== 1 ? 's' : '')+(est ? ' · '+dur(est) : '')+
-            '<em>'+(openHere ? '▴' : '▾')+'</em></button>';
-        if (btLater.length)
-          h += '<button class="taskchip later'+(laterHere?' on':'')+'" data-blocklater="'+b.uid+'">'+
-            '+'+btLater.length+' later<em>'+(laterHere ? '▴' : '▾')+'</em></button>';
-        if (openHere && btSoon.length){
-          if (est) h += '<div class="tfit'+(est > blockLen ? ' over' : '')+'">'+
-            (est > blockLen
-              ? dur(est)+' of tasks, only '+dur(blockLen)+' here'
-              : dur(est)+' of tasks in a '+dur(blockLen)+' block')+'</div>';
-          h += '<div class="tlist inblock">'+btSoon.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
-        }
-        if (laterHere && btLater.length){
-          h += '<div class="tfit quiet">Not due for a while, and there are other '+esc(catOf(b.c).label)+
-            ' blocks before then. Here if you want them.</div>';
-          h += '<div class="tlist inblock">'+btLater.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
-        }
-        h += '</div>';
-      }
-      h += '</div></div>';
-    });
+    // The day drawn as a grid: hour lines, blocks placed and sized by the clock,
+    // a line at now. Detail that will not fit inside a block opens underneath it.
+    h += dayGridHTML(vd, now, soon);
+    h += dayDetailHTML(vd, now, soon);
 
     // Athena promises that tasks find their own way into your day. When a task's
     // category has no block today there is nowhere for it to land, and it would
@@ -3405,7 +3442,13 @@
 
     if ((m = t('[data-editinst]'))){ const [id, dk] = m.dataset.editinst.split('|'); openEditor({ id, date: dk }); return; }
     if ((m = t('[data-gotogoal]'))){ view = 'grow'; growMode = 'goals'; openGoal = m.dataset.gotogoal; render(); return; }
-    if ((m = t('[data-newon]'))){ openEditor({ date: m.dataset.newon }); return; }
+    // "New event here" sits on the whole column, so it catches every click
+    // inside it, including the controls on the blocks drawn on top of it.
+    // Anything within a block belongs to that block and has to fall through to
+    // its own handler further down. This pattern has now bitten three times.
+    if ((m = t('[data-newon]')) && !e.target.closest('.dblk, .cb, .adchip')){
+      openEditor({ date: m.dataset.newon }); return;
+    }
 
     if ((m = t('[data-view]'))){ view = m.dataset.view; openDay = null; render(); return; }
     if ((m = t('[data-shift]'))){ dayShift += +m.dataset.shift; openDay = null; render(); return; }
@@ -3715,6 +3758,16 @@
     if ((m = t('[data-delgoal]'))){ markUndo('Goal removed'); S.goals = S.goals.filter(x=>x.id!==m.dataset.delgoal); if (openGoal===m.dataset.delgoal) openGoal=null; save(); render(); return; }
 
     if (t('[data-park]')){ const i = document.getElementById('sk'); const v = i && i.value.trim(); if (!v){ if (i) i.focus(); return; } S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const j = document.getElementById('sk'); if (j) j.focus(); return; }
+    // Opening a block's detail. An explicit empty string means "closed", which
+    // is different from null: null still lets the live block open itself.
+    if ((m = t('[data-dayblock]'))){
+      const k = m.dataset.dayblock;
+      openDayBlock = (openDayBlock === k) ? '' : k;
+      openBlockLater = null;
+      render(); return;
+    }
+    if (t('[data-dayclose]')){ openDayBlock = ''; render(); return; }
+
     if ((m = t('[data-timerset]'))){ timerReset(+m.dataset.timerset); return; }
     if (t('[data-timerstart]')){ timerStart(); return; }
     if (t('[data-timerpause]')){ timerPause(); return; }
