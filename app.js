@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.4';
+  const BUILD = '2026-09-10.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1528,7 +1528,7 @@
   function newNote(kind){
     const n = {
       id: 'nt_' + uid8(), kind: kind === 'list' ? 'list' : 'text',
-      title: '', body: '', items: [], color: 'none', cat: null,
+      title: '', body: '', items: [], images: [], color: 'none', cat: null,
       pinned: false, archived: false,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
@@ -1536,7 +1536,98 @@
     return n;
   }
   const findNote = id => notesAll().find(n => n.id === id);
+  const noteIsBlank = n => !n.title && !n.body && !(n.items || []).length && !(n.images || []).length;
   function touchNote(n){ n.updatedAt = new Date().toISOString(); }
+
+  /* ---- photos on notes ----
+     The only part of Athena that does not live in the JSON blob, because it
+     cannot: the blob is read and rewritten on every change, and a few phone
+     photos would make that tens of megabytes a tick. Files go to Supabase
+     Storage under <user>/<note>/<file>.jpg and the note keeps only the path.
+
+     Everything is shrunk in the browser first. A 4MB photo lands at a few
+     hundred KB, which is the difference between a note board that opens
+     instantly on mobile data and one that does not. */
+  const IMG_MAX = 1600;          // longest edge, plenty for a note
+  const IMG_QUALITY = 0.82;
+  const IMG_PER_NOTE = 6;
+  let imgBusy = '';              // message while a photo is being added
+  const imgUrls = {};            // path -> { url, exp } signed-URL cache
+
+  function shrinkImage(file){
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const im = new Image();
+      im.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, IMG_MAX / Math.max(im.width, im.height));
+        const w = Math.max(1, Math.round(im.width * scale));
+        const h = Math.max(1, Math.round(im.height * scale));
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(im, 0, 0, w, h);
+        cv.toBlob(b => b ? resolve({ blob: b, w: w, h: h }) : reject(new Error('could not encode')),
+          'image/jpeg', IMG_QUALITY);
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('unreadable')); };
+      im.src = url;
+    });
+  }
+
+  async function addNoteImage(file){
+    if (!cloud || !session){ imgBusy = ''; alert('Photos need an account, so they can be stored safely and reach your other devices. Sign in first.'); return; }
+    const n = noteEdit;
+    if (!n) return;
+    if ((n.images || []).length >= IMG_PER_NOTE){ alert('That is ' + IMG_PER_NOTE + ' photos, which is plenty for one note.'); return; }
+    imgBusy = 'Adding photo…'; render();
+    try {
+      const shrunk = await shrinkImage(file);
+      const id = 'im_' + uid8();
+      const path = session.user.id + '/' + n.id + '/' + id + '.jpg';
+      const { error } = await sb.storage.from('note-images')
+        .upload(path, shrunk.blob, { contentType: 'image/jpeg', upsert: false });
+      if (error) throw error;
+      n.images = (n.images || []).concat([{ id: id, path: path, w: shrunk.w, h: shrunk.h }]);
+      touchNote(n); save();
+    } catch (e){
+      alert('Could not add that photo. ' + ((e && e.message) || '') +
+        (/unreadable/.test((e && e.message) || '') ? ' Some iPhone photos need to be shared as JPEG rather than HEIC.' : ''));
+    } finally { imgBusy = ''; render(); }
+  }
+
+  async function removeNoteImage(n, imgId){
+    const img = (n.images || []).find(x => x.id === imgId);
+    if (!img) return;
+    n.images = (n.images || []).filter(x => x.id !== imgId);
+    touchNote(n); save(); render();
+    // The file goes too. Orphans nobody can see still fill the quota.
+    try { if (cloud && session) await sb.storage.from('note-images').remove([img.path]); } catch(_){}
+  }
+
+  async function signedUrl(path){
+    const hit = imgUrls[path];
+    if (hit && hit.exp > Date.now()) return hit.url;
+    if (!cloud || !session) return null;
+    try {
+      const { data, error } = await sb.storage.from('note-images').createSignedUrl(path, 3600);
+      if (error || !data) return null;
+      imgUrls[path] = { url: data.signedUrl, exp: Date.now() + 50 * 60 * 1000 };
+      return data.signedUrl;
+    } catch(_){ return null; }
+  }
+
+  // Images are fetched after the page is drawn, so a signed URL round trip never
+  // holds up a render. Each <img> asks for its own and fills itself in.
+  async function hydrateImages(){
+    const els = app.querySelectorAll('img[data-imgpath]:not([data-loaded])');
+    for (let i = 0; i < els.length; i++){
+      const el = els[i];
+      el.setAttribute('data-loaded', '1');
+      const url = await signedUrl(el.dataset.imgpath);
+      if (url) el.src = url;
+      else el.replaceWith(Object.assign(document.createElement('div'), { className: 'note-img missing', textContent: 'Photo unavailable' }));
+    }
+  }
 
   // The one line that best names this note, for when it becomes something else.
   const noteHeadline = n =>
@@ -1556,9 +1647,17 @@
   function noteCardHTML(n){
     const done = (n.items || []).filter(i => i.done).length;
     const cat = n.cat ? S.categories.find(c => c.id === n.cat) : null;
+    const imgs = n.images || [];
     let h = '<div class="note c-'+esc(n.color || 'none')+'" data-noteopen="'+n.id+'">';
     h += '<button class="note-pin'+(n.pinned?' on':'')+'" data-notepin="'+n.id+'" '+
       'aria-label="'+(n.pinned?'Unpin':'Pin to top')+'">'+PIN+'</button>';
+    if (imgs.length){
+      // One photo leads the card; the rest are counted rather than stacked, so a
+      // note with six holiday shots is still a card and not a scroll.
+      h += '<div class="note-imgwrap"><img class="note-img" data-imgpath="'+esc(imgs[0].path)+'" alt="" '+
+        (imgs[0].w ? 'style="aspect-ratio:'+imgs[0].w+'/'+imgs[0].h+'"' : '')+'>'+
+        (imgs.length > 1 ? '<span class="note-imgn">+'+(imgs.length - 1)+'</span>' : '')+'</div>';
+    }
     if (n.title) h += '<div class="note-t">'+esc(n.title)+'</div>';
     if (n.kind === 'list'){
       const show = (n.items || []).slice(0, 6);
@@ -1571,7 +1670,7 @@
     } else if (n.body){
       h += '<div class="note-b">'+esc(n.body)+'</div>';
     }
-    if (!n.title && !n.body && !(n.items || []).length) h += '<div class="note-b empty">Empty note</div>';
+    if (!n.title && !n.body && !(n.items || []).length && !imgs.length) h += '<div class="note-b empty">Empty note</div>';
     if (cat) h += '<div class="note-cat"><b style="background:'+catColor(cat.id)+'"></b>'+esc(cat.label)+'</div>';
     h += '</div>';
     return h;
@@ -1639,6 +1738,17 @@
     } else {
       h += '<label class="fld"><span>Note</span><textarea id="ne_body" rows="7" placeholder="Anything worth keeping">'+esc(n.body)+'</textarea></label>';
     }
+    h += '<div class="fld"><span>Photos</span><div class="ne-imgs">'+
+      (n.images || []).map(im =>
+        '<div class="ne-img"><img data-imgpath="'+esc(im.path)+'" alt="">'+
+        '<button class="del" data-noteimgdel="'+n.id+':'+im.id+'" aria-label="Remove photo">×</button></div>').join('')+
+      ((n.images || []).length < IMG_PER_NOTE
+        ? '<label class="ne-imgadd'+(imgBusy?' busy':'')+'">'+(imgBusy || '+ Photo')+
+          '<input id="ne_file" type="file" accept="image/*" hidden></label>'
+        : '')+
+      '</div>'+
+      (!cloud || !session ? '<small class="gform-hint">Photos need an account, so they are stored safely and reach your other devices.</small>' : '')+
+      '</div>';
     h += '<div class="fld"><span>Colour</span><div class="ne-colors">'+NOTE_COLORS.map(c =>
       '<button class="ne-color c-'+c+(c===(n.color||'none')?' on':'')+'" data-notecolor="'+c+'" aria-label="'+c+'"></button>').join('')+'</div></div>';
     h += '<label class="fld"><span>Category</span><select id="ne_cat">'+CATOPTS+'</select></label>';
@@ -2072,14 +2182,28 @@
      ========================================================================== */
   const drafts = {};
   function keepDrafts(){
-    app.addEventListener('input',  e => { if (e.target.id) drafts[e.target.id] = e.target.type==='checkbox'?e.target.checked:e.target.value; });
-    app.addEventListener('change', e => { if (e.target.id) drafts[e.target.id] = e.target.type==='checkbox'?e.target.checked:e.target.value; });
+    // A file input is never a draft. Browsers refuse to have its value written
+    // back, so remembering one turns the next render into an exception.
+    const keep = e => {
+      if (!e.target.id || e.target.type === 'file') return;
+      drafts[e.target.id] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    };
+    app.addEventListener('input',  keep);
+    app.addEventListener('change', keep);
     // Six digits in means they are done typing, or the phone has just autofilled
     // the code from the email. Making them reach for a button after that is a
     // small insult, so submit it.
     app.addEventListener('input', e => {
       if (e.target.id !== 'auth_code' || authBusy) return;
       if (e.target.value.replace(/\D/g, '').length === 6) verifyCode();
+    });
+    // Picking a photo. noteSync first, or whatever was being typed is lost to
+    // the re-render that follows the upload.
+    app.addEventListener('change', e => {
+      if (e.target.id !== 'ne_file') return;
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (f){ noteSync(); addNoteImage(f); }
     });
     // Notes filter as you type. Re-rendering blows the field away, so put the
     // cursor back exactly where it was afterwards.
@@ -2107,13 +2231,15 @@
     app.innerHTML = h;
     Object.keys(drafts).forEach(id => {
       const el = document.getElementById(id);
-      if (el){ if (el.type==='checkbox') el.checked = drafts[id]; else el.value = drafts[id]; }
+      if (!el || el.type === 'file') return;      // belt and braces: see keepDrafts
+      if (el.type === 'checkbox') el.checked = drafts[id]; else el.value = drafts[id];
     });
     if (focusId){
       const el = document.getElementById(focusId);
       if (el){ el.focus(); if (caret != null && el.setSelectionRange){ try { el.setSelectionRange(caret, caret); } catch(_){} } }
     }
     if (typeof window !== 'undefined' && window.scrollTo && sy) window.scrollTo(0, sy);
+    if (app.querySelector('img[data-imgpath]')) hydrateImages();
   }
 
   // Prev / next / back-to-today for the Day and Week views.
@@ -2865,6 +2991,13 @@
       const f = document.getElementById('ne_newitem'); if (f) f.focus();
       return;
     }
+    if ((m = t('[data-noteimgdel]'))){
+      noteSync();
+      const parts = m.dataset.noteimgdel.split(':');
+      const n = findNote(parts[0]);
+      if (n) removeNoteImage(n, parts[1]);
+      return;
+    }
     if ((m = t('[data-noteitemdel]'))){
       noteSync();
       noteEdit.items = (noteEdit.items || []).filter(x => x.id !== m.dataset.noteitemdel);
@@ -2890,21 +3023,30 @@
       noteEdit = null; clearModalDrafts(); save(); render(); return;
     }
     if ((m = t('[data-notedelete]'))){
+      const gone = findNote(m.dataset.notedelete);
+      const paths = gone ? (gone.images || []).map(x => x.path) : [];
       markUndo('Note deleted');
       S.notes = notesAll().filter(n => n.id !== m.dataset.notedelete);
-      noteEdit = null; clearModalDrafts(); save(); render(); return;
+      noteEdit = null; clearModalDrafts(); save(); render();
+      // Undo puts the note back but not the files, so the photos stay put for a
+      // moment. The undo bar times out; sweep them then.
+      if (paths.length) setTimeout(() => {
+        if (notesAll().some(n => n.id === m.dataset.notedelete)) return;   // undone
+        if (cloud && session) sb.storage.from('note-images').remove(paths).catch(() => {});
+      }, 12000);
+      return;
     }
     if (t('[data-notesave]')){
       noteSync();
       const n = noteEdit;
-      // An untouched blank note is a slip, not a thing to keep.
-      if (n && !n.title && !n.body && !(n.items || []).length) S.notes = notesAll().filter(x => x.id !== n.id);
+      // An untouched blank note is a slip, not a thing to keep. A photo counts.
+      if (n && noteIsBlank(n)) S.notes = notesAll().filter(x => x.id !== n.id);
       else if (n) touchNote(n);
       noteEdit = null; clearModalDrafts(); save(); render(); return;
     }
     if (t('[data-notecancel]')){
       const n = noteEdit;
-      if (n && !n.title && !n.body && !(n.items || []).length) S.notes = notesAll().filter(x => x.id !== n.id);
+      if (n && noteIsBlank(n)) S.notes = notesAll().filter(x => x.id !== n.id);
       noteEdit = null; clearModalDrafts(); save(); render(); return;
     }
     if (t('[data-notearchiveview]')){ notesArchived = !notesArchived; noteSearch = ''; render(); return; }

@@ -41,6 +41,41 @@ create policy "update own dashboard"
 -- Deliberately no delete policy: nothing in the app deletes an account's row,
 -- so nothing should be able to.
 
+-- ---------------------------------------------------------------------------
+-- Photos on notes.
+--
+-- These are the one thing that does not live in the JSON blob, and they cannot:
+-- the whole planner is a single row that is read and rewritten on every change,
+-- so a few phone photos would mean tens of megabytes rewritten every time you
+-- tick something off. Files go to Storage; the blob keeps only their paths.
+--
+-- Every file is stored as <user id>/<note id>/<file id>.jpg, and the policies
+-- below key off that first folder, so one person can never reach another's
+-- photos even though they share a bucket.
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('note-images', 'note-images', false)
+on conflict (id) do nothing;
+
+drop policy if exists "read own note images"   on storage.objects;
+drop policy if exists "upload own note images" on storage.objects;
+drop policy if exists "delete own note images" on storage.objects;
+
+create policy "read own note images"
+  on storage.objects for select
+  using (bucket_id = 'note-images' and (storage.foldername(name))[1] = auth.uid()::text);
+
+create policy "upload own note images"
+  on storage.objects for insert
+  with check (bucket_id = 'note-images' and (storage.foldername(name))[1] = auth.uid()::text);
+
+create policy "delete own note images"
+  on storage.objects for delete
+  using (bucket_id = 'note-images' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- Deliberately no update policy: Athena never rewrites a file in place, it
+-- uploads a new one and deletes the old.
+
 -- PostgREST caches the schema. A freshly created table stays invisible to the
 -- app until this fires, which is exactly the "could not find the table
 -- public.dashboards in the schema cache" error.

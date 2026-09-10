@@ -53,12 +53,26 @@ offline. With no Supabase config, it is that local key alone.
 
 ## Setting up a Supabase project
 
-1. Run `schema.sql` in the SQL Editor. It creates the `dashboards` table and the
-   row level security policies. Nothing syncs without it, and the symptom if you
-   skip it is `PGRST205: could not find the table 'public.dashboards'`.
+1. Run `schema.sql` in the SQL Editor. It creates the `dashboards` table, the
+   row level security policies, and the `note-images` storage bucket with its
+   own policies. Nothing syncs without the table, and the symptom if you skip it
+   is `PGRST205: could not find the table 'public.dashboards'`. Photos on notes
+   fail with a bucket error if you skip the storage half.
 2. Put the project URL and publishable key in `supabase-config.js`.
 3. Set **Site URL** under Authentication to the deployed address, not
    `localhost:3000`, or magic links will send people somewhere else entirely.
 
 One account is one email address. Signing in with a second address creates a
 second, separate planner; the two never see each other.
+
+## Photos
+
+The one thing that does not live in the JSON blob. The blob is read and
+rewritten on every change, so photos in it would mean tens of megabytes rewritten
+every time you tick something off. They go to Supabase Storage under
+`<user id>/<note id>/<file id>.jpg`; the note keeps only the path, and the
+policies key off that first folder so accounts cannot reach each other's files.
+
+Everything is shrunk in the browser first, to 1600px on the longest edge at JPEG
+quality 0.82. A 4MB phone photo lands at a few hundred KB, which is what keeps
+the board quick on mobile data and the free tier's 1GB roomy.
