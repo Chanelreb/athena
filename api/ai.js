@@ -14,6 +14,17 @@ import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 
+/* Which model does the sorting. Haiku by default: turning "buy milk, dentist
+   Tuesday 2pm" into a tidy list is extraction, not hard thinking, and with a
+   household using this the difference in cost is the whole story. Override with
+   ATHENA_MODEL in Vercel to try a bigger one without touching the code.
+
+   Haiku 4.5 supports structured outputs, which is what keeps the reply the right
+   shape, but it does not accept `effort`. That is a 400, not a polite ignore,
+   so the field is only sent to models that take it. */
+const MODEL = process.env.ATHENA_MODEL || 'claude-haiku-4-5-20251001';
+const EFFORT_OK = /^claude-(opus-(5|4-8|4-7|4-6|4-5)|sonnet-(5|4-6)|fable-5|mythos-5)/;
+
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ubtumwzsaqcjxegklirp.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_RO1Hl4ZETOTScUPvs0nD4w_xUdoYSLR';
 
@@ -116,14 +127,16 @@ export default async function handler(req, res){
 
   try {
     const client = new Anthropic();   // reads ANTHROPIC_API_KEY
+    const output_config = { format: zodOutputFormat(Plan) };
+    // effort is only accepted on some models, and Haiku is not one of them:
+    // sending it there is a 400, not a polite ignore. Only add it when the
+    // model in use actually supports it.
+    if (EFFORT_OK.test(MODEL)) output_config.effort = 'low';
     const response = await client.messages.parse({
-      model: 'claude-opus-5',
+      model: MODEL,
       max_tokens: 8000,
       system,
-      output_config: {
-        format: zodOutputFormat(Plan),
-        effort: 'low'          // this is straightforward extraction, not hard reasoning
-      },
+      output_config,
       messages: [{ role: 'user', content: ask }]
     });
 
@@ -145,7 +158,13 @@ export default async function handler(req, res){
     } else if (err instanceof Anthropic.RateLimitError){
       res.status(429).json({ error: 'Too many requests just now. Give it a moment.' });
     } else if (err instanceof Anthropic.APIError){
-      res.status(502).json({ error: 'The assistant could not be reached (' + err.status + ').' });
+      // Pass the wording through. A 400 here is almost always a model name or a
+      // parameter that model does not take, and "could not be reached (400)"
+      // sends you looking at your wifi. The message never contains the key.
+      res.status(502).json({
+        error: 'The assistant could not be reached (' + err.status + '). ' +
+          ((err.message || '').slice(0, 300) || '') + ' Model: ' + MODEL
+      });
     } else {
       res.status(500).json({ error: 'Something went wrong reaching the assistant.' });
     }
