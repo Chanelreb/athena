@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.11';
+  const BUILD = '2026-09-10.12';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -91,6 +91,10 @@
   };
 
   const app = document.getElementById('soft-app');
+  // Delegated listeners hang off the shell, not the app, because the desktop
+  // panels are siblings of #soft-app rather than inside it. Anything attached
+  // to the app alone simply would not hear a click in the scratchpad panel.
+  const shell = document.getElementById('ath-shell') || app;
 
   /* ---------- time & date helpers ---------- */
   const DAYS  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -2291,8 +2295,112 @@
     taskEdit = null; clearModalDrafts(); save(); render();
   }
 
-  function parkHTML(dk){
-    let h = '<div class="park"><div class="park-row">'+
+  /* ==========================================================================
+     Desktop panels.
+     A phone gets one column, exactly as before. A wide screen puts the
+     scratchpad beside the day instead of underneath it, and a big one moves the
+     timer to the other side so the main column sits in the middle. Nothing here
+     is a new place to look: it is the same scratchpad, just always to hand.
+     ========================================================================== */
+  const SIDE_ONE = 1000, SIDE_TWO = 1360;
+  const panelsOn = () => typeof window !== 'undefined' && window.innerWidth >= SIDE_ONE;
+  const twoPanels = () => typeof window !== 'undefined' && window.innerWidth >= SIDE_TWO;
+
+  /* ---- the focus timer ----
+     Deliberately does not know what you are working on. It is a clock, and a
+     clock that is wrong about your intentions is worse than one that keeps
+     quiet. The length is yours to pick, because twenty five minutes is somebody
+     else's idea of a work session. */
+  const TIMER_KEY = 'athena:timer';
+  const TIMER_MINS = [5, 10, 15, 25, 45, 60];
+  let timer = { mins: 25, endsAt: null, leftMs: 25 * 60000, done: 0, doneOn: '' };
+  let timerTick = null;
+
+  function timerLoad(){
+    try { const raw = lsGet(TIMER_KEY); if (raw) timer = Object.assign(timer, JSON.parse(raw)); } catch(_){}
+    const today = dayKey(new Date());
+    if (timer.doneOn !== today){ timer.done = 0; timer.doneOn = today; }
+    if (timerRunning() && timerLeft() <= 0){ timer.endsAt = null; timer.leftMs = timer.mins * 60000; }
+  }
+  const timerSave = () => { try { lsSet(TIMER_KEY, JSON.stringify(timer)); } catch(_){} };
+  const timerRunning = () => !!timer.endsAt;
+  const timerLeft = () => timer.endsAt ? Math.max(0, timer.endsAt - Date.now()) : Math.max(0, timer.leftMs);
+  const timerFace = ms => { const s = Math.ceil(ms / 1000); return pad(Math.floor(s / 60)) + ':' + pad(s % 60); };
+
+  function timerStart(){
+    timer.endsAt = Date.now() + (timer.leftMs > 0 ? timer.leftMs : timer.mins * 60000);
+    timerSave(); timerLoop(); paintPanels();
+  }
+  function timerPause(){ timer.leftMs = timerLeft(); timer.endsAt = null; clearInterval(timerTick); timerSave(); paintPanels(); }
+  function timerReset(mins){
+    if (mins) timer.mins = mins;
+    timer.endsAt = null; timer.leftMs = timer.mins * 60000;
+    clearInterval(timerTick); timerSave(); paintPanels();
+  }
+  function timerFinish(){
+    timer.endsAt = null; timer.leftMs = timer.mins * 60000;
+    timer.done = (timer.done || 0) + 1; timer.doneOn = dayKey(new Date());
+    timerSave();
+    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch(_){}
+    markJustDone('timer');
+    paintPanels();
+  }
+  function timerLoop(){
+    clearInterval(timerTick);
+    if (!timerRunning()) return;
+    // Only the digits are rewritten each second. A full render every second
+    // would fight anything being typed anywhere else on the page.
+    timerTick = setInterval(() => {
+      const left = timerLeft();
+      const face = document.getElementById('ath-face');
+      if (face) face.textContent = timerFace(left);
+      if (left <= 0){ clearInterval(timerTick); timerFinish(); }
+    }, 250);
+  }
+
+  function timerHTML(){
+    const left = timerLeft(), running = timerRunning();
+    const idle = !running && left === timer.mins * 60000;
+    let h = '<div class="panel tmr'+(running ? ' going' : '')+(justDone === 'timer' ? ' just' : '')+'">';
+    h += '<div class="panel-h">Focus</div>';
+    h += '<div class="tmr-face" id="ath-face">'+timerFace(left)+'</div>';
+    h += '<div class="tmr-mins">'+TIMER_MINS.map(mn =>
+      '<button class="'+(timer.mins === mn ? 'on' : '')+'" data-timerset="'+mn+'">'+mn+'</button>').join('')+
+      '<span>min</span></div>';
+    h += '<div class="tmr-act">'+
+      (running ? '<button class="go" data-timerpause>Pause</button>'
+               : '<button class="go" data-timerstart>'+(idle ? 'Start' : 'Resume')+'</button>')+
+      (idle ? '' : '<button class="ghost" data-timerreset>Reset</button>')+
+      '</div>';
+    h += '<div class="tmr-done">'+(timer.done ? timer.done + ' finished today' : 'Nothing finished yet today')+'</div>';
+    h += '</div>';
+    return h;
+  }
+
+  // Panels live outside #soft-app, so they survive its re-renders and are
+  // painted separately. Cleared entirely when the screen is too narrow, or when
+  // the main column is showing something that owns the whole screen.
+  function paintPanels(){
+    const L = document.getElementById('ath-left'), R = document.getElementById('ath-right');
+    if (!L || !R) return;
+    const busy = loadFailed || bootBroken || ob || needsOnboarding() || (cloud && !session);
+    if (!panelsOn() || busy){
+      L.hidden = R.hidden = true; L.innerHTML = R.innerHTML = '';
+      return;
+    }
+    const dk = dayKey(viewDate());
+    const park = '<div class="panel"><div class="panel-h">Scratchpad</div>'+parkHTML(dk, true)+'</div>';
+    if (twoPanels()){
+      L.hidden = false; L.innerHTML = timerHTML();
+      R.hidden = false; R.innerHTML = park;
+    } else {
+      L.hidden = true; L.innerHTML = '';
+      R.hidden = false; R.innerHTML = timerHTML() + park;
+    }
+  }
+
+  function parkHTML(dk, inPanel){
+    let h = '<div class="park'+(inPanel ? ' inpanel' : '')+'"><div class="park-row">'+
       '<input id="sk" type="text" placeholder="Park a stray thought…" autocomplete="off">'+
       '<button data-park>Park</button></div>';
     // A parked thought is not always a calendar entry. It might be a job, a
@@ -2443,12 +2551,12 @@
       if (!e.target.id || e.target.type === 'file') return;
       drafts[e.target.id] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     };
-    app.addEventListener('input',  keep);
-    app.addEventListener('change', keep);
+    shell.addEventListener('input',  keep);
+    shell.addEventListener('change', keep);
     // Six digits in means they are done typing, or the phone has just autofilled
     // the code from the email. Making them reach for a button after that is a
     // small insult, so submit it.
-    app.addEventListener('input', e => {
+    shell.addEventListener('input', e => {
       if (e.target.id !== 'auth_code' || authBusy) return;
       if (e.target.value.replace(/\D/g, '').length === 6) verifyCode();
     });
@@ -2506,7 +2614,7 @@
 
     // A routine's name and time edit in place, saved as you go, with no render
     // in between so the cursor stays where you put it.
-    app.addEventListener('input', e => {
+    shell.addEventListener('input', e => {
       const id = e.target.dataset && (e.target.dataset.rname || e.target.dataset.rtime);
       if (!id) return;
       const r = routinesAll().find(x => x.id === id);
@@ -2518,7 +2626,7 @@
 
     // Picking a photo. noteSync first, or whatever was being typed is lost to
     // the re-render that follows the upload.
-    app.addEventListener('change', e => {
+    shell.addEventListener('change', e => {
       if (e.target.id !== 'ne_file') return;
       const f = e.target.files && e.target.files[0];
       e.target.value = '';
@@ -2526,7 +2634,7 @@
     });
     // Notes filter as you type. Re-rendering blows the field away, so put the
     // cursor back exactly where it was afterwards.
-    app.addEventListener('input', e => {
+    shell.addEventListener('input', e => {
       if (e.target.id !== 'nt_search') return;
       noteSearch = e.target.value;
       const pos = e.target.selectionStart;
@@ -2548,6 +2656,9 @@
     try { caret = (ae && ae.selectionStart != null) ? ae.selectionStart : null; } catch(_){}
     const sy = (typeof window !== 'undefined' && window.scrollY) || 0;
     app.innerHTML = h;
+    // Panels are redrawn before drafts and focus are put back, so a half-typed
+    // thought in the scratchpad panel survives a render like any other field.
+    paintPanels();
     Object.keys(drafts).forEach(id => {
       const el = document.getElementById(id);
       if (!el || el.type === 'file') return;      // belt and braces: see keepDrafts
@@ -2661,8 +2772,9 @@
                                    : habitsView(now);
     else if (view === 'notes')  h += notesView(now);
 
-    // parked thoughts + everyday chips live under the Day view
-    if (view === 'day'){ h += parkHTML(dayKey(vd)); }
+    // Parked thoughts live under the Day view, unless a wide screen has taken
+    // them into a panel, where they are always to hand.
+    if (view === 'day' && !panelsOn()){ h += parkHTML(dayKey(vd)); }
 
     // One banner, in order of how much it matters. Stacking three warnings that
     // all mean "not syncing" just teaches people to ignore the strip.
@@ -3146,7 +3258,7 @@
     }
   }, { passive: true });
 
-  app.addEventListener('click', e => {
+  shell.addEventListener('click', e => {
     if (noClick){ noClick = false; e.preventDefault(); return; }
     const now = new Date(), today = dayKey(now);
     const t = el => e.target.closest(el);
@@ -3573,6 +3685,11 @@
     if ((m = t('[data-delgoal]'))){ markUndo('Goal removed'); S.goals = S.goals.filter(x=>x.id!==m.dataset.delgoal); if (openGoal===m.dataset.delgoal) openGoal=null; save(); render(); return; }
 
     if (t('[data-park]')){ const i = document.getElementById('sk'); const v = i && i.value.trim(); if (!v){ if (i) i.focus(); return; } S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const j = document.getElementById('sk'); if (j) j.focus(); return; }
+    if ((m = t('[data-timerset]'))){ timerReset(+m.dataset.timerset); return; }
+    if (t('[data-timerstart]')){ timerStart(); return; }
+    if (t('[data-timerpause]')){ timerPause(); return; }
+    if (t('[data-timerreset]')){ timerReset(); return; }
+
     if ((m = t('[data-parkopen]'))){
       const i = +m.dataset.parkopen;
       parkOpen = (parkOpen === i) ? null : i;
@@ -3622,7 +3739,7 @@
   });
 
   // Re-render the editor when repeat type or all-day toggles (to swap fields).
-  app.addEventListener('change', e => {
+  shell.addEventListener('change', e => {
     if (!editing) return;
     if (e.target.id === 'e_repeat' || e.target.id === 'e_allday'){ syncEditor(); render(); }
   });
@@ -3646,7 +3763,7 @@
     save();
   }
 
-  app.addEventListener('keydown', e => {
+  shell.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target.id === 'auth_email'){ e.preventDefault(); sendCode(); return; }
     if (e.key === 'Enter' && e.target.id === 'auth_code'){ e.preventDefault(); verifyCode(); return; }
     if (e.key === 'Enter' && e.target.id === 'ob_name'){ e.preventDefault(); obSync(); ob.step = 1; render(); return; }
@@ -3796,6 +3913,8 @@
 
   async function boot(){
     keepDrafts();
+    timerLoad();
+    timerLoop();      // a timer left running survives a reload and picks up where it was
     updateIfStale();     // deliberately not awaited: never hold the app on it
     if (!sb){ startApp(); return; }                    // no config -> local-only
     try { const { data } = await sb.auth.getSession(); session = data.session || null; }

@@ -17,7 +17,13 @@
 <meta name="mobile-web-app-capable" content="yes">
 </head>
 <body>
-<div id="soft-app"><div class="boot">Reading the day…</div></div>
+<!-- The shell exists only so a wide screen can put panels either side of the
+     main column. On a phone it is a plain wrapper and changes nothing. -->
+<div id="ath-shell">
+  <aside id="ath-left" class="ath-side" hidden></aside>
+  <div id="soft-app"><div class="boot">Reading the day…</div></div>
+  <aside id="ath-right" class="ath-side" hidden></aside>
+</div>
 
 <!-- Record why a script failed before app.js runs. Without this, a sign-in
      library that fails to load or parse looks identical to an app that was

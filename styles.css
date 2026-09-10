@@ -158,39 +158,39 @@
   #soft-app .item.gap .dot { display: none; }
 
   /* park */
-  #soft-app .park { margin: 26px 0 8px; }
-  #soft-app .park-row { display: flex; gap: 9px; }
-  #soft-app .park input {
+  .park { margin: 26px 0 8px; }
+  .park-row { display: flex; gap: 9px; }
+  .park input {
     flex: 1; min-width: 0; font: inherit; font-size: 15px;
     background: var(--raise); color: var(--text);
     border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px;
   }
-  #soft-app .park input::placeholder { color: var(--dim); }
-  #soft-app .park input:focus { outline: 2px solid var(--live); outline-offset: 1px; }
-  #soft-app .park-row > button {
+  .park input::placeholder { color: var(--dim); }
+  .park input:focus { outline: 2px solid var(--live); outline-offset: 1px; }
+  .park-row > button {
     font: inherit; font-size: 15px; background: var(--raise); color: var(--text);
     border: 1px solid var(--line); border-radius: 12px; padding: 13px 17px; cursor: pointer;
   }
-  #soft-app .parked { list-style: none; margin: 12px 0 0; padding: 0; }
-  #soft-app .parked li {
+  .parked { list-style: none; margin: 12px 0 0; padding: 0; }
+  .parked li {
     display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px;
     padding: 10px 2px; border-bottom: 1px solid var(--line);
   }
-  #soft-app .parked li:last-child { border-bottom: 0; }
-  #soft-app .parked li span { flex: 1; }
-  #soft-app .parked li button { background: none; border: 0; color: var(--dim); font-size: 19px; line-height: 1; padding: 0 6px; cursor: pointer; }
-  #soft-app .park-empty { font-size: 13.5px; color: var(--dim); padding-top: 12px; line-height: 1.55; max-width: 44ch; }
+  .parked li:last-child { border-bottom: 0; }
+  .parked li span { flex: 1; }
+  .parked li button { background: none; border: 0; color: var(--dim); font-size: 19px; line-height: 1; padding: 0 6px; cursor: pointer; }
+  .park-empty { font-size: 13.5px; color: var(--dim); padding-top: 12px; line-height: 1.55; max-width: 44ch; }
   /* what a parked thought can turn into */
-  #soft-app .parked li { flex-wrap: wrap; }
-  #soft-app .parked li.open { background: rgba(255,255,255,.03); border-radius: 10px; padding: 10px 8px; }
-  html[data-theme="light"] #soft-app .parked li.open { background: rgba(0,0,0,.03); }
-  #soft-app .parkinto { flex: 1 1 100%; display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
-  #soft-app .parked li .parkinto button {
+  .parked li { flex-wrap: wrap; }
+  .parked li.open { background: rgba(255,255,255,.03); border-radius: 10px; padding: 10px 8px; }
+  html[data-theme="light"] .parked li.open { background: rgba(0,0,0,.03); }
+  .parkinto { flex: 1 1 100%; display: flex; gap: 7px; flex-wrap: wrap; margin-top: 9px; }
+  .parked li .parkinto button {
     flex: 0 0 auto; background: var(--raise); border: 1px solid var(--line); color: var(--text);
     border-radius: 999px; padding: 6px 13px; font: inherit; font-size: 12.5px; cursor: pointer;
   }
-  #soft-app .parked li .parkinto button:hover { border-color: var(--live); color: var(--live); }
-  #soft-app .parked .parkdo.on { color: var(--live); }
+  .parked li .parkinto button:hover { border-color: var(--live); color: var(--live); }
+  .parked .parkdo.on { color: var(--live); }
 
   /* chips */
   #soft-app .chips { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 8px 0 4px; }
@@ -580,11 +580,11 @@
   }
 
   /* parked thought -> schedule it */
-  #soft-app .parked .parkdo {
+  .parked .parkdo {
     background: none; border: 0; color: var(--ghost); cursor: pointer;
     font-size: 15px; line-height: 1; padding: 2px 6px; border-radius: 7px;
   }
-  #soft-app .parked .parkdo:hover { color: var(--live); background: rgba(255,255,255,.06); }
+  .parked .parkdo:hover { color: var(--live); background: rgba(255,255,255,.06); }
 
   /* ===== Scheduled goal steps on the calendar ===== */
   #soft-app .cb.cbstep { border-left-style: dashed; }
@@ -668,7 +668,7 @@
   html[data-theme="light"] #soft-app .bcard::before { opacity: .2; }
   html[data-theme="light"] #soft-app .meter { background: rgba(0,0,0,.10); }
   html[data-theme="light"] #soft-app .editdot:hover,
-  html[data-theme="light"] #soft-app .parked .parkdo:hover,
+  html[data-theme="light"] .parked .parkdo:hover,
   html[data-theme="light"] #soft-app .taskchip:hover { background: rgba(0,0,0,.05); }
   html[data-theme="light"] #soft-app .modal-back { background: rgba(45,43,38,.32); }
   html[data-theme="light"] #soft-app .modal { box-shadow: 0 24px 60px rgba(70,66,58,.20); }
@@ -959,6 +959,85 @@
     resize: vertical; box-sizing: border-box;
   }
   #soft-app .note-modal textarea:focus { outline: none; border-color: var(--ghost); }
+
+  /* ===== Desktop panels =====
+     A phone sees none of this: the shell is a plain wrapper and #soft-app keeps
+     its own centring. From 1000px a rail appears beside the day; from 1360px the
+     timer moves to the other side so the main column really is in the middle. */
+  #ath-shell { display: flex; justify-content: center; align-items: flex-start; gap: 16px; }
+  /* The panels carry the same tokens as the app, because they share its parts:
+     the scratchpad in a panel is the same scratchpad, drawn by the same rules. */
+  .ath-side {
+    display: none;
+    --bg: #2C2932; --raise: #383441; --line: #474250; --text: #EFEAE5;
+    --dim: #A9A1A8; --ghost: #6E6774; --live: #E5A87E; --live-soft: #413229;
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px; line-height: 1.5;
+  }
+  html[data-theme="light"] .ath-side {
+    --bg: #FAF9F7; --raise: #EFEDE9; --line: #DAD6D0; --text: #21201D;
+    --dim: #5A5751; --ghost: #8A867F; --live: #3A3833; --live-soft: #E6E2D9;
+  }
+  .ath-side *, .ath-side *::before, .ath-side *::after { box-sizing: border-box; }
+  @media (min-width: 1000px) {
+    #ath-shell { gap: 18px; }
+    /* The app centres itself with auto margins, which inside a flex row eat all
+       the free space and push the panels to the edges. In the shell it is a
+       plain flex item and the shell does the centring. */
+    #ath-shell > #soft-app { margin: 0; flex: 0 1 600px; }
+    #ath-right:not([hidden]) { display: block; flex: 0 0 300px; position: sticky; top: 20px; }
+  }
+  /* Both panels the same width, or the middle column is not actually the middle. */
+  @media (min-width: 1360px) {
+    #ath-shell { gap: 22px; }
+    #ath-left:not([hidden]) { display: block; flex: 0 0 300px; position: sticky; top: 20px; }
+  }
+  .ath-side .panel {
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 16px; padding: 16px 16px 18px; margin-bottom: 16px;
+    
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .ath-side .panel-h {
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ghost); margin-bottom: 12px;
+  }
+
+  /* the focus timer */
+  .ath-side .tmr-face {
+    font-size: 42px; line-height: 1; text-align: center; margin: 6px 0 14px;
+    font-variant-numeric: tabular-nums; letter-spacing: .01em;
+  }
+  /* Running gets its own colour rather than the accent, so it still reads on a
+     theme whose accent is deliberately quiet. */
+  .ath-side .tmr.going .tmr-face { color: #E5A87E; }
+  html[data-theme="light"] .ath-side .tmr.going .tmr-face { color: #9A5B1E; }
+  .ath-side .tmr.just .tmr-face { animation: pop .5s ease; }
+  .ath-side .tmr-mins { display: flex; align-items: center; gap: 4px; justify-content: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .ath-side .tmr-mins button {
+    width: 30px; height: 28px; border-radius: 8px; cursor: pointer; padding: 0;
+    background: none; border: 1px solid var(--line); color: var(--ghost);
+    font: inherit; font-size: 12px;
+  }
+  .ath-side .tmr-mins button.on { border-color: var(--live); color: var(--live); }
+  .ath-side .tmr-mins span { font-size: 11px; color: var(--ghost); margin-left: 3px; }
+  .ath-side .tmr-act { display: flex; gap: 8px; }
+  .ath-side .tmr-act .go {
+    flex: 1; background: var(--live); color: var(--on-live); border: 0; border-radius: 11px;
+    padding: 10px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .ath-side .tmr-act .ghost {
+    flex: 0 0 auto; background: none; border: 1px solid var(--line);
+    color: var(--ghost); border-radius: 11px; padding: 10px 14px; font: inherit; cursor: pointer;
+  }
+  .ath-side .tmr-done { font-size: 11.5px; color: var(--ghost); text-align: center; margin-top: 12px; }
+
+  /* the scratchpad, reusing the app's own park styles inside a panel */
+  .ath-side .park { margin: 0; }
+  .ath-side .park.inpanel .park-row { flex-direction: column; gap: 8px; }
+  .ath-side .park.inpanel .park-row button { width: 100%; }
+  .ath-side .park-empty { font-size: 12.5px; padding-top: 10px; line-height: 1.5; max-width: none; }
 
   /* ===== Routines ===== */
   /* on the day rail: the routine's own steps, worked down in order */
