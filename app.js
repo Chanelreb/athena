@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.3';
+  const BUILD = '2026-09-10.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1538,6 +1538,21 @@
   const findNote = id => notesAll().find(n => n.id === id);
   function touchNote(n){ n.updatedAt = new Date().toISOString(); }
 
+  // The one line that best names this note, for when it becomes something else.
+  const noteHeadline = n =>
+    (n.title || String(n.body || '').split('\n').map(s => s.trim()).find(Boolean) || '').slice(0, 140);
+
+  /* What this note would become as tasks. A checklist gives one task per item
+     still outstanding, which is the whole point of ticking half a list and
+     wanting the rest on your actual day. A prose note gives one task named
+     after it. Ticked items are left behind: they are already done. */
+  function noteToTasks(n){
+    if (n.kind === 'list')
+      return (n.items || []).filter(i => !i.done && i.text.trim()).map(i => i.text.trim().slice(0, 140));
+    const head = noteHeadline(n);
+    return head ? [head] : [];
+  }
+
   function noteCardHTML(n){
     const done = (n.items || []).filter(i => i.done).length;
     const cat = n.cat ? S.categories.find(c => c.id === n.cat) : null;
@@ -1634,6 +1649,16 @@
         ? '<button class="ghost" data-notetolist="'+n.id+'">Turn into a checklist</button>'
         : '<button class="ghost" data-notetotext="'+n.id+'">Turn into a note</button>')+
       '</div>';
+    // The bridge from the shelf to the day. Nothing here touches the note: a
+    // note you acted on is often still worth keeping, and quietly consuming it
+    // would be a nasty surprise.
+    const willMake = noteToTasks(n).length;
+    if (willMake || noteHeadline(n))
+      h += '<div class="ne-row make">'+
+        (willMake ? '<button class="ghost" data-notemaketask="'+n.id+'">Make '+
+          (willMake === 1 ? 'a task' : willMake + ' tasks')+'</button>' : '')+
+        (noteHeadline(n) ? '<button class="ghost" data-notemakeblock="'+n.id+'">Make a block</button>' : '')+
+        '</div>';
     h += '<div class="modal-actions"><button class="del" data-notedelete="'+n.id+'">Delete</button>'+
       '<span style="flex:1"></span><button class="ghost" data-notecancel>Cancel</button>'+
       '<button class="go" data-notesave>Save</button></div></div>';
@@ -1949,7 +1974,8 @@
       const D = parseDay(dk);
       editing = {
         id: null, date: dk,
-        title: opts.title || '', note: '', cat: (S.categories[0]||{}).id, allDay: false,
+        title: opts.title || '', note: opts.note || '',
+        cat: opts.cat || (S.categories[0]||{}).id, allDay: false,
         start: '09:00', end: '10:00',
         repeat: 'once', weekdays: [D.getDay()], onceDate: dk, monthday: D.getDate(),
         fromParked: (opts.fromParked == null ? null : opts.fromParked)
@@ -2882,6 +2908,34 @@
       noteEdit = null; clearModalDrafts(); save(); render(); return;
     }
     if (t('[data-notearchiveview]')){ notesArchived = !notesArchived; noteSearch = ''; render(); return; }
+    if ((m = t('[data-notemaketask]'))){
+      noteSync();
+      const n = findNote(m.dataset.notemaketask);
+      const titles = n ? noteToTasks(n) : [];
+      if (!titles.length) return;
+      markUndo(titles.length === 1 ? 'Task made from a note' : titles.length + ' tasks made from a note');
+      const stamp = new Date().toISOString();
+      S.tasks = (S.tasks || []).concat(titles.map(title => ({
+        id: 'tk_' + uid8(), title: title, note: '',
+        cat: n.cat || (S.categories[0] || {}).id, priority: 'normal',
+        due: null, dateType: 'by', mins: null, repeat: null, at: null,
+        createdAt: stamp, doneAt: null
+      })));
+      noteEdit = null; clearModalDrafts(); save(); render(); return;
+    }
+    if ((m = t('[data-notemakeblock]'))){
+      noteSync();
+      const n = findNote(m.dataset.notemakeblock);
+      if (!n) return;
+      const head = noteHeadline(n);
+      if (!head) return;
+      // Hand it to the block editor rather than inventing a time: when a block
+      // sits is the whole question, and only the person knows the answer.
+      noteEdit = null; clearModalDrafts();
+      openEditor({ date: dayKey(viewDate()), title: head, cat: n.cat || undefined,
+                   note: n.kind === 'list' ? (n.items || []).map(i => i.text).join(', ').slice(0, 200) : '' });
+      return;
+    }
     if (t('[data-weekmode]')){ weekMode = (weekMode === 'days' ? 'strips' : 'days'); render(); return; }
     if (t('[data-expand]')){ expanded = !expanded; render(); return; }
     if ((m = t('[data-day]'))){ const d = +m.dataset.day; openDay = (openDay === d) ? null : d; render(); return; }

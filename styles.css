@@ -898,6 +898,9 @@
   #soft-app .ne-color.on { box-shadow: 0 0 0 2px var(--live); }
   #soft-app .ne-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 14px; }
   #soft-app .ne-row .ghost { flex: 1 1 auto; font-size: 13px; padding: 9px 12px; }
+  /* the bridge to the day, marked out from the housekeeping above it */
+  #soft-app .ne-row.make { margin-top: -6px; padding-top: 12px; border-top: 1px solid var(--line); }
+  #soft-app .ne-row.make .ghost { color: var(--live); border-color: var(--live); }
   #soft-app .note-modal textarea {
     width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--text);
     border-radius: 11px; padding: 11px 13px; font: inherit; font-size: 15px; line-height: 1.55;
