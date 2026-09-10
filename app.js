@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.10';
+  const BUILD = '2026-09-10.11';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -225,6 +225,7 @@
   let openGoal = null;
   let openBlockTasks = null;          // which block has its task list expanded
   let openBlockLater = null;          // ...and which has its "later" pile open
+  let parkOpen = null;                // which parked thought is showing its choices
   // Today and the whole week are the same calendar at two zoom levels, so they
   // share the Day tab. Blocks got the slot that Week used to hold.
   let dayMode = 'today';              // 'today' | 'week'
@@ -2240,9 +2241,11 @@
   function openTaskEditor(id){
     const tk = findTask(id); if (!tk) return;
     clearModalDrafts();
+    // `at` matters here: the editor writes back every field it shows, so a time
+    // left out of this copy comes back as blank and is saved over the real one.
     taskEdit = { id: tk.id, title: tk.title, note: tk.note || '', cat: tk.cat,
       priority: tk.priority || 'normal', due: tk.due || '',
-      dateType: tk.dateType || 'by', mins: tk.mins || 0,
+      dateType: tk.dateType || 'by', mins: tk.mins || 0, at: tk.at || '',
       repeat: tk.repeat ? tk.repeat.freq : 'once' };
     render();
   }
@@ -2292,11 +2295,23 @@
     let h = '<div class="park"><div class="park-row">'+
       '<input id="sk" type="text" placeholder="Park a stray thought…" autocomplete="off">'+
       '<button data-park>Park</button></div>';
+    // A parked thought is not always a calendar entry. It might be a job, a
+    // thing to keep, or something at a fixed time, and the arrow used to assume
+    // one of those four. Asking takes one tap and gets it right every time.
     h += (S.parked||[]).length
-      ? '<ul class="parked">'+S.parked.map((p,i) =>
-          '<li><span>'+esc(p.t)+'</span>'+
-          '<button class="parkdo" data-parkschedule="'+i+'|'+dk+'" aria-label="Schedule this" title="Put it in the calendar">→</button>'+
-          '<button data-unpark="'+i+'" aria-label="Remove">×</button></li>').join('')+'</ul>'
+      ? '<ul class="parked">'+S.parked.map((p,i) => {
+          const open = parkOpen === i;
+          return '<li'+(open ? ' class="open"' : '')+'><span>'+esc(p.t)+'</span>'+
+          '<button class="parkdo'+(open ? ' on' : '')+'" data-parkopen="'+i+'" aria-label="Turn this into something" title="Turn this into something">'+(open ? '×' : '→')+'</button>'+
+          '<button data-unpark="'+i+'" aria-label="Remove">×</button>'+
+          (open ? '<div class="parkinto">'+
+            '<button data-parkinto="task|'+i+'|'+dk+'">Task</button>'+
+            '<button data-parkinto="appt|'+i+'|'+dk+'">Appointment</button>'+
+            '<button data-parkinto="note|'+i+'|'+dk+'">Note</button>'+
+            '<button data-parkinto="block|'+i+'|'+dk+'">Block</button>'+
+            '</div>' : '')+
+          '</li>';
+        }).join('')+'</ul>'
       : '<p class="park-empty">Nothing here yet. When something pops into your head mid-task, leave it here and come back to it later.</p>';
     h += '</div>';
     return h;
@@ -3558,11 +3573,49 @@
     if ((m = t('[data-delgoal]'))){ markUndo('Goal removed'); S.goals = S.goals.filter(x=>x.id!==m.dataset.delgoal); if (openGoal===m.dataset.delgoal) openGoal=null; save(); render(); return; }
 
     if (t('[data-park]')){ const i = document.getElementById('sk'); const v = i && i.value.trim(); if (!v){ if (i) i.focus(); return; } S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const j = document.getElementById('sk'); if (j) j.focus(); return; }
-    if ((m = t('[data-parkschedule]'))){
-      const [i, dk] = m.dataset.parkschedule.split('|');
-      const item = (S.parked || [])[+i];
+    if ((m = t('[data-parkopen]'))){
+      const i = +m.dataset.parkopen;
+      parkOpen = (parkOpen === i) ? null : i;
+      render(); return;
+    }
+    if ((m = t('[data-parkinto]'))){
+      const parts = m.dataset.parkinto.split('|');
+      const kind = parts[0], i = +parts[1], dk = parts[2];
+      const item = (S.parked || [])[i];
       if (!item) return;
-      openEditor({ date: dk, title: item.t, fromParked: +i });
+      parkOpen = null;
+      if (kind === 'block'){
+        // The editor takes the thought out of the park itself, once saved.
+        openEditor({ date: dk, title: item.t, fromParked: i });
+        return;
+      }
+      if (kind === 'note'){
+        const n = newNote('text');
+        n.title = item.t.slice(0, 140);
+        S.parked.splice(i, 1);
+        view = 'notes'; noteEdit = n;
+        save(); render(); return;
+      }
+      const stamp = new Date().toISOString();
+      const tk = {
+        id: 'tk_' + uid8(), title: item.t.slice(0, 140), note: '',
+        cat: (S.categories[0] || {}).id, priority: 'normal',
+        due: null, dateType: 'by', mins: null, repeat: null, at: null,
+        createdAt: stamp, doneAt: null
+      };
+      if (kind === 'appt'){
+        // An appointment is a task with a time. Start it at the next round hour
+        // on the day being looked at, then open it so the time can be set.
+        const now = new Date();
+        const hr = Math.min(23, now.getHours() + 1);
+        tk.due = dk; tk.dateType = 'on'; tk.at = pad(hr) + ':00'; tk.mins = 30;
+      }
+      S.tasks = (S.tasks || []).concat([tk]);
+      S.parked.splice(i, 1);
+      save();
+      // An appointment opens for its time to be set. A plain task does not need
+      // anything else said about it, so it just lands.
+      if (kind === 'appt') openTaskEditor(tk.id); else render();
       return;
     }
     if ((m = t('[data-unpark]'))){ markUndo('Thought cleared'); S.parked.splice(+m.dataset.unpark, 1); save(); render(); return; }
