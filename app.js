@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-09.12';
+  const BUILD = '2026-09-10.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1088,6 +1088,27 @@
   const openTasks = d => (S.tasks || []).filter(tk => !taskDone(tk, d) || tk.id === justDone);
   // The tasks a block should offer: same category, outstanding, and actually
   // relevant to that day (a "do on Friday" task stays out of Tuesday's blocks).
+  /* Which days after `from` have a block for each category, so we can tell
+     "there is nowhere for this to go" apart from "its turn has not come round
+     yet". Scanned once per render rather than per task, and capped: past a
+     month out, a task with no deadline is not waiting on a block, it is just
+     not something Athena should be nagging about today. */
+  const HOME_SCAN_DAYS = 31;
+  function upcomingHomes(from){
+    const out = {}, d = new Date(from);
+    d.setDate(d.getDate() + 1);
+    for (let i = 0; i < HOME_SCAN_DAYS; i++){
+      const dk = dayKey(d), seen = {};
+      blocksForDate(d).forEach(b => {
+        if (b.step || b.task || seen[b.c]) return;
+        seen[b.c] = 1;
+        (out[b.c] = out[b.c] || []).push(dk);
+      });
+      d.setDate(d.getDate() + 1);
+    }
+    return out;
+  }
+
   // A task with a time of its own has a place on the rail already, so it never
   // queues inside a block as well.
   const tasksForCat = (catId, d) =>
@@ -1388,15 +1409,25 @@
     // All-day blocks count as a home. Goal steps and timed tasks do not: neither
     // collects a queue of its own, so neither is anywhere a task can land.
     all.forEach(b => { if (!b.step && !b.task) blockedCats[b.c] = 1; });
+    // "No block today" is only worth saying when there is no block coming
+    // either. A Life admin task with a Life admin block tomorrow and a deadline
+    // next week is not stranded, it is simply not today's problem, and flagging
+    // it here just teaches people to ignore this section.
+    const soon = upcomingHomes(vd);
     const homeless = openTasks(vd)
-      .filter(tk => !tk.at && !blockedCats[tk.cat] && taskAvailableOn(tk, vd))
+      .filter(tk => {
+        if (tk.at || blockedCats[tk.cat] || !taskAvailableOn(tk, vd)) return false;
+        const next = (soon[tk.cat] || [])[0];
+        return !(next && (!tk.due || next <= tk.due));   // a home in time is not homelessness
+      })
       .sort(taskSorter(vd));
     if (homeless.length){
       const names = {};
       homeless.forEach(tk => { const c = S.categories.find(x => x.id === tk.cat); names[c ? c.label : 'Other'] = 1; });
       h += '<div class="homeless"><div class="homeless-h">'+
-        '<b>'+homeless.length+' task'+(homeless.length !== 1 ? 's' : '')+' with no block today</b>'+
-        '<span>Nothing scheduled for '+esc(Object.keys(names).join(', '))+' today. Tick them off here, or give them somewhere to live.</span></div>'+
+        '<b>'+homeless.length+' task'+(homeless.length !== 1 ? 's' : '')+' with nowhere to go</b>'+
+        '<span>Nothing scheduled for '+esc(Object.keys(names).join(', '))+' between now and when '+
+        (homeless.length === 1 ? 'this is' : 'these are')+' due. Tick them off here, or give them somewhere to live.</span></div>'+
         '<div class="tlist">'+homeless.map(tk => taskRow(tk, vd, true)).join('')+'</div>'+
         '<button class="linkish" data-newon="'+dk+'">Add a block for today</button></div>';
     }
