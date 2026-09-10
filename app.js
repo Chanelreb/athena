@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.17';
+  const BUILD = '2026-09-10.18';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1465,7 +1465,11 @@
           (hgt >= 46 ? '<em>'+clockOf(b.s)+' – '+clockOf(b.e)+'</em>' : '')+
           (waiting.length && hgt >= 62 ? '<em class="dtasks">'+waiting.length+' task'+(waiting.length !== 1 ? 's' : '')+
             (totalMins(waiting) ? ' · '+dur(totalMins(waiting)) : '')+'</em>' : '')+
-        '</button></div>';
+        '</button>'+
+        // A goal step belongs to its goal, so it is not draggable here.
+        // Everything else can be moved, and pulled longer from its bottom edge.
+        (isStep ? '' : '<i class="drz"></i>')+
+        '</div>';
     });
     if (isToday && t >= DS && t <= DE) body += '<div class="cbnow" style="top:'+px(t)+'px"></div>';
 
@@ -3484,9 +3488,83 @@
 
   // ----- desktop drag in the expanded grid: resize + vertical (time) move -----
   const GH = 680, GSPAN = SPAN, GORDER = [1,2,3,4,5,6,0];
+  /* ---- moving and resizing on the day grid ----
+     The week grid has had this all along; the day grid was read-only for shape,
+     which made it the odd one out. Same idea, simpler geometry: one column, so
+     only the time changes, never the day.
+
+     A repeating block is changed for this day only, exactly as the week does
+     it. Nudging Tuesday's focus block later should not move every Tuesday for
+     the rest of the year. */
+  let ddrag = null;
+  const snap15 = m => Math.round(m / 15) * 15;
+
+  app.addEventListener('pointerdown', e => {
+    if (view !== 'day' || weekShown() || editing || aiOpen || noteEdit || taskEdit || ob) return;
+    const el = e.target.closest && e.target.closest('.dblk');
+    if (!el || e.target.closest('.dtick')) return;      // ticking is not dragging
+    const col = app.querySelector('.dcol'); if (!col) return;
+    const vd = viewDate();
+    const b = blocksForDate(vd).find(x => String(x.uid || x.id) === el.dataset.blockid);
+    if (!b || b.step) return;                           // a goal step is not yours to move here
+    e.preventDefault();
+    ddrag = {
+      el: el, b: b, dk: dayKey(vd), y0: e.clientY,
+      s: mins(b.s), e: mins(b.e), h: col.getBoundingClientRect().height,
+      resize: !!(e.target.classList && e.target.classList.contains('drz')),
+      moved: false
+    };
+    ddrag.newS = ddrag.s; ddrag.newE = ddrag.e;
+    try { el.setPointerCapture(e.pointerId); } catch(_){}
+  });
+
+  app.addEventListener('pointermove', e => {
+    if (!ddrag) return;
+    const dy = e.clientY - ddrag.y0;
+    if (!ddrag.moved && Math.abs(dy) < 4) return;
+    ddrag.moved = true;
+    const dm = snap15(dy / ddrag.h * SPAN);
+    if (ddrag.resize){
+      ddrag.newE = Math.min(DE, Math.max(ddrag.s + 15, ddrag.e + dm));
+    } else {
+      const len = ddrag.e - ddrag.s;
+      ddrag.newS = Math.min(DE - len, Math.max(DS, ddrag.s + dm));
+      ddrag.newE = ddrag.newS + len;
+    }
+    const px = m => (m - DS) / SPAN * ddrag.h;
+    ddrag.el.style.top = px(ddrag.newS) + 'px';
+    ddrag.el.style.height = Math.max(22, px(ddrag.newE) - px(ddrag.newS) - 2) + 'px';
+    ddrag.el.classList.add('dragging');
+  });
+
+  app.addEventListener('pointerup', () => {
+    if (!ddrag) return;
+    const d = ddrag; ddrag = null;
+    if (!d.moved) return;
+    const s = fmtM(d.newS), en = fmtM(d.newE);
+    const b = d.b;
+    if (b.task){
+      // An appointment is a task with a time, so moving it is setting that time.
+      const tk = findTask(b.task.id);
+      if (tk){ tk.at = s; tk.mins = Math.max(5, d.newE - d.newS); }
+    } else if (b.routine){
+      const r = routinesAll().find(x => x.id === b.routine.id);
+      if (r) r.time = s;
+    } else {
+      const ev = findEvent(b.id);
+      // This day only, like the week grid. A nudge is not a decision about
+      // every other Tuesday.
+      if (ev){ ev.ex = ev.ex || {}; ev.ex[d.dk] = Object.assign({}, ev.ex[d.dk], { start: s, end: en }); }
+    }
+    noClick = true; save(); render();
+  });
+
   let drag = null, noClick = false;
   app.addEventListener('pointerdown', e => {
-    if (view !== 'week' || !expanded || editing || aiOpen) return;
+    // weekShown(), not view === 'week'. The week lives inside the Day tab now,
+    // and this check quietly stopped matching when that changed, which killed
+    // dragging in the week grid with nothing to say so.
+    if (!weekShown() || !expanded || editing || aiOpen) return;
     const cb = e.target.closest('.cb'); if (!cb) return;
     if (cb.classList.contains('cbstep')) return; // goal-step blocks aren't draggable
     const cols = app.querySelector('.calcols'); if (!cols) return;

@@ -394,6 +394,10 @@
     position: absolute; border-left: 3px solid; border-radius: 7px;
     overflow: hidden; display: flex; align-items: flex-start; gap: 7px; padding: 5px 7px;
   }
+  #soft-app .dblk { touch-action: none; cursor: grab; }
+  #soft-app .dblk.dragging { z-index: 20; cursor: grabbing; box-shadow: 0 8px 22px rgba(0,0,0,.45); opacity: .95; }
+  html[data-theme="light"] #soft-app .dblk.dragging { box-shadow: 0 8px 22px rgba(70,66,58,.28); }
+  #soft-app .drz { position: absolute; left: 0; right: 0; bottom: 0; height: 9px; cursor: ns-resize; }
   #soft-app .dblk.done { opacity: .45; }
   #soft-app .dblk.live { box-shadow: 0 0 0 1px var(--live); }
   #soft-app .dblk.just { animation: pop .45s ease; }
