@@ -28,41 +28,47 @@ const EFFORT_OK = /^claude-(opus-(5|4-8|4-7|4-6|4-5)|sonnet-(5|4-6)|fable-5|myth
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ubtumwzsaqcjxegklirp.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_RO1Hl4ZETOTScUPvs0nD4w_xUdoYSLR';
 
-// Nullable rather than optional: strict structured outputs want every key
-// present, and the browser already treats null as "not given".
+/* Every field is required and plainly typed, with an empty value meaning "not
+   given": "" for text, 0 for numbers, [] for lists.
+
+   This started as `.nullable()` everywhere, which reads better but makes each
+   field a union, and the API caps a schema at 16 union-typed parameters to keep
+   compilation cheap. This one had twenty and was rejected outright. Empty
+   sentinels remove every union, and cost nothing: the browser importer already
+   treats a falsy value as absent, which is what it did with null anyway. */
 const Event = z.object({
   title: z.string(),
-  category: z.string().nullable(),
-  start: z.string().nullable(),
-  end: z.string().nullable(),
-  repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'fortnightly', 'monthly']).nullable(),
-  weekdays: z.array(z.number()).nullable(),
-  date: z.string().nullable(),
-  note: z.string().nullable()
+  category: z.string(),
+  start: z.string(),
+  end: z.string(),
+  repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'fortnightly', 'monthly']),
+  weekdays: z.array(z.number()),
+  date: z.string(),
+  note: z.string()
 });
 const Task = z.object({
   title: z.string(),
-  category: z.string().nullable(),
-  priority: z.enum(['high', 'normal', 'low']).nullable(),
-  due: z.string().nullable(),
-  dateType: z.enum(['by', 'on']).nullable(),
-  minutes: z.number().nullable(),
-  at: z.string().nullable(),
-  repeat: z.enum(['once', 'daily', 'weekly', 'monthly']).nullable(),
-  note: z.string().nullable()
+  category: z.string(),
+  priority: z.enum(['high', 'normal', 'low']),
+  due: z.string(),
+  dateType: z.enum(['by', 'on']),
+  minutes: z.number(),
+  at: z.string(),
+  repeat: z.enum(['once', 'daily', 'weekly', 'monthly']),
+  note: z.string()
 });
 const Habit = z.object({
   label: z.string(),
-  category: z.string().nullable(),
-  timesPerDay: z.number().nullable()
+  category: z.string(),
+  timesPerDay: z.number()
 });
 const Goal = z.object({
   title: z.string(),
-  targetDate: z.string().nullable(),
-  category: z.string().nullable(),
+  targetDate: z.string(),
+  category: z.string(),
   steps: z.array(z.object({
     label: z.string(),
-    freq: z.enum(['daily', 'weekly', 'monthly']).nullable()
+    freq: z.enum(['daily', 'weekly', 'monthly'])
   }))
 });
 const Plan = z.object({
@@ -117,11 +123,14 @@ export default async function handler(req, res){
     'Events are things with a time of day. Tasks are things to finish; give each a category and a priority.',
     'On a task, dateType says what its date means: "on" if it must happen that day, "by" if it only has to be done by then. Default to "by".',
     'minutes is a rough estimate of how long a task takes, so it can be fitted into a block. Estimate it when you reasonably can.',
-    'at is an "HH:MM" time, and only for a task that must happen at a set time, like an appointment. Use null for everything else: most tasks have no time and Athena places them itself.',
+    'at is an "HH:MM" time, and only for a task that must happen at a set time, like an appointment. Leave it empty otherwise: most tasks have no time and Athena places them itself.',
     'Habits are small daily things worth a streak. Goals are bigger, with a target date and repeatable steps.',
     'Their categories are: ' + (categories || 'Personal, Work, Health') + '. Use exactly these names.',
     'Today is ' + (today || new Date().toISOString().slice(0, 10)) + '. Resolve relative dates like "Friday" against it.',
-    'Put an item in only one list. Use null for anything not given, and return empty arrays for lists with nothing in them.',
+    'Put an item in only one list. Return empty lists for anything with nothing in it.',
+    'Every field must be present. Where something was not given, use an empty value rather than inventing one: "" for text, 0 for numbers, [] for lists.',
+    'Where a field must be one of a fixed set and nothing was said, choose the ordinary one: priority "normal", repeat "once", dateType "by", step freq "weekly".',
+    'Dates are "YYYY-MM-DD" and times are "HH:MM" on a 24 hour clock.',
     'Do not invent detail the person did not imply.'
   ].join(' ');
 
