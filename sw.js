@@ -3,7 +3,7 @@
    freshest file and we refresh the cache; when offline we serve the last good
    copy (falling back to the app shell for navigations). All user data lives in
    localStorage / Supabase, never here. */
-const CACHE = 'athena-shell-v28';
+const CACHE = 'athena-shell-v29';
 const ASSETS = [
   './',
   './index.html',

@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.16';
+  const BUILD = '2026-09-10.17';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -219,6 +219,11 @@
     // at a time and holds an ordered set of small things.
     // { id, name, time:'HH:MM', weekdays:[0-6], cat, habits:[habitId] }
     routines: [],
+    // Minutes actually spent, by day and by what they were spent on.
+    // { 'YYYY-MM-DD': { 'ev_abc': 50, 'tk_def': 25 } }
+    // Athena leans on estimates everywhere. This is how it finds out whether
+    // they were ever any good.
+    spent: {},
     completions: {}   // { 'YYYY-MM-DD': { <itemId>: true | <number> } }
   });
 
@@ -1486,9 +1491,12 @@
 
     const col = catColor(b.c);
     const live = t >= mins(b.s) && t < mins(b.e);
+    const ref = b.task ? 'tk_' + b.task.id : (b.routine ? 'ro_' + b.routine.id : b.id);
+    const spent = spentOnDay(ref, dk), planned = mins(b.e) - mins(b.s);
     let h = '<div class="ddet" style="--dc:'+col+'">'+
       '<div class="ddet-h"><b>'+esc(b.t)+'</b><span>'+clockOf(b.s)+' – '+clockOf(b.e)+
-      (live ? ' · now' : '')+'</span>'+
+      (live ? ' · now' : '')+
+      (spent ? ' · <b class="dspent'+(spent > planned * 1.25 ? ' over' : '')+'">'+dur(spent)+' tracked</b>' : '')+'</span>'+
       '<button class="ddet-x" data-dayclose aria-label="Close">×</button></div>';
 
     if (b.routine){
@@ -2281,7 +2289,13 @@
     if (!compact) bits.push('<i class="tcat"><b style="background:'+col+'"></b>'+esc(catOf(tk.cat).label)+'</i>');
     if (tk.due){ const dl = dueLabel(tk.due, d, tk.dateType); bits.push('<i class="'+(dl.late?'due-late':dl.soon?'due-soon':'')+'">'+esc(dl.text)+'</i>'); }
     if (tk.at) bits.push('<i class="tat">'+clockOf(tk.at)+'</i>');
-    if (tk.mins) bits.push('<i class="tmins">'+dur(tk.mins)+'</i>');
+    // Planned against actual, once there is an actual. This is the whole point
+    // of tracking: the estimate stops being a guess nobody ever checks.
+    const spent = spentEver('tk_' + tk.id);
+    if (tk.mins && spent) bits.push('<i class="tspent'+(spent > tk.mins * 1.25 ? ' over' : '')+'">'+
+      dur(spent)+' of '+dur(tk.mins)+'</i>');
+    else if (spent) bits.push('<i class="tspent">'+dur(spent)+' spent</i>');
+    else if (tk.mins) bits.push('<i class="tmins">'+dur(tk.mins)+'</i>');
     if (tk.repeat) bits.push('<i>'+repeatLabel(tk.repeat)+'</i>');
     // Inside a block a row can be dragged: to another block, or back to the
     // pile to unplace it. On the Tasks screen it is an ordinary row.
@@ -2428,8 +2442,32 @@
      else's idea of a work session. */
   const TIMER_KEY = 'athena:timer';
   const TIMER_MINS = [5, 10, 15, 25, 45, 60];
-  let timer = { mins: 25, endsAt: null, leftMs: 25 * 60000, done: 0, doneOn: '' };
+  // target is the id of whatever the time is being spent on, or '' for nothing
+  // in particular. Kept on the device with the rest of the timer, while the
+  // minutes it produces go into the account.
+  let timer = { mins: 25, endsAt: null, leftMs: 25 * 60000, done: 0, doneOn: '', target: '', startedAt: null };
   let timerTick = null;
+
+  /* ---- what things actually took ----
+     Every estimate in Athena is a guess until something checks it. Time is
+     logged against the block or task it was spent on, so the guesses can be
+     held up against the truth. */
+  const spentAll = () => (S.spent || (S.spent = {}));
+  function logTime(ref, m){
+    if (!ref || m < 1) return;
+    const dk = dayKey(new Date());
+    const day = spentAll()[dk] || (spentAll()[dk] = {});
+    day[ref] = (day[ref] || 0) + m;
+    save();
+  }
+  const spentOnDay = (ref, dk) => ((spentAll()[dk] || {})[ref] || 0);
+  function spentEver(ref){
+    let n = 0;
+    Object.keys(spentAll()).forEach(dk => { n += (spentAll()[dk][ref] || 0); });
+    return n;
+  }
+  // Everything spent on a given day, as { ref: minutes }.
+  const spentDay = dk => spentAll()[dk] || {};
 
   function timerLoad(){
     try { const raw = lsGet(TIMER_KEY); if (raw) timer = Object.assign(timer, JSON.parse(raw)); } catch(_){}
@@ -2442,17 +2480,34 @@
   const timerLeft = () => timer.endsAt ? Math.max(0, timer.endsAt - Date.now()) : Math.max(0, timer.leftMs);
   const timerFace = ms => { const s = Math.ceil(ms / 1000); return pad(Math.floor(s / 60)) + ':' + pad(s % 60); };
 
+  // Bank whatever has actually elapsed since the clock last started, then stop
+  // counting. Called from every way a timer can stop, so no minute is counted
+  // twice and none is lost.
+  function timerBank(){
+    if (!timer.startedAt) return 0;
+    const m = Math.round((Date.now() - timer.startedAt) / 60000);
+    timer.startedAt = null;
+    if (m >= 1 && timer.target) logTime(timer.target, m);
+    return m;
+  }
   function timerStart(){
     timer.endsAt = Date.now() + (timer.leftMs > 0 ? timer.leftMs : timer.mins * 60000);
+    timer.startedAt = Date.now();
     timerSave(); timerLoop(); paintPanels();
   }
-  function timerPause(){ timer.leftMs = timerLeft(); timer.endsAt = null; clearInterval(timerTick); timerSave(); paintPanels(); }
+  function timerPause(){
+    timerBank();
+    timer.leftMs = timerLeft(); timer.endsAt = null;
+    clearInterval(timerTick); timerSave(); paintPanels();
+  }
   function timerReset(mins){
+    timerBank();
     if (mins) timer.mins = mins;
     timer.endsAt = null; timer.leftMs = timer.mins * 60000;
     clearInterval(timerTick); timerSave(); paintPanels();
   }
   function timerFinish(){
+    timerBank();
     timer.endsAt = null; timer.leftMs = timer.mins * 60000;
     timer.done = (timer.done || 0) + 1; timer.doneOn = dayKey(new Date());
     timerSave();
@@ -2473,12 +2528,41 @@
     }, 250);
   }
 
+  // What the clock could be counting for. The block you are in comes first,
+  // because nine times in ten that is the answer.
+  function timerTargets(){
+    const now = new Date(), vd = viewDate(), dk = dayKey(vd);
+    const t = dayKey(now) === dk ? (now.getHours() * 60 + now.getMinutes()) : -1;
+    const out = [];
+    blocksForDate(vd).filter(b => !b.allDay).forEach(b => {
+      const id = b.task ? 'tk_' + b.task.id : (b.routine ? 'ro_' + b.routine.id : b.id);
+      out.push({ id: id, label: b.t, live: t >= mins(b.s) && t < mins(b.e) });
+    });
+    openTasks(vd).filter(tk => taskAvailableOn(tk, vd)).slice(0, 12).forEach(tk => {
+      if (out.some(o => o.id === 'tk_' + tk.id)) return;
+      out.push({ id: 'tk_' + tk.id, label: tk.title });
+    });
+    return out;
+  }
+
   function timerHTML(){
     const left = timerLeft(), running = timerRunning();
     const idle = !running && left === timer.mins * 60000;
+    const targets = timerTargets();
+    // Default to whatever is happening now, but only while nothing is running,
+    // so the clock never quietly changes what it is counting mid-session.
+    if (!running && !timer.target){
+      const live = targets.find(x => x.live);
+      if (live) timer.target = live.id;
+    }
     let h = '<div class="panel tmr'+(running ? ' going' : '')+(justDone === 'timer' ? ' just' : '')+'">';
     h += '<div class="panel-h">Focus</div>';
     h += '<div class="tmr-face" id="ath-face">'+timerFace(left)+'</div>';
+    h += '<select class="tmr-on" id="tmr_on" data-timertarget'+(running ? ' disabled' : '')+'>'+
+      '<option value="">Nothing in particular</option>'+
+      targets.map(x => '<option value="'+esc(x.id)+'"'+(timer.target === x.id ? ' selected' : '')+'>'+
+        esc(x.label)+(x.live ? ' · now' : '')+'</option>').join('')+
+      '</select>';
     h += '<div class="tmr-mins">'+TIMER_MINS.map(mn =>
       '<button class="'+(timer.mins === mn ? 'on' : '')+'" data-timerset="'+mn+'">'+mn+'</button>').join('')+
       '<span>min</span></div>';
@@ -2487,7 +2571,11 @@
                : '<button class="go" data-timerstart>'+(idle ? 'Start' : 'Resume')+'</button>')+
       (idle ? '' : '<button class="ghost" data-timerreset>Reset</button>')+
       '</div>';
-    h += '<div class="tmr-done">'+(timer.done ? timer.done + ' finished today' : 'Nothing finished yet today')+'</div>';
+    const today = dayKey(new Date());
+    const spentToday = Object.keys(spentDay(today)).reduce((a, k) => a + spentDay(today)[k], 0);
+    h += '<div class="tmr-done">'+
+      (timer.done ? timer.done + ' finished today' : 'Nothing finished yet today')+
+      (spentToday ? ' · '+dur(spentToday)+' tracked' : '')+'</div>';
     h += '</div>';
     return h;
   }
@@ -2840,6 +2928,12 @@
       if (e.target.dataset.rname) r.name = e.target.value.slice(0, 60);
       else if (e.target.value) r.time = e.target.value;
       save();
+    });
+
+    shell.addEventListener('change', e => {
+      if (e.target.id !== 'tmr_on') return;
+      timer.target = e.target.value;
+      timerSave();
     });
 
     // Picking a photo. noteSync first, or whatever was being typed is lost to
@@ -3929,6 +4023,7 @@
     }
 
     if ((m = t('[data-timerset]'))){ timerReset(+m.dataset.timerset); return; }
+    if (t('[data-timertarget]')) return;   // a select; handled on change, not click
     if (t('[data-timerstart]')){ timerStart(); return; }
     if (t('[data-timerpause]')){ timerPause(); return; }
     if (t('[data-timerreset]')){ timerReset(); return; }
