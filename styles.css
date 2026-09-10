@@ -99,14 +99,45 @@
   #soft-app .balkey span { display: flex; align-items: center; gap: 6px; }
   #soft-app .balkey b { width: 8px; height: 8px; border-radius: 2px; display: block; }
 
-  /* rail */
-  #soft-app .item { display: flex; min-height: 56px; }
+  /* rail
+     --ih is set per item from its length, so a four hour block stands taller
+     than a ten minute one and the shape of the day is visible down the page. */
+  #soft-app .item { display: flex; min-height: var(--ih, 56px); }
   #soft-app .clock {
     flex: 0 0 58px; text-align: right; padding: 13px 13px 0 0;
     font-size: 13px; color: var(--ghost); font-variant-numeric: tabular-nums;
   }
   #soft-app .item.future .clock { color: var(--dim); }
   #soft-app .item.live .clock { color: var(--live); }
+  #soft-app .item.live .clock em {
+    display: block; font-style: normal; font-size: 10px; letter-spacing: .09em;
+    text-transform: uppercase; margin-top: 3px; opacity: .85;
+  }
+
+  /* Hour marks and the now line, drawn inside a gap where minutes really do map
+     linearly to pixels. Everywhere else on the rail they would be a lie. */
+  #soft-app .item.gap { position: relative; }
+  #soft-app .gapmarks { position: absolute; inset: 0; pointer-events: none; }
+  #soft-app .gapmarks u {
+    position: absolute; left: 0; right: 0; text-decoration: none;
+    font-size: 10.5px; color: var(--ghost); opacity: .55;
+    font-variant-numeric: tabular-nums; transform: translateY(-50%);
+    /* The label sits in the same 58px gutter as every block's start time. */
+    padding-right: 13px; width: 58px; text-align: right; box-sizing: border-box;
+  }
+  #soft-app .gapmarks u::after {
+    content: ''; position: absolute; left: 71px; right: 0; top: 50%;
+    border-top: 1px dashed var(--line); opacity: .8;
+  }
+  #soft-app .gapmarks .nowline {
+    position: absolute; left: 0; right: 0; transform: translateY(-50%);
+    font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--live);
+    width: 58px; text-align: right; padding-right: 13px; box-sizing: border-box;
+  }
+  #soft-app .gapmarks .nowline i {
+    position: absolute; left: 71px; right: 0; top: 50%; height: 1px;
+    background: var(--live); opacity: .5;
+  }
 
   #soft-app .track { flex: 0 0 22px; position: relative; }
   #soft-app .track::before {

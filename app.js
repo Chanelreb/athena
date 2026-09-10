@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.12';
+  const BUILD = '2026-09-10.13';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1326,6 +1326,18 @@
     return h;
   }
 
+  /* How tall a thing on the rail should be.
+     Not strictly proportional. A ten minute block still has to be tappable and
+     a four hour one must not need scrolling past, so both ends are clamped and
+     the middle is linear. The point is that the difference reads, not that a
+     pixel is a minute.
+
+     The slope is set so an hour lands just above the height a card occupies
+     anyway, about 90px. Any gentler and everything under two hours sits at that
+     floor and the difference never shows, which was the whole point. */
+  const blockHeight = len => Math.round(Math.min(176, Math.max(56, 59 + len * 0.489)));
+  const gapHeight   = len => Math.round(Math.min(120, Math.max(34, 26 + len * 0.30)));
+
   function dayRail(vd, now){
     const isToday = dayKey(vd) === dayKey(now);
     // Only "today" has a live moment; other days render as plain, unstyled time.
@@ -1375,10 +1387,27 @@
     items.forEach(it => {
       if (it.type === 'gap'){
         const live = t >= it.from && t < it.to;
-        h += '<div class="item gap '+(live?'live':(t>=it.to?'past':'future'))+'">'+
+        const span = it.to - it.from;
+        // Inside a gap the mapping from minutes to pixels really is linear, so
+        // hour marks and the now line can be placed here and be honestly right.
+        // Across the whole rail they could not be: the heights are floored and
+        // capped, and a line labelled 9am that is not at 9am is worse than none.
+        const gh = gapHeight(span);
+        const at = m => ((m - it.from) / span * 100).toFixed(2) + '%';
+        let marks = '';
+        for (let m = Math.ceil(it.from / 60) * 60; m < it.to; m += 60){
+          if (m - it.from < 18 || it.to - m < 18) continue;   // too close to an edge to read
+          marks += '<u style="top:'+at(m)+'">'+clockOf(pad(Math.floor(m/60))+':00')+'</u>';
+        }
+        if (live) marks += '<span class="nowline" style="top:'+at(t)+'"><i></i>now</span>';
+        // The marks sit on the item, not the card, so their labels land in the
+        // same left gutter as every block's start time rather than across the
+        // gap's own text.
+        h += '<div class="item gap '+(live?'live':(t>=it.to?'past':'future'))+'" style="--ih:'+gh+'px">'+
+          '<div class="gapmarks">'+marks+'</div>'+
           '<div class="clock"></div><div class="track"></div>'+
           '<div class="card"><div class="t">'+
-          (live ? dur(it.to - t) + ' before ' + esc(it.next.t) : dur(it.to - it.from) + ' open') +
+          (live ? dur(it.to - t) + ' before ' + esc(it.next.t) : dur(span) + ' open') +
           '</div></div></div>';
         return;
       }
@@ -1402,8 +1431,9 @@
                     : isTask ? 'data-tasktoggle="'+b.task.id+'|'+dk+'"'
                     : isRoutine ? 'data-routinedone="'+b.routine.id+'|'+dk+'"'
                     : 'data-done="'+b.id+'|'+dk+'"';
-      h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+(isTask?' astask':'')+(isRoutine?' asroutine':'')+((justDone === (isStep ? b.step.sid : b.id))?' just':'')+'">'+
-        '<div class="clock">'+clockOf(b.s)+'</div>'+
+      h += '<div class="item '+(live?'live':past?'past':'future')+(done?' done':'')+(isStep?' step':'')+(isTask?' astask':'')+(isRoutine?' asroutine':'')+((justDone === (isStep ? b.step.sid : b.id))?' just':'')+'"'+
+        ' style="--ih:'+blockHeight(mins(b.e) - mins(b.s))+'px">'+
+        '<div class="clock">'+clockOf(b.s)+(live ? '<em>now</em>' : '')+'</div>'+
         '<div class="track"><button class="dot" '+doneAct+' style="'+dotStyle+'" '+
           'aria-label="'+(done ? 'Undo ' : 'Tick off ')+esc(b.t)+'">'+TICK+'</button></div>'+
         '<div class="card"><div class="cardrow">'+
