@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.14';
+  const BUILD = '2026-09-10.15';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1147,6 +1147,36 @@
   // queues inside a block as well.
   const tasksForCat = (catId, d) =>
     openTasks(d).filter(tk => !tk.at && tk.cat === catId && taskAvailableOn(tk, d)).sort(taskSorter(d));
+
+  /* ---- placing tasks by hand ----
+     A task can be pinned to one block on one day: "do this during Work on
+     Thursday". Pinning is per day as well as per block, because a block that
+     repeats is a different occasion each time it comes round.
+
+     Autofill is what Athena has always done, filling a block with everything of
+     that category. It stays on by default and pinning sits on top of it, so
+     dragging never has to be the only way to get a task in front of you. */
+  const autofillOn = () => !(S.profile && S.profile.autofill === false);
+  const pinnedTo = (tk, b, d) => !!(tk.pin && tk.pin.b === b.id && tk.pin.d === dayKey(d));
+  const pinnedSomewhere = (tk, d) => !!(tk.pin && tk.pin.d === dayKey(d));
+
+  function tasksForBlock(b, d){
+    if (b.step || b.task || b.routine) return [];
+    const open = openTasks(d).filter(tk => !tk.at && taskAvailableOn(tk, d));
+    const mine = open.filter(tk => pinnedTo(tk, b, d));
+    if (!autofillOn()) return mine.sort(taskSorter(d));
+    // A task pinned elsewhere today has been placed already, so it does not
+    // also drift back into every other block of its category.
+    const auto = open.filter(tk => tk.cat === b.c && !pinnedSomewhere(tk, d));
+    return mine.concat(auto).sort(taskSorter(d));
+  }
+
+  // What is still waiting to be given a place today.
+  function unplacedTasks(d){
+    return openTasks(d)
+      .filter(tk => !tk.at && !pinnedSomewhere(tk, d) && taskAvailableOn(tk, d))
+      .sort(taskSorter(d));
+  }
   const totalMins = list => list.reduce((a, tk) => a + (tk.mins || 0), 0);
 
   /* ==========================================================================
@@ -1411,10 +1441,13 @@
                     : isTask ? 'data-tasktoggle="'+b.task.id+'|'+dk+'"'
                     : isRoutine ? 'data-routinedone="'+b.routine.id+'|'+dk+'"'
                     : 'data-done="'+b.id+'|'+dk+'"';
-      const waiting = (isStep || isTask || isRoutine) ? [] : tasksForCat(b.c, vd).filter(tk => taskIsSoon(tk, vd, soonHomes));
+      const waiting = tasksForBlock(b, vd).filter(tk => taskIsSoon(tk, vd, soonHomes) || pinnedTo(tk, b, vd));
       const w = 100 / (x.of || 1), left = w * (x.lane || 0);
       body += '<div class="dblk'+(done ? ' done' : '')+(live ? ' live' : '')+(justDone === b.id ? ' just' : '')+'" '+
-        'style="top:'+px(x.s)+'px;height:'+hgt+'px;left:calc('+left+'% + 3px);width:calc('+w+'% - 6px);'+
+        'data-blockid="'+esc(String(b.uid || b.id))+'"'+
+        // An appointment can be dragged back to the pile to lose its time.
+        (isTask ? ' draggable="true" data-dragtask="'+b.task.id+'"' : '')+
+        ' style="top:'+px(x.s)+'px;height:'+hgt+'px;left:calc('+left+'% + 3px);width:calc('+w+'% - 6px);'+
         'background:'+col+'2E;border-left-color:'+col+'">'+
         (hgt >= 30 ? '<button class="dtick" '+doneAct+' style="'+(done ? 'background:'+col+';border-color:'+col : 'border-color:'+col)+'" '+
           'aria-label="'+(done ? 'Undo ' : 'Tick off ')+esc(b.t)+'">'+TICK+'</button>' : '')+
@@ -1483,8 +1516,10 @@
       return h + '<p class="tfit quiet">An appointment: a task with a time of its own.</p>'+
         '<div class="ddet-act"><button class="linkish" data-taskedit="'+b.task.id+'">Edit this task</button></div></div>';
 
-    const bt = tasksForCat(b.c, vd);
-    const soon = bt.filter(tk => taskIsSoon(tk, vd, soonHomes));
+    const bt = tasksForBlock(b, vd);
+    // Something you put here by hand is never folded away as "later". You have
+    // already said this is where it goes.
+    const soon = bt.filter(tk => taskIsSoon(tk, vd, soonHomes) || pinnedTo(tk, b, vd));
     const later = bt.filter(tk => soon.indexOf(tk) === -1);
     const est = totalMins(soon), room = mins(b.e) - mins(b.s);
     if (soon.length){
@@ -2238,7 +2273,10 @@
     if (tk.at) bits.push('<i class="tat">'+clockOf(tk.at)+'</i>');
     if (tk.mins) bits.push('<i class="tmins">'+dur(tk.mins)+'</i>');
     if (tk.repeat) bits.push('<i>'+repeatLabel(tk.repeat)+'</i>');
-    return '<div class="trow'+(done?' done':'')+(justDone===tk.id?' just':'')+'">'+
+    // Inside a block a row can be dragged: to another block, or back to the
+    // pile to unplace it. On the Tasks screen it is an ordinary row.
+    return '<div class="trow'+(done?' done':'')+(justDone===tk.id?' just':'')+'"'+
+      (compact ? ' draggable="true" data-dragtask="'+tk.id+'"' : '')+'>'+
       '<button class="tcheck" data-tasktoggle="'+tk.id+'|'+dayKey(d)+'" aria-label="Mark done">'+
         '<span class="mark" style="'+(done ? 'background:'+col+';border-color:'+col : 'border-color:'+col)+'">'+TICK+'</span></button>'+
       '<button class="tmain" data-taskedit="'+tk.id+'">'+
@@ -2444,6 +2482,31 @@
     return h;
   }
 
+  /* The pile still to be given a place. Rows are draggable, which is a desktop
+     affordance and deliberately so: touch has no equivalent, so on a phone a
+     task is placed by opening it and setting a time, which works everywhere. */
+  function placePanelHTML(vd){
+    const list = unplacedTasks(vd);
+    let h = '<div class="panel place"><div class="panel-h">To place'+
+      (list.length ? '<b>'+list.length+'</b>' : '')+'</div>';
+    if (!list.length){
+      h += '<p class="park-empty">Nothing waiting. Everything for this day has a time or a block.</p>';
+    } else {
+      h += '<div class="plist">' + list.map(tk => {
+        const bits = [];
+        if (tk.priority === 'high') bits.push('High');
+        if (tk.due){ const dl = dueLabel(tk.due, vd, tk.dateType); bits.push(dl.text); }
+        if (tk.mins) bits.push(dur(tk.mins));
+        return '<div class="ptask" draggable="true" data-dragtask="'+tk.id+'">'+
+          '<span class="cd" style="background:'+catColor(tk.cat)+'"></span>'+
+          '<span class="pt"><b>'+esc(tk.title)+'</b>'+
+          (bits.length ? '<em>'+esc(bits.join(' · '))+'</em>' : '')+'</span></div>';
+      }).join('') + '</div>';
+      h += '<p class="place-hint">Drag one onto a block to do it then, or onto empty time to fix a slot.</p>';
+    }
+    return h + '</div>';
+  }
+
   // Panels live outside #soft-app, so they survive its re-renders and are
   // painted separately. Cleared entirely when the screen is too narrow, or when
   // the main column is showing something that owns the whole screen.
@@ -2455,14 +2518,20 @@
       L.hidden = R.hidden = true; L.innerHTML = R.innerHTML = '';
       return;
     }
-    const dk = dayKey(viewDate());
+    const vd = viewDate(), dk = dayKey(vd);
     const park = '<div class="panel"><div class="panel-h">Scratchpad</div>'+parkHTML(dk, true)+'</div>';
+    // Tasks sit on the right, beside the grid they get dragged onto, and only
+    // on the Day view: there is nothing to drop them on anywhere else.
+    const place = (view === 'day' && !weekShown()) ? placePanelHTML(vd) : '';
     if (twoPanels()){
-      L.hidden = false; L.innerHTML = timerHTML();
-      R.hidden = false; R.innerHTML = park;
+      L.hidden = R.hidden = false;
+      // With tasks to place, they take the right on their own and everything
+      // else moves left. Without them, the old arrangement stands.
+      if (place){ L.innerHTML = timerHTML() + park; R.innerHTML = place; }
+      else { L.innerHTML = timerHTML(); R.innerHTML = park; }
     } else {
       L.hidden = true; L.innerHTML = '';
-      R.hidden = false; R.innerHTML = timerHTML() + park;
+      R.hidden = false; R.innerHTML = place + timerHTML() + park;
     }
   }
 
@@ -2627,6 +2696,73 @@
       if (e.target.id !== 'auth_code' || authBusy) return;
       if (e.target.value.replace(/\D/g, '').length === 6) verifyCode();
     });
+    /* ---- placing a task by dragging it ----
+       Desktop only, and honestly so: HTML5 drag has no touch equivalent, so a
+       phone places a task by opening it and setting a time, which works
+       everywhere. Where it lands decides what it means. Empty time fixes a
+       slot; a block means "do it during that", with no minute attached. */
+    let dragTask = null;
+    shell.addEventListener('dragstart', e => {
+      const row = e.target.closest && e.target.closest('[data-dragtask]');
+      if (!row) return;
+      dragTask = row.dataset.dragtask;
+      try { e.dataTransfer.setData('text/plain', dragTask); e.dataTransfer.effectAllowed = 'move'; } catch(_){}
+      document.body.classList.add('dragging-task');
+    });
+    shell.addEventListener('dragend', () => {
+      dragTask = null;
+      document.body.classList.remove('dragging-task');
+      app.querySelectorAll('.dropping').forEach(el => el.classList.remove('dropping'));
+    });
+    shell.addEventListener('dragover', e => {
+      if (!dragTask) return;
+      const zone = e.target.closest && e.target.closest('.dblk, .dcol, .place');
+      if (!zone) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch(_){}
+      const mark = zone.classList.contains('place') ? null : zone;
+      app.querySelectorAll('.dropping').forEach(el => { if (el !== mark) el.classList.remove('dropping'); });
+      if (mark) mark.classList.add('dropping');
+    });
+    shell.addEventListener('drop', e => {
+      if (!dragTask) return;
+      const zone = e.target.closest && e.target.closest('.dblk, .dcol, .place');
+      if (!zone) return;
+      e.preventDefault();
+      const tk = findTask(dragTask);
+      dragTask = null;
+      document.body.classList.remove('dragging-task');
+      app.querySelectorAll('.dropping').forEach(el => el.classList.remove('dropping'));
+      if (!tk) return;
+      const vd = viewDate(), dk = dayKey(vd);
+
+      if (zone.classList.contains('place')){
+        // Dragged back to the pile: it has no place again.
+        tk.at = null; tk.pin = null;
+        save(); render(); return;
+      }
+      if (zone.classList.contains('dblk')){
+        const id = zone.dataset.blockid;
+        const b = blocksForDate(vd).find(x => String(x.uid || x.id) === id);
+        // Only a real block can hold a task. A goal step, an appointment or a
+        // routine is not a container, so dropping on one does nothing.
+        if (!b || b.step || b.task || b.routine) return;
+        tk.at = null;
+        tk.pin = { b: b.id, d: dk };
+        openDayBlock = String(b.uid || b.id);
+        save(); render(); return;
+      }
+      // Empty time: fix a slot, snapped to the quarter hour.
+      const box = zone.getBoundingClientRect();
+      const frac = Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
+      const m = Math.round((DS + frac * SPAN) / 15) * 15;
+      tk.pin = null;
+      tk.due = dk; tk.dateType = 'on';
+      tk.at = fmtM(Math.min(DE - 15, Math.max(DS, m)));
+      if (!tk.mins) tk.mins = 30;
+      save(); render();
+    });
+
     /* Paste and drop, for the laptop. On a phone the picker is the whole story,
        but at a desk a screenshot lives on the clipboard and a photo lives in a
        folder, and making someone save one out and pick it back up is silly.
@@ -2957,6 +3093,10 @@
     h += '</div>';
     h += '<button class="go" data-addcat>+ Add category</button>';
     h += '<div class="modal-h" style="margin-top:8px">Your week</div>';
+    h += '<label class="fld chk"><input id="s_autofill" type="checkbox" data-autofill'+(autofillOn()?' checked':'')+'>'+
+      '<span>Fill blocks with matching tasks</span></label>';
+    h += '<p class="setnote">On, a block offers everything of its category. Off, blocks stay empty until you put something in them. '+
+      'Either way you can drag a task onto a block or a time on a wide screen.</p>';
     h += '<button class="ghost" data-obrerun>Walk me through setup again</button>';
     h += '<p class="setnote">The same questions as the first time, filled in with what you have now. '+
       'Change the hours, add a category, and Athena shows you exactly what it would move before anything happens.</p>';
@@ -3767,6 +3907,11 @@
       render(); return;
     }
     if (t('[data-dayclose]')){ openDayBlock = ''; render(); return; }
+    if ((m = t('[data-autofill]'))){
+      if (!S.profile) S.profile = blank().profile;
+      S.profile.autofill = !!m.checked;
+      save(); render(); return;
+    }
 
     if ((m = t('[data-timerset]'))){ timerReset(+m.dataset.timerset); return; }
     if (t('[data-timerstart]')){ timerStart(); return; }

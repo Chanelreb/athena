@@ -1117,6 +1117,28 @@
   }
   .ath-side .tmr-done { font-size: 11.5px; color: var(--ghost); text-align: center; margin-top: 12px; }
 
+  /* the pile still to be placed */
+  .ath-side .panel-h b { float: right; font-weight: 600; color: var(--live); }
+  .ath-side .plist { display: flex; flex-direction: column; gap: 6px; }
+  .ath-side .ptask {
+    display: flex; align-items: flex-start; gap: 8px; cursor: grab;
+    background: var(--raise); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px;
+  }
+  .ath-side .ptask:active { cursor: grabbing; }
+  .ath-side .ptask:hover { border-color: var(--ghost); }
+  .ath-side .ptask .cd { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; margin-top: 5px; }
+  .ath-side .ptask .pt { flex: 1; min-width: 0; }
+  .ath-side .ptask b { display: block; font-size: 13.5px; font-weight: 500; line-height: 1.35; }
+  .ath-side .ptask em { display: block; font-style: normal; font-size: 11.5px; color: var(--dim); margin-top: 2px; }
+  .ath-side .place-hint { font-size: 11.5px; color: var(--ghost); line-height: 1.5; margin: 11px 0 0; }
+  /* while something is in the air, show where it can land */
+  body.dragging-task #soft-app .dcol { outline: 2px dashed var(--live); outline-offset: 3px; }
+  body.dragging-task #soft-app .dblk { transition: box-shadow .12s; }
+  #soft-app .dblk.dropping { box-shadow: 0 0 0 2px var(--live); }
+  #soft-app .dcol.dropping { outline-style: solid; }
+  body.dragging-task .ath-side .place { outline: 2px dashed var(--live); outline-offset: 4px; border-radius: 16px; }
+  #soft-app .tlist.inblock .trow[draggable="true"] { cursor: grab; }
+
   /* the scratchpad, reusing the app's own park styles inside a panel */
   .ath-side .park { margin: 0; }
   .ath-side .park.inpanel .park-row { flex-direction: column; gap: 8px; }
