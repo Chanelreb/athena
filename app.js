@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-11.2';
+  const BUILD = '2026-09-11.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1497,6 +1497,8 @@
     const all = blocksForDate(vd);
     const allDay = all.filter(b => b.allDay);
     const laid = layOut(all.filter(b => !b.allDay));
+    // Outline the block whose contents are showing, so you can see which it is.
+    const shown = detailBlock(vd, now), shownKey = shown ? String(shown.uid || shown.id) : '';
 
     let h = '';
     if (allDay.length){
@@ -1528,7 +1530,8 @@
                     : 'data-done="'+b.id+'|'+dk+'"';
       const waiting = tasksForBlock(b, vd).filter(tk => taskIsSoon(tk, vd, soonHomes) || pinnedTo(tk, b, vd));
       const w = 100 / (x.of || 1), left = w * (x.lane || 0);
-      body += '<div class="dblk'+(done ? ' done' : '')+(live ? ' live' : '')+(justDone === b.id ? ' just' : '')+'" '+
+      body += '<div class="dblk'+(done ? ' done' : '')+(live ? ' live' : '')+(justDone === b.id ? ' just' : '')+
+        (shownKey === String(b.uid || b.id) ? ' sel' : '')+'" '+
         'data-blockid="'+esc(String(b.uid || b.id))+'"'+
         // An appointment can be dragged back to the pile to lose its time.
         (isTask ? ' draggable="true" data-dragtask="'+b.task.id+'"' : '')+
@@ -1559,14 +1562,22 @@
      and a routine's steps open underneath the grid rather than being crammed in
      or, worse, lost. Defaults to whatever is happening now, so on most days the
      right thing is already open. */
+  // Which block's detail is showing: the one you picked, or before you have
+  // picked one, whatever is happening now. '' means you closed it.
+  function detailBlock(vd, now){
+    const t = dayKey(vd) === dayKey(now) ? (now.getHours() * 60 + now.getMinutes()) : -1;
+    const blocks = blocksForDate(vd).filter(b => !b.allDay);
+    let b = openDayBlock ? blocks.find(x => String(x.uid || x.id) === openDayBlock) : null;
+    if (!b && openDayBlock === null) b = blocks.find(x => t >= mins(x.s) && t < mins(x.e));
+    return b || null;
+  }
+
   function dayDetailHTML(vd, now, soonHomes){
     const dk = dayKey(vd);
     const isToday = dk === dayKey(now);
     const t = isToday ? (now.getHours() * 60 + now.getMinutes()) : -1;
-    const blocks = blocksForDate(vd).filter(b => !b.allDay);
     const key = b => String(b.uid || b.id);
-    let b = openDayBlock ? blocks.find(x => key(x) === openDayBlock) : null;
-    if (!b && openDayBlock === null) b = blocks.find(x => t >= mins(x.s) && t < mins(x.e));
+    const b = detailBlock(vd, now);
     if (!b) return '';
 
     const col = catColor(b.c);
@@ -1767,7 +1778,10 @@
     // The day drawn as a grid: hour lines, blocks placed and sized by the clock,
     // a line at now. Detail that will not fit inside a block opens underneath it.
     h += dayGridHTML(vd, now, soon);
-    h += dayDetailHTML(vd, now, soon);
+    // On a wide screen the detail lives in the right-hand panel, beside the
+    // grid. Drawn here as well, it would sit a whole day's height below, out
+    // of sight, looking like it had not changed.
+    if (!panelsOn()) h += dayDetailHTML(vd, now, soon);
 
     // Athena promises that tasks find their own way into your day. When a task's
     // category has no block today there is nowhere for it to land, and it would
@@ -2809,20 +2823,28 @@
     }
     const vd = viewDate(), dk = dayKey(vd);
     const park = '<div class="panel"><div class="panel-h">Scratchpad</div>'+parkHTML(dk, true)+'</div>';
-    // The pile to place only exists on the Day view: there is nothing to drop
-    // it onto anywhere else.
-    const place = (view === 'day' && !weekShown()) ? placePanelHTML(vd) : '';
+    // The pile to place and a block's contents only exist on the Day view:
+    // there is nothing to drop onto or pick from anywhere else.
+    const dayOn = view === 'day' && !weekShown();
+    const place = dayOn ? placePanelHTML(vd) : '';
+    // What is in a block sits beside the grid you pick it from. On a phone
+    // there is no panel, and it opens under the grid instead.
+    let blk = '';
+    if (dayOn){
+      const det = dayDetailHTML(vd, new Date(), upcomingHomes(vd));
+      blk = '<div class="panel blk"><div class="panel-h">In this block</div>'+
+        (det || '<p class="blk-empty">Click a block on the day to see what is waiting in it.</p>')+'</div>';
+    }
     if (twoPanels()){
       // Left is for capture: the scratchpad on top, the pile to place under it.
-      // Right is the clock, on its own at the top.
+      // Right is the clock, with whichever block you are looking at under it.
       L.hidden = R.hidden = false;
       L.innerHTML = park + place;
-      R.innerHTML = timerHTML();
+      R.innerHTML = timerHTML() + blk;
     } else {
-      // One rail only: the clock stays at the top, as it is on a wide screen,
-      // and the left column's two panels follow it in the same order.
+      // One rail only: the same order, top to bottom.
       L.hidden = true; L.innerHTML = '';
-      R.hidden = false; R.innerHTML = timerHTML() + park + place;
+      R.hidden = false; R.innerHTML = timerHTML() + blk + park + place;
     }
   }
 
@@ -3763,13 +3785,17 @@
       moved: false
     };
     ddrag.newS = ddrag.s; ddrag.newE = ddrag.e;
-    try { el.setPointerCapture(e.pointerId); } catch(_){}
+    // The pointer is only captured once this turns out to be a move. Capturing
+    // it on the press re-aims the click at the block's outer box, where nothing
+    // listens, and that is how clicking a block quietly stopped opening it.
+    ddrag.pid = e.pointerId;
   });
 
   app.addEventListener('pointermove', e => {
     if (!ddrag) return;
     const dy = e.clientY - ddrag.y0;
     if (!ddrag.moved && Math.abs(dy) < 4) return;
+    if (!ddrag.moved){ try { ddrag.el.setPointerCapture(ddrag.pid); } catch(_){} }
     ddrag.moved = true;
     const dm = snap15(dy / ddrag.h * SPAN);
     if (ddrag.resize){
@@ -4355,11 +4381,17 @@
     if (t('[data-park]')){ const i = document.getElementById('sk'); const v = i && i.value.trim(); if (!v){ if (i) i.focus(); return; } S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const j = document.getElementById('sk'); if (j) j.focus(); return; }
     // Opening a block's detail. An explicit empty string means "closed", which
     // is different from null: null still lets the live block open itself.
-    if ((m = t('[data-dayblock]'))){
-      const k = m.dataset.dayblock;
-      openDayBlock = (openDayBlock === k) ? '' : k;
+    // The whole block is the target, not just its label: a press can also be
+    // the start of a move, and the click is not always aimed at the button.
+    // Clicking always opens. Closing is the ×, so a second click on a block
+    // you are already looking at never makes it vanish.
+    if ((m = t('[data-dayblock]')) || ((m = t('.dblk')) && !t('.dtick') && (m = m.querySelector('[data-dayblock]')))){
+      openDayBlock = m.dataset.dayblock;
       openBlockLater = null;
-      render(); return;
+      render();
+      // On a phone the detail opens under the whole day, out of sight. Bring it up.
+      if (!panelsOn()){ const d = app.querySelector('.ddet'); if (d) d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+      return;
     }
     if (t('[data-dayclose]')){ openDayBlock = ''; render(); return; }
     if (t('[data-review]')){ reviewOpen = true; render(); return; }

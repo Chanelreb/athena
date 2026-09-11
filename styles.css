@@ -462,21 +462,21 @@
   #soft-app .dblk.done .dmain b { text-decoration: line-through; }
 
   /* the detail that will not fit inside a block */
-  #soft-app .ddet {
+  :is(#soft-app, .ath-side) .ddet {
     margin-top: 14px; border: 1px solid var(--line); border-left: 3px solid var(--dc);
     border-radius: 12px; padding: 13px 15px 15px; background: var(--raise);
   }
-  #soft-app .ddet-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
-  #soft-app .ddet-h b { font-size: 15.5px; font-weight: 500; flex: 0 1 auto; }
-  #soft-app .ddet-h span { flex: 1; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
-  #soft-app .ddet-x {
+  :is(#soft-app, .ath-side) .ddet-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  :is(#soft-app, .ath-side) .ddet-h b { font-size: 15.5px; font-weight: 500; flex: 0 1 auto; }
+  :is(#soft-app, .ath-side) .ddet-h span { flex: 1; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  :is(#soft-app, .ath-side) .ddet-x {
     flex: 0 0 auto; background: none; border: 0; color: var(--ghost);
     font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px;
   }
-  #soft-app .ddet-x:hover { color: var(--text); }
-  #soft-app .ddet-act { margin-top: 10px; }
-  #soft-app .ddet-act .linkish { font-size: 12.5px; }
-  #soft-app .ddet .rsteps { margin: 0; }
+  :is(#soft-app, .ath-side) .ddet-x:hover { color: var(--text); }
+  :is(#soft-app, .ath-side) .ddet-act { margin-top: 10px; }
+  :is(#soft-app, .ath-side) .ddet-act .linkish { font-size: 12.5px; }
+  :is(#soft-app, .ath-side) .ddet .rsteps { margin: 0; }
 
   /* week grid */
   #soft-app .axis { display: flex; padding-left: 54px; font-size: 11px; color: var(--ghost); margin-bottom: 7px; }
@@ -536,7 +536,7 @@
   #soft-app .dayadd button:hover, #soft-app .wl-add:hover { color: var(--text); border-color: var(--ghost); }
   #soft-app .ai-btn { border-style: solid !important; border-color: var(--live-soft) !important; color: var(--live) !important; }
   #soft-app .ai-btn:hover { border-color: var(--live) !important; }
-  #soft-app .linkish { background: none; border: 0; color: var(--live); font: inherit; cursor: pointer; padding: 0; text-decoration: underline; }
+  :is(#soft-app, .ath-side) .linkish { background: none; border: 0; color: var(--live); font: inherit; cursor: pointer; padding: 0; text-decoration: underline; }
 
   /* modal */
   #soft-app .modal-back { position: fixed; inset: 0; background: rgba(20,18,24,.55); z-index: 40; }
@@ -646,45 +646,45 @@
 
   /* ===== Tasks ===== */
   #soft-app .tcount { color: var(--ghost); font-size: 12px; font-weight: 400; margin-left: 4px; }
-  #soft-app .tlist { display: flex; flex-direction: column; }
-  #soft-app .trow { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
-  #soft-app .trow:last-child { border-bottom: 0; }
-  #soft-app .tcheck { flex: 0 0 auto; background: none; border: 0; padding: 2px 0 0; cursor: pointer; }
-  #soft-app .tcheck .mark {
+  :is(#soft-app, .ath-side) .tlist { display: flex; flex-direction: column; }
+  :is(#soft-app, .ath-side) .trow { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  :is(#soft-app, .ath-side) .trow:last-child { border-bottom: 0; }
+  :is(#soft-app, .ath-side) .tcheck { flex: 0 0 auto; background: none; border: 0; padding: 2px 0 0; cursor: pointer; }
+  :is(#soft-app, .ath-side) .tcheck .mark {
     display: block; width: 16px; height: 16px; border-radius: 50%;
     border: 1.5px solid var(--dim); position: relative;
   }
-  #soft-app .tcheck .mark svg { position: absolute; inset: 3px; opacity: 0; }
-  #soft-app .trow.done .tcheck .mark svg { opacity: 1; }
-  #soft-app .tmain { flex: 1; min-width: 0; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; padding: 0; }
-  #soft-app .tmain .tt { display: block; font-size: 15px; line-height: 1.35; }
-  #soft-app .trow.done .tmain .tt { color: var(--ghost); text-decoration: line-through; }
-  #soft-app .tmeta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 3px; }
-  #soft-app .tmeta i { font-style: normal; font-size: 11.5px; color: var(--ghost); display: inline-flex; align-items: center; gap: 5px; }
-  #soft-app .tmeta .tcat b { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
-  #soft-app .tmeta .prio-high { color: var(--live); }
-  #soft-app .tmeta .due-late { color: #E8A487; }
-  #soft-app .tmeta .due-soon { color: var(--text); }
+  :is(#soft-app, .ath-side) .tcheck .mark svg { position: absolute; inset: 3px; opacity: 0; }
+  :is(#soft-app, .ath-side) .trow.done .tcheck .mark svg { opacity: 1; }
+  :is(#soft-app, .ath-side) .tmain { flex: 1; min-width: 0; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; padding: 0; }
+  :is(#soft-app, .ath-side) .tmain .tt { display: block; font-size: 15px; line-height: 1.35; }
+  :is(#soft-app, .ath-side) .trow.done .tmain .tt { color: var(--ghost); text-decoration: line-through; }
+  :is(#soft-app, .ath-side) .tmeta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 3px; }
+  :is(#soft-app, .ath-side) .tmeta i { font-style: normal; font-size: 11.5px; color: var(--ghost); display: inline-flex; align-items: center; gap: 5px; }
+  :is(#soft-app, .ath-side) .tmeta .tcat b { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  :is(#soft-app, .ath-side) .tmeta .prio-high { color: var(--live); }
+  :is(#soft-app, .ath-side) .tmeta .due-late { color: #E8A487; }
+  :is(#soft-app, .ath-side) .tmeta .due-soon { color: var(--text); }
   #soft-app .taskadd { margin-top: 4px; }
 
   /* tasks waiting inside a block */
   #soft-app .btasks { margin: 2px 0 4px 6px; }
   #soft-app .item.live .btasks { margin-left: 0; }
-  #soft-app .taskchip {
+  :is(#soft-app, .ath-side) .taskchip {
     display: inline-flex; align-items: center; gap: 6px;
     background: var(--raise); border: 1px solid var(--line); color: var(--dim);
     border-radius: 999px; padding: 4px 11px; font: inherit; font-size: 12px; cursor: pointer;
   }
-  #soft-app .taskchip em { font-style: normal; font-size: 10px; }
-  #soft-app .taskchip:hover, #soft-app .taskchip.on { color: var(--text); border-color: var(--ghost); }
+  :is(#soft-app, .ath-side) .taskchip em { font-style: normal; font-size: 10px; }
+  :is(#soft-app, .ath-side) .taskchip:hover, :is(#soft-app, .ath-side) .taskchip.on { color: var(--text); border-color: var(--ghost); }
   /* the folded-away pile: present, but plainly not the point */
-  #soft-app .taskchip.later {
+  :is(#soft-app, .ath-side) .taskchip.later {
     background: none; border-style: dashed; color: var(--ghost); margin-left: 6px;
   }
-  #soft-app .taskchip.later:hover, #soft-app .taskchip.later.on { color: var(--dim); }
-  #soft-app .tlist.inblock { margin-top: 6px; padding-left: 2px; }
-  #soft-app .tlist.inblock .trow { padding: 6px 0; }
-  #soft-app .tlist.inblock .tmain .tt { font-size: 14px; }
+  :is(#soft-app, .ath-side) .taskchip.later:hover, :is(#soft-app, .ath-side) .taskchip.later.on { color: var(--dim); }
+  :is(#soft-app, .ath-side) .tlist.inblock { margin-top: 6px; padding-left: 2px; }
+  :is(#soft-app, .ath-side) .tlist.inblock .trow { padding: 6px 0; }
+  :is(#soft-app, .ath-side) .tlist.inblock .tmain .tt { font-size: 14px; }
 
   /* five tabs need a little more room */
   #soft-app .seg button { padding-left: 11px; padding-right: 11px; }
@@ -774,7 +774,7 @@
   #soft-app .ai-howto b { color: var(--text); font-weight: 600; }
 
   /* offering to fix an overfull block, and tasks held back in the list */
-  #soft-app .spreadbtn { display: inline-block; text-align: left; font-size: 12.5px; margin: 2px 0 8px; }
+  :is(#soft-app, .ath-side) .spreadbtn { display: inline-block; text-align: left; font-size: 12.5px; margin: 2px 0 8px; }
   #soft-app .heldnote {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     background: var(--raise); border: 1px solid var(--line); border-radius: 13px;
@@ -826,7 +826,7 @@
   html[data-theme="light"] #soft-app .meter { background: rgba(0,0,0,.10); }
   html[data-theme="light"] #soft-app .editdot:hover,
   html[data-theme="light"] .parked .parkdo:hover,
-  html[data-theme="light"] #soft-app .taskchip:hover { background: rgba(0,0,0,.05); }
+  html[data-theme="light"] :is(#soft-app, .ath-side) .taskchip:hover { background: rgba(0,0,0,.05); }
   html[data-theme="light"] #soft-app .modal-back { background: rgba(45,43,38,.32); }
   html[data-theme="light"] #soft-app .modal { box-shadow: 0 24px 60px rgba(70,66,58,.20); }
   html[data-theme="light"] #soft-app .undobar { box-shadow: 0 12px 32px rgba(70,66,58,.20); }
@@ -883,16 +883,16 @@
   @keyframes athGlow { 0% { box-shadow: 0 0 0 0 var(--live); opacity: .55; } 100% { box-shadow: 0 0 0 14px transparent; opacity: 0; } }
   #soft-app .item.just .dot,
   #soft-app .chip.just .mark,
-  #soft-app .trow.just .tcheck .mark { animation: athPop .42s cubic-bezier(.34,1.56,.64,1); }
+  :is(#soft-app, .ath-side) .trow.just .tcheck .mark { animation: athPop .42s cubic-bezier(.34,1.56,.64,1); }
   #soft-app .item.just .dot::after,
-  #soft-app .trow.just .tcheck .mark::after {
+  :is(#soft-app, .ath-side) .trow.just .tcheck .mark::after {
     content: ''; position: absolute; inset: 0; border-radius: 50%; animation: athGlow .55s ease-out forwards;
   }
   #soft-app .item.just .dot svg path,
-  #soft-app .trow.just .tcheck .mark svg path {
+  :is(#soft-app, .ath-side) .trow.just .tcheck .mark svg path {
     stroke-dasharray: 14; animation: athDraw .34s .06s ease-out backwards;
   }
-  #soft-app .trow.just .tt { text-decoration: line-through; color: var(--ghost); transition: color .3s; }
+  :is(#soft-app, .ath-side) .trow.just .tt { text-decoration: line-through; color: var(--ghost); transition: color .3s; }
   #soft-app .chip.just { animation: athPop .38s cubic-bezier(.34,1.56,.64,1); }
 
   /* ===== Earned moment ===== */
@@ -907,9 +907,9 @@
 
   @media (prefers-reduced-motion: reduce) {
     #soft-app .item.just .dot, #soft-app .chip.just, #soft-app .chip.just .mark,
-    #soft-app .trow.just .tcheck .mark, #soft-app .item.just .dot::after,
-    #soft-app .trow.just .tcheck .mark::after, #soft-app .item.just .dot svg path,
-    #soft-app .trow.just .tcheck .mark svg path, #soft-app .celebrate { animation: none; }
+    :is(#soft-app, .ath-side) .trow.just .tcheck .mark, #soft-app .item.just .dot::after,
+    :is(#soft-app, .ath-side) .trow.just .tcheck .mark::after, #soft-app .item.just .dot svg path,
+    :is(#soft-app, .ath-side) .trow.just .tcheck .mark svg path, #soft-app .celebrate { animation: none; }
     #soft-app .pring .rfg { transition: none; }
   }
 
@@ -925,18 +925,18 @@
   }
 
   /* task duration and block fit */
-  #soft-app .tmeta .tmins { color: var(--dim); }
+  :is(#soft-app, .ath-side) .tmeta .tmins { color: var(--dim); }
   /* a task that has been given a time of its own */
-  #soft-app .tmeta .tat { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+  :is(#soft-app, .ath-side) .tmeta .tat { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
   /* what it actually took, against what was planned */
-  #soft-app .tmeta .tspent { color: var(--dim); font-variant-numeric: tabular-nums; }
-  #soft-app .tmeta .tspent.over { color: var(--warn); }
-  #soft-app .dspent { font-weight: 500; color: var(--dim); }
-  #soft-app .dspent.over { color: var(--warn); }
+  :is(#soft-app, .ath-side) .tmeta .tspent { color: var(--dim); font-variant-numeric: tabular-nums; }
+  :is(#soft-app, .ath-side) .tmeta .tspent.over { color: var(--warn); }
+  :is(#soft-app, .ath-side) .dspent { font-weight: 500; color: var(--dim); }
+  :is(#soft-app, .ath-side) .dspent.over { color: var(--warn); }
   #soft-app .item .tasktag { font-style: normal; color: var(--ghost); font-size: 11.5px; margin-left: 7px; }
-  #soft-app .tfit { font-size: 11.5px; color: var(--ghost); margin: 7px 0 2px; }
-  #soft-app .tfit.over { color: var(--warn); }
-  #soft-app .tfit.quiet { max-width: 44ch; line-height: 1.5; }
+  :is(#soft-app, .ath-side) .tfit { font-size: 11.5px; color: var(--ghost); margin: 7px 0 2px; }
+  :is(#soft-app, .ath-side) .tfit.over { color: var(--warn); }
+  :is(#soft-app, .ath-side) .tfit.quiet { max-width: 44ch; line-height: 1.5; }
 
   /* grid column counts: seven on desktop, three on a phone */
   #soft-app .calcols.cols-7 { grid-template-columns: repeat(7, 1fr); }
@@ -1236,7 +1236,7 @@
   /* Drawn inside the panel: the column now scrolls, and an outline outside its
      edge would be clipped away. */
   body.dragging-task .ath-side .place { outline: 2px dashed var(--live); outline-offset: -4px; border-radius: 16px; }
-  #soft-app .tlist.inblock .trow[draggable="true"] { cursor: grab; }
+  :is(#soft-app, .ath-side) .tlist.inblock .trow[draggable="true"] { cursor: grab; }
 
   /* the scratchpad, reusing the app's own park styles inside a panel */
   .ath-side .park { margin: 0; }
@@ -1246,24 +1246,24 @@
 
   /* ===== Routines ===== */
   /* on the day rail: the routine's own steps, worked down in order */
-  #soft-app .rsteps { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 6px 6px; }
+  :is(#soft-app, .ath-side) .rsteps { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 6px 6px; }
   #soft-app .item.live .rsteps { margin-left: 0; }
-  #soft-app .rstep {
+  :is(#soft-app, .ath-side) .rstep {
     display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
     background: none; border: 0; padding: 6px 4px; font: inherit; font-size: 14px;
     color: var(--text); cursor: pointer; border-radius: 8px;
   }
-  #soft-app .rstep:hover { background: rgba(255,255,255,.04); }
-  html[data-theme="light"] #soft-app .rstep:hover { background: rgba(0,0,0,.04); }
-  #soft-app .rstep .rmark {
+  :is(#soft-app, .ath-side) .rstep:hover { background: rgba(255,255,255,.04); }
+  html[data-theme="light"] :is(#soft-app, .ath-side) .rstep:hover { background: rgba(0,0,0,.04); }
+  :is(#soft-app, .ath-side) .rstep .rmark {
     flex: 0 0 auto; width: 16px; height: 16px; border-radius: 50%;
     border: 1.5px solid var(--ghost); display: grid; place-items: center;
   }
-  #soft-app .rstep .rmark svg { width: 8px; height: 8px; opacity: 0; }
-  #soft-app .rstep.done .rmark svg { opacity: 1; }
-  #soft-app .rstep .rl { flex: 1; min-width: 0; }
-  #soft-app .rstep.done .rl { color: var(--ghost); text-decoration: line-through; }
-  #soft-app .rstep .pips { display: flex; gap: 3px; flex: 0 0 auto; }
+  :is(#soft-app, .ath-side) .rstep .rmark svg { width: 8px; height: 8px; opacity: 0; }
+  :is(#soft-app, .ath-side) .rstep.done .rmark svg { opacity: 1; }
+  :is(#soft-app, .ath-side) .rstep .rl { flex: 1; min-width: 0; }
+  :is(#soft-app, .ath-side) .rstep.done .rl { color: var(--ghost); text-decoration: line-through; }
+  :is(#soft-app, .ath-side) .rstep .pips { display: flex; gap: 3px; flex: 0 0 auto; }
   #soft-app .item.asroutine .clock { color: var(--dim); }
 
   /* in Grow: building one */
@@ -1422,3 +1422,18 @@
   #soft-app .buildline {
     margin-top: 12px; color: var(--dim); font-size: 11.5px; letter-spacing: .04em; opacity: .75;
   }
+
+  /* ===== A block's contents, in the right-hand panel =====
+     The panel is already the card, so the detail sheds its own and keeps only
+     the category stripe down its side. */
+  #ath-left .ddet, #ath-right .ddet {
+    margin: 0; border: 0; border-left: 3px solid var(--dc); border-radius: 0;
+    padding: 0 0 0 12px; background: none;
+  }
+  #ath-left .ddet-h, #ath-right .ddet-h { flex-wrap: wrap; row-gap: 2px; }
+  #ath-left .ddet-h b, #ath-right .ddet-h b { flex: 1 1 auto; }
+  #ath-left .ddet-h span, #ath-right .ddet-h span { flex: 1 1 100%; order: 3; }
+  .ath-side .blk-empty { font-size: 12.5px; color: var(--ghost); line-height: 1.5; margin: 0; }
+  /* the block whose contents are showing */
+  #soft-app .dblk.sel:not(.dropping):not(.dragging) { box-shadow: 0 0 0 2px var(--dim); }
+  #soft-app .dblk.sel.live:not(.dropping):not(.dragging) { box-shadow: 0 0 0 2px var(--live); }
