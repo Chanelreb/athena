@@ -753,6 +753,39 @@
   #soft-app .ai-row .pt { flex: 1; min-width: 0; font-size: 14px; }
   #soft-app .ai-row .pt small { display: block; color: var(--dim); font-size: 12px; margin-top: 1px; }
   #soft-app .ai-row .when { color: var(--dim); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+  /* the assistant's tasks: a category you can change before anything lands */
+  #soft-app .ai-glabel { display: flex; align-items: center; gap: 8px; }
+  #soft-app .ai-glabel > span { flex: 1; }
+  #soft-app .ai-setall {
+    display: flex; align-items: center; gap: 6px; text-transform: none;
+    letter-spacing: 0; font-size: 12px; color: var(--dim);
+  }
+  #soft-app .ai-setall select, #soft-app .ai-cat {
+    background: var(--raise); border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 4px 6px; font: inherit; font-size: 12px; max-width: 132px;
+  }
+  #soft-app .ai-trow { align-items: center; }
+  #soft-app .ai-trow .cd { top: 0; }
+  #soft-app .ai-cat { flex: 0 0 auto; }
+  #soft-app .ai-trow.guessed .ai-cat { border-color: var(--warn); color: var(--warn); }
+  #soft-app .ai-guess { font-size: 12.5px; line-height: 1.45; color: var(--warn); margin: 0 0 8px; }
+  #soft-app .ai-howto { font-size: 12.5px; line-height: 1.5; color: var(--dim); margin: 14px 0 0; }
+  #soft-app .ai-howto b { color: var(--text); font-weight: 600; }
+
+  /* offering to fix an overfull block, and tasks held back in the list */
+  #soft-app .spreadbtn { display: inline-block; text-align: left; font-size: 12.5px; margin: 2px 0 8px; }
+  #soft-app .heldnote {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    background: var(--raise); border: 1px solid var(--line); border-radius: 13px;
+    padding: 12px 14px; margin-bottom: 16px; font-size: 13px; color: var(--dim);
+  }
+  #soft-app .heldnote span { flex: 1 1 200px; }
+  #soft-app .heldnote b { color: var(--text); font-weight: 600; }
+  #soft-app .heldnote .go {
+    flex: 0 0 auto; background: var(--live); color: var(--on-live); border: 0;
+    border-radius: 10px; padding: 9px 14px; font: inherit; font-weight: 600; cursor: pointer;
+  }
   @media (pointer: coarse) { #soft-app .fld textarea { font-size: 16px; } }
 
   /* ===== Onboarding explainer ===== */

@@ -36,47 +36,63 @@ const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_RO1
    compilation cheap. This one had twenty and was rejected outright. Empty
    sentinels remove every union, and cost nothing: the browser importer already
    treats a falsy value as absent, which is what it did with null anyway. */
-const Event = z.object({
-  title: z.string(),
-  category: z.string(),
-  start: z.string(),
-  end: z.string(),
-  repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'fortnightly', 'monthly']),
-  weekdays: z.array(z.number()),
-  date: z.string(),
-  note: z.string()
-});
-const Task = z.object({
-  title: z.string(),
-  category: z.string(),
-  priority: z.enum(['high', 'normal', 'low']),
-  due: z.string(),
-  dateType: z.enum(['by', 'on']),
-  minutes: z.number(),
-  at: z.string(),
-  repeat: z.enum(['once', 'daily', 'weekly', 'monthly']),
-  note: z.string()
-});
-const Habit = z.object({
-  label: z.string(),
-  category: z.string(),
-  timesPerDay: z.number()
-});
-const Goal = z.object({
-  title: z.string(),
-  targetDate: z.string(),
-  category: z.string(),
-  steps: z.array(z.object({
+/* Category is offered as a choice from the person's own list whenever we have
+   one. As a free string the model could answer "Admin" to someone whose
+   category is "Life admin", and the browser then quietly filed it under their
+   first category. That is how a whole import once landed in one Focus block.
+
+   Be clear about what this does and does not do: the SDK's zod helper turns an
+   enum into a plain string with the allowed values written into its
+   description, so the model is told the list but not strictly held to it. The
+   real safety net is in the browser, which flags any category that does not
+   match and asks before anything lands.
+
+   Each field gets its own copy. Reusing one schema object makes the helper
+   hoist it into a $ref, which the schema that is known to work never used. */
+function planSchema(cats){
+  const Cat = () => cats.length ? z.enum(cats) : z.string();
+  const Event = z.object({
+    title: z.string(),
+    category: Cat(),
+    start: z.string(),
+    end: z.string(),
+    repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'fortnightly', 'monthly']),
+    weekdays: z.array(z.number()),
+    date: z.string(),
+    note: z.string()
+  });
+  const Task = z.object({
+    title: z.string(),
+    category: Cat(),
+    priority: z.enum(['high', 'normal', 'low']),
+    due: z.string(),
+    dateType: z.enum(['by', 'on']),
+    minutes: z.number(),
+    at: z.string(),
+    repeat: z.enum(['once', 'daily', 'weekly', 'monthly']),
+    note: z.string()
+  });
+  const Habit = z.object({
     label: z.string(),
-    freq: z.enum(['daily', 'weekly', 'monthly'])
-  }))
-});
-const Plan = z.object({
-  events: z.array(Event),
-  tasks: z.array(Task),
-  habits: z.array(Habit),
-  goals: z.array(Goal)
-});
+    category: Cat(),
+    timesPerDay: z.number()
+  });
+  const Goal = z.object({
+    title: z.string(),
+    targetDate: z.string(),
+    category: Cat(),
+    steps: z.array(z.object({
+      label: z.string(),
+      freq: z.enum(['daily', 'weekly', 'monthly'])
+    }))
+  });
+  return z.object({
+    events: z.array(Event),
+    tasks: z.array(Task),
+    habits: z.array(Habit),
+    goals: z.array(Goal)
+  });
+}
 
 async function signedInUser(req){
   const auth = req.headers.authorization || '';
@@ -106,6 +122,7 @@ export default async function handler(req, res){
   if (typeof body === 'string'){ try { body = JSON.parse(body); } catch (_){ body = {}; } }
   const ask = String((body && body.ask) || '').trim().slice(0, 3000);
   const categories = String((body && body.categories) || '').slice(0, 400);
+  const catNames = Array.from(new Set(categories.split(',').map(s => s.trim()).filter(Boolean))).slice(0, 30);
   const today = String((body && body.today) || '').slice(0, 10);
   if (!ask){
     res.status(400).json({ error: 'Tell me what to add first.' });
@@ -136,7 +153,7 @@ export default async function handler(req, res){
 
   try {
     const client = new Anthropic();   // reads ANTHROPIC_API_KEY
-    const output_config = { format: zodOutputFormat(Plan) };
+    const output_config = { format: zodOutputFormat(planSchema(catNames)) };
     // effort is only accepted on some models, and Haiku is not one of them:
     // sending it there is a 400, not a polite ignore. Only add it when the
     // model in use actually supports it.

@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-10.19';
+  const BUILD = '2026-09-11.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1167,24 +1167,100 @@
      dragging never has to be the only way to get a task in front of you. */
   const autofillOn = () => !(S.profile && S.profile.autofill === false);
   const pinnedTo = (tk, b, d) => !!(tk.pin && tk.pin.b === b.id && tk.pin.d === dayKey(d));
-  const pinnedSomewhere = (tk, d) => !!(tk.pin && tk.pin.d === dayKey(d));
+  // A pin on this day or a later one means the task has a place. It used to
+  // count only on the pinned day itself, so a task placed on Thursday was
+  // still being autofilled into Wednesday's block. A pin on an earlier day
+  // that was never done has lapsed, and the task is free again.
+  const pinLive = (tk, d) => !!(tk.pin && tk.pin.d >= dayKey(d));
 
   function tasksForBlock(b, d){
     if (b.step || b.task || b.routine) return [];
     const open = openTasks(d).filter(tk => !taskAtOn(tk, d) && taskAvailableOn(tk, d));
     const mine = open.filter(tk => pinnedTo(tk, b, d));
     if (!autofillOn()) return mine.sort(taskSorter(d));
-    // A task pinned elsewhere today has been placed already, so it does not
-    // also drift back into every other block of its category.
-    const auto = open.filter(tk => tk.cat === b.c && !pinnedSomewhere(tk, d));
+    // Autofill leaves alone anything that already has a place, and anything
+    // held back in the list on purpose.
+    const auto = open.filter(tk => tk.cat === b.c && !pinLive(tk, d) && !tk.hold);
     return mine.concat(auto).sort(taskSorter(d));
   }
 
   // What is still waiting to be given a place today.
   function unplacedTasks(d){
     return openTasks(d)
-      .filter(tk => !taskAtOn(tk, d) && !pinnedSomewhere(tk, d) && taskAvailableOn(tk, d))
+      .filter(tk => !taskAtOn(tk, d) && !pinLive(tk, d) && taskAvailableOn(tk, d))
       .sort(taskSorter(d));
+  }
+
+  /* ---- placing a pile of tasks into blocks, by the clock ----
+     Autofill offers every task of a category to every block of it, which is
+     fine for three tasks and useless for twelve: 4h 45m poured into a 2 hour
+     block. This does what a person would. Most urgent first, it puts each task
+     in the earliest block of its category with room for it, and when a block
+     is full it moves on to the next one. A "do on" task only goes on its day, a
+     "due by" task only before its date, and anything already put somewhere by
+     hand keeps its room. What will not fit anywhere is held in the list rather
+     than dumped back into an overflowing block. */
+  const PLACE_HORIZON = 21;
+  const placeable = tk => !tk.repeat && !tk.at && !tk.doneAt;
+
+  function placeByCapacity(list, from){
+    const start = new Date(from || new Date()); start.setHours(0, 0, 0, 0);
+    const now = new Date(), todayK = dayKey(now), nowM = now.getHours() * 60 + now.getMinutes();
+    const startK = dayKey(start);
+    const ids = {}; list.forEach(tk => { ids[tk.id] = 1; });
+    const used = {};
+    (S.tasks || []).forEach(tk => {
+      if (!tk.pin || ids[tk.id] || tk.doneAt) return;
+      const k = tk.pin.b + '|' + tk.pin.d;
+      used[k] = (used[k] || 0) + (tk.mins || 30);
+    });
+    // Every real block of each category over the horizon, in time order.
+    const occ = {};
+    for (let i = 0; i < PLACE_HORIZON; i++){
+      const d = new Date(start); d.setDate(start.getDate() + i);
+      const dk = dayKey(d);
+      blocksForDate(d).forEach(b => {
+        if (b.allDay || b.step || b.task || b.routine) return;
+        const s = mins(b.s), e = mins(b.e);
+        if (dk === todayK && e <= nowM) return;            // already over
+        (occ[b.c] = occ[b.c] || []).push({ id: b.id, dk: dk, s: s, e: e });
+      });
+    }
+    let placed = 0; const blocksUsed = {}; const left = [];
+    list.slice().sort(taskSorter(start)).forEach(tk => {
+      const len = tk.mins || 30;                           // no estimate: assume half an hour
+      let lo = startK, hi = null;
+      if (tk.due && tk.due >= startK){
+        if (tk.dateType === 'on') lo = hi = tk.due;
+        else hi = tk.due;
+      }
+      const spot = (occ[tk.cat] || []).find(o =>
+        o.dk >= lo && (!hi || o.dk <= hi) && (o.e - o.s) - (used[o.id + '|' + o.dk] || 0) >= len);
+      if (!spot){ left.push(tk); return; }
+      const k = spot.id + '|' + spot.dk;
+      used[k] = (used[k] || 0) + len;
+      tk.pin = { b: spot.id, d: spot.dk };
+      tk.hold = false;
+      placed++; blocksUsed[k] = 1;
+    });
+    left.forEach(tk => { tk.pin = null; tk.hold = true; });
+    return { placed: placed, blocks: Object.keys(blocksUsed).length, left: left };
+  }
+
+  function placedSummary(r){
+    const parts = [];
+    if (r.placed) parts.push('Placed ' + r.placed + ' task' + (r.placed !== 1 ? 's' : '') +
+      ' across ' + r.blocks + ' block' + (r.blocks !== 1 ? 's' : ''));
+    if (r.left.length) parts.push(r.left.length + ' did not fit and ' +
+      (r.left.length !== 1 ? 'are' : 'is') + ' waiting in your list');
+    return parts.join('. ') || 'Nothing needed placing';
+  }
+  // Give a bulk change long enough on screen to read, with its undo.
+  function announce(label){
+    if (!undoState) return;
+    undoState.label = label;
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => { undoState = null; render(); }, 12000);
   }
   const totalMins = list => list.reduce((a, tk) => a + (tk.mins || 0), 0);
 
@@ -1542,6 +1618,10 @@
       if (est) h += '<div class="tfit'+(est > room ? ' over' : '')+'">'+
         (est > room ? dur(est)+' of tasks, only '+dur(room)+' here'
                     : dur(est)+' of tasks in a '+dur(room)+' block')+'</div>';
+      // Saying it is overfull without offering to fix it is only half helpful.
+      if (est > room)
+        h += '<button class="linkish spreadbtn" data-spread="'+esc(key(b))+'">Keep what fits here, move the rest to the next '+
+          esc(catOf(b.c).label)+' blocks</button>';
       h += '<div class="tlist inblock">'+soon.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
     } else {
       h += '<p class="tfit quiet">Nothing waiting in '+esc(catOf(b.c).label)+' right now.</p>';
@@ -2420,6 +2500,15 @@
       '<span>Give a task a category and it appears inside the blocks that share it, ready to tick off, so you do it while you are already in that headspace. '+
       'Add how long it takes and Athena only puts it in a block with room for it. Nothing here needs scheduling by hand.</span></div>';
 
+    // Tasks held back in the list. On a wide screen the To place panel shows
+    // them; on a phone this is the only place they surface, so it carries the
+    // same way to place them.
+    const held = (S.tasks || []).filter(tk => tk.hold && placeable(tk));
+    if (held.length)
+      h += '<div class="heldnote"><span><b>'+held.length+' task'+(held.length !== 1 ? 's' : '')+' waiting to be placed.</b> '+
+        'They stay out of your blocks until you place them.</span>'+
+        '<button class="go" data-placeheld>Place them for me</button></div>';
+
     h += '<div class="gform taskadd">'+
       '<input id="tk_title" type="text" placeholder="What needs doing?" autocomplete="off">'+
       '<div class="frow">'+
@@ -2937,8 +3026,9 @@
       const vd = viewDate(), dk = dayKey(vd);
 
       if (zone.classList.contains('place')){
-        // Dragged back to the pile: it has no place again.
-        tk.at = null; tk.pin = null;
+        // Dragged back to the pile: it has no place again, and it is held there
+        // so autofill does not immediately pour it back into a block.
+        tk.at = null; tk.pin = null; tk.hold = true;
         save(); render(); return;
       }
       if (zone.classList.contains('dblk')){
@@ -2947,7 +3037,7 @@
         // Only a real block can hold a task. A goal step, an appointment or a
         // routine is not a container, so dropping on one does nothing.
         if (!b || b.step || b.task || b.routine) return;
-        tk.at = null;
+        tk.at = null; tk.hold = false;
         tk.pin = { b: b.id, d: dk };
         openDayBlock = String(b.uid || b.id);
         save(); render(); return;
@@ -2956,7 +3046,7 @@
       const box = zone.getBoundingClientRect();
       const frac = Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
       const m = Math.round((DS + frac * SPAN) / 15) * 15;
-      tk.pin = null;
+      tk.pin = null; tk.hold = false;
       tk.due = dk; tk.dateType = 'on';
       tk.at = fmtM(Math.min(DE - 15, Math.max(DS, m)));
       if (!tk.mins) tk.mins = 30;
@@ -3031,6 +3121,24 @@
       if (e.target.id !== 'tmr_on') return;
       timer.target = e.target.value;
       timerSave();
+    });
+
+    // Changing a category in the assistant's preview, one task or all of them.
+    // Choosing one clears the "guessed" mark: a person has now decided.
+    shell.addEventListener('change', e => {
+      if (!aiPreview || !e.target.dataset) return;
+      const one = e.target.dataset.aicat;
+      const all = e.target.hasAttribute('data-aicatall');
+      if (one == null && !all) return;
+      const tks = aiPreview.tasks || [];
+      if (all){
+        if (!e.target.value) return;
+        tks.forEach(x => { x.cat = e.target.value; x.catGuessed = false; });
+      } else {
+        const x = tks[+one];
+        if (x){ x.cat = e.target.value; x.catGuessed = false; }
+      }
+      render();
     });
 
     // Picking a photo. noteSync first, or whatever was being typed is lost to
@@ -3350,12 +3458,15 @@
     ].join('\n');
   }
 
-  const matchCat = (name) => {
-    if (!name) return (S.categories[0]||{}).id;
-    const n = String(name).trim().toLowerCase();
-    const c = S.categories.find(x => x.label.toLowerCase() === n || x.id === n);
-    return c ? c.id : (S.categories[0]||{}).id;
+  // Also says whether it had to guess. Falling back to the first category is a
+  // reasonable default, but doing it silently is how an entire import ends up
+  // filed under Work without anyone being told.
+  const matchCatInfo = (name) => {
+    const n = String(name || '').trim().toLowerCase();
+    const c = n ? S.categories.find(x => x.label.toLowerCase() === n || x.id === n) : null;
+    return c ? { id: c.id, guessed: false } : { id: (S.categories[0] || {}).id, guessed: true };
   };
+  const matchCat = name => matchCatInfo(name).id;
 
   function aiImportEvent(spec){
     const todayK = dayKey(new Date());
@@ -3412,7 +3523,8 @@
       const rep = String(x.repeat || 'once');
       const out = {
         id:'tk_'+uid8(), title:String(x.title).slice(0,140), note:String(x.note || '').slice(0,200),
-        cat: matchCat(x.category),
+        cat: matchCatInfo(x.category).id,
+        catGuessed: matchCatInfo(x.category).guessed,     // for the preview only, never saved
         priority: (['high','normal','low'].indexOf(x.priority) >= 0 ? x.priority : 'normal'),
         due: (typeof x.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.due)) ? x.due : null,
         dateType: (x.dateType === 'on' ? 'on' : 'by'),
@@ -3440,13 +3552,23 @@
     aiPreview = { events, tasks, habits, goals }; aiError = ''; aiStep = 'preview'; render();
   }
 
-  function aiApply(){
+  // mode: 'place' fills blocks by length, 'list' holds the tasks back until
+  // they are placed, '' is for an import with nothing to place.
+  function aiApply(mode){
     if (!aiPreview) return;
+    markUndo('Added from your assistant');        // snapshot first, so undo takes back the lot
     S.tasks = S.tasks || [];
+    const tasks = (aiPreview.tasks || []).map(tk => { const c = Object.assign({}, tk); delete c.catGuessed; return c; });
     S.events.push.apply(S.events, aiPreview.events);
-    S.tasks.push.apply(S.tasks, aiPreview.tasks || []);
+    S.tasks.push.apply(S.tasks, tasks);
     S.habits.push.apply(S.habits, aiPreview.habits);
     S.goals.push.apply(S.goals, aiPreview.goals);
+    const pile = tasks.filter(placeable);
+    if (mode === 'place' && pile.length) announce(placedSummary(placeByCapacity(pile, new Date())));
+    else if (mode === 'list' && pile.length){
+      pile.forEach(tk => { tk.hold = true; });
+      announce(pile.length + ' task' + (pile.length !== 1 ? 's' : '') + ' added to your list, waiting to be placed');
+    } else announce('Added from your assistant');
     aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; clearDraft('ai_paste');
     view = 'day';
     save(); render();
@@ -3461,11 +3583,32 @@
       '<div class="ai-row"><span class="cd" style="background:'+catColor(e.cat)+'"></span>'+
       '<span class="pt">'+esc(e.title)+(e.note ? '<small>'+esc(e.note)+'</small>' : '')+'</span>'+
       '<span class="when">'+esc(aiWhen(e))+'</span></div>'));
+    // Tasks get a category you can change before anything lands, because the
+    // category decides which blocks a task goes into, and a wrong one sends it
+    // somewhere it does not belong. Anything Athena had to guess is marked.
     const tks = p.tasks || [];
-    h += grp(tks.length+' task'+(tks.length !== 1 ? 's' : ''), tks.map(x =>
-      '<div class="ai-row"><span class="cd" style="background:'+catColor(x.cat)+'"></span>'+
-      '<span class="pt">'+esc(x.title)+(x.priority === 'high' ? '<small>High priority</small>' : '')+'</span>'+
-      '<span class="when">'+esc((x.due ? (x.dateType === 'on' ? 'on ' : 'by ')+niceBy(x.due) : (x.repeat ? repeatLabel(x.repeat) : 'anytime')) + (x.mins ? ' · '+dur(x.mins) : ''))+'</span></div>'));
+    if (tks.length){
+      const opts = sel => S.categories.map(c =>
+        '<option value="'+c.id+'"'+(c.id === sel ? ' selected' : '')+'>'+esc(c.label)+'</option>').join('');
+      const guessed = tks.filter(x => x.catGuessed).length;
+      const total = totalMins(tks);
+      let g = '<div class="ai-group"><div class="ai-glabel"><span>'+tks.length+' task'+(tks.length !== 1 ? 's' : '')+
+        (total ? ' · '+dur(total) : '')+'</span>'+
+        (tks.length > 1 ? '<label class="ai-setall">All to <select data-aicatall><option value="">choose</option>'+opts('')+'</select></label>' : '')+
+        '</div>';
+      if (guessed)
+        g += '<p class="ai-guess">'+(guessed === tks.length
+          ? 'None of these came back with a category you use, so Athena guessed.'
+          : guessed+' of these came back without a category you use, so Athena guessed. They are marked.')+
+          ' Worth a check before they land.</p>';
+      g += tks.map((x, i) => '<div class="ai-row ai-trow'+(x.catGuessed ? ' guessed' : '')+'">'+
+        '<span class="cd" style="background:'+catColor(x.cat)+'"></span>'+
+        '<span class="pt">'+esc(x.title)+
+          '<small>'+esc((x.due ? (x.dateType === 'on' ? 'on ' : 'by ')+niceBy(x.due) : (x.repeat ? repeatLabel(x.repeat) : 'anytime')) +
+          (x.mins ? ' · '+dur(x.mins) : ' · no estimate')+(x.priority === 'high' ? ' · high priority' : ''))+'</small></span>'+
+        '<select class="ai-cat" data-aicat="'+i+'" aria-label="Category for '+esc(x.title)+'">'+opts(x.cat)+'</select></div>').join('');
+      h += g + '</div>';
+    }
     h += grp(p.habits.length+' habit'+(p.habits.length !== 1 ? 's' : ''), p.habits.map(x =>
       '<div class="ai-row"><span class="cd" style="background:'+catColor(x.cat)+'"></span>'+
       '<span class="pt">'+esc(x.label)+'</span><span class="when">'+(x.target > 1 ? x.target+'× daily' : 'daily')+'</span></div>'));
@@ -3544,7 +3687,17 @@
     if (aiStep === 'preview' && aiPreview){
       h += '<p class="ai-intro">Here\'s what your assistant suggests. Nothing is added until you tap the button.</p>';
       h += aiPreviewHTML();
-      h += '<div class="modal-actions"><button class="ghost" data-aiback>Back</button><span style="flex:1"></span><button class="go" data-aiapply>Add to my week</button></div>';
+      // With tasks to place, the choice matters, so it is asked rather than
+      // assumed: fill the blocks by length, or keep them out until placed.
+      const pile = (aiPreview.tasks || []).filter(placeable);
+      if (pile.length)
+        h += '<p class="ai-howto"><b>Place them for me</b> puts each task in the earliest block of its category with room for it, '+
+          'most urgent first, and moves on to the next block when one is full. <b>Add to my list</b> keeps them out of your blocks '+
+          'until you place them yourself.</p>';
+      h += '<div class="modal-actions"><button class="ghost" data-aiback>Back</button><span style="flex:1"></span>'+
+        (pile.length
+          ? '<button class="ghost" data-aiapply="list">Add to my list</button><button class="go" data-aiapply="place">Place them for me</button>'
+          : '<button class="go" data-aiapply="">Add to my week</button>')+'</div>';
     } else {
       h += '<p class="ai-intro">Say it in plain words. Athena sorts it into events, tasks, habits and goals for you to approve.</p>';
       h += '<label class="fld"><span>What should Athena add?</span>'+
@@ -3791,7 +3944,27 @@
     if (t('[data-aipasteclip]')){ aiPasteClip(); return; }
     if (t('[data-aipreview]')){ aiBuildPreview(); return; }
     if (t('[data-aiback]')){ aiStep = 'input'; aiError = ''; render(); return; }
-    if (t('[data-aiapply]')){ aiApply(); return; }
+    if (t('[data-aicat], [data-aicatall]')) return;     // selects: handled on change
+    if ((m = t('[data-aiapply]'))){ aiApply(m.dataset.aiapply || ''); return; }
+    if ((m = t('[data-spread]'))){
+      const vd = viewDate();
+      const b = blocksForDate(vd).find(x => String(x.uid || x.id) === m.dataset.spread);
+      if (!b) return;
+      // What this block is offering right now, minus anything already put here
+      // by hand, which stays exactly where it was put.
+      const homes = upcomingHomes(vd);
+      const pool = tasksForBlock(b, vd).filter(tk =>
+        !pinnedTo(tk, b, vd) && placeable(tk) && taskIsSoon(tk, vd, homes));
+      markUndo('Spreading');
+      announce(placedSummary(placeByCapacity(pool, vd)));
+      save(); render(); return;
+    }
+    if (t('[data-placeheld]')){
+      const pool = (S.tasks || []).filter(tk => tk.hold && placeable(tk));
+      markUndo('Placing');
+      announce(placedSummary(placeByCapacity(pool, new Date())));
+      save(); render(); return;
+    }
     if ((m = t('[data-aicopy]'))){
       const txt = aiPrompt();
       const done = () => { m.textContent = 'Copied ✓'; setTimeout(() => { if (m) m.textContent = 'Copy prompt'; }, 1500); };
