@@ -1473,3 +1473,7 @@
   }
   #soft-app .pb-x { flex: 0 0 auto; background: none; border: 0; color: var(--ghost); font-size: 20px; line-height: 1; padding: 6px 9px; cursor: pointer; }
   @media (prefers-reduced-motion: reduce) { #soft-app .pickbar { transition: none; } }
+
+  /* habits on the Day view, tucked under the ring they count toward */
+  #soft-app .dayhab-h { margin-top: 0; }
+  #soft-app .dayhab-h + .chips { margin-bottom: 20px; }

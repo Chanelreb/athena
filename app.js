@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-11.5';
+  const BUILD = '2026-09-11.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1768,7 +1768,13 @@
     timed.forEach(b => { split[b.c] = (split[b.c]||0) + (mins(b.e)-mins(b.s)); });
 
     let h = '';
-    if (isToday) h += dayProgressHTML();   // progress is about today, not a day you're browsing
+    if (isToday){
+      h += dayProgressHTML();   // progress is about today, not a day you're browsing
+      // Habits sit with the ring they count toward. Only today's: a tick here
+      // always lands on today, so offering them on another day would mislead.
+      // A habit inside a routine is ticked in its routine's block instead.
+      if (looseHabits().length) h += '<h2 class="dayhab-h">Every day</h2>' + chipsHTML(now);
+    }
     if (booked){
       h += '<p class="slack">Today asks for <b>'+dur(booked)+'</b>, and leaves <b>'+dur(openTotal)+'</b> open in between. There is room.</p>';
       h += '<div class="balbar">' + S.categories.map(c =>
