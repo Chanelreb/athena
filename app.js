@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-11.3';
+  const BUILD = '2026-09-11.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1531,7 +1531,10 @@
       const waiting = tasksForBlock(b, vd).filter(tk => taskIsSoon(tk, vd, soonHomes) || pinnedTo(tk, b, vd));
       const w = 100 / (x.of || 1), left = w * (x.lane || 0);
       body += '<div class="dblk'+(done ? ' done' : '')+(live ? ' live' : '')+(justDone === b.id ? ' just' : '')+
-        (shownKey === String(b.uid || b.id) ? ' sel' : '')+'" '+
+        (shownKey === String(b.uid || b.id) ? ' sel' : '')+
+        // Picked means you chose it, not just that it is on now. On a touch
+        // screen only a picked block can be moved.
+        (openDayBlock && openDayBlock === String(b.uid || b.id) ? ' picked' : '')+'" '+
         'data-blockid="'+esc(String(b.uid || b.id))+'"'+
         // An appointment can be dragged back to the pile to lose its time.
         (isTask ? ' draggable="true" data-dragtask="'+b.task.id+'"' : '')+
@@ -1782,6 +1785,21 @@
     // grid. Drawn here as well, it would sit a whole day's height below, out
     // of sight, looking like it had not changed.
     if (!panelsOn()) h += dayDetailHTML(vd, now, soon);
+
+    // On a phone, the block you tapped gets a bar at the foot of the screen.
+    // Tapping does not scroll you down to the detail, because that would carry
+    // the block away just as you went to move it. The bar offers the jump.
+    if (!panelsOn() && openDayBlock){
+      const pb = detailBlock(vd, now);
+      if (pb){
+        const n = (pb.step || pb.task || pb.routine) ? 0 :
+          tasksForBlock(pb, vd).filter(tk => taskIsSoon(tk, vd, soon) || pinnedTo(tk, pb, vd)).length;
+        h += '<div class="pickbar" style="--dc:'+catColor(pb.c)+'">'+
+          '<span class="pb-t"><b>'+esc(pb.t)+'</b>'+(pb.step ? '' : '<em>Drag it to move it</em>')+'</span>'+
+          '<button class="pb-go" data-blkjump>'+(n ? n+' task'+(n !== 1 ? 's' : '') : 'Details')+' ↓</button>'+
+          '<button class="pb-x" data-dayclose aria-label="Put it down">×</button></div>';
+      }
+    }
 
     // Athena promises that tasks find their own way into your day. When a task's
     // category has no block today there is nowhere for it to land, and it would
@@ -3211,6 +3229,18 @@
     }
     if (typeof window !== 'undefined' && window.scrollTo && sy) window.scrollTo(0, sy);
     if (app.querySelector('img[data-imgpath]')) hydrateImages();
+    watchPickbar();
+  }
+
+  // The phone's pick bar points down at the block's detail, so once the detail
+  // is on screen the bar has nothing left to say and gets out of the way.
+  let pickObs = null;
+  function watchPickbar(){
+    if (pickObs){ pickObs.disconnect(); pickObs = null; }
+    const bar = app.querySelector('.pickbar'), det = app.querySelector('.ddet');
+    if (!bar || !det || typeof IntersectionObserver === 'undefined') return;
+    pickObs = new IntersectionObserver(es => { bar.classList.toggle('away', es[0].isIntersecting); });
+    pickObs.observe(det);
   }
 
   // Prev / next / back-to-today for the Day and Week views.
@@ -3773,6 +3803,11 @@
     if (view !== 'day' || weekShown() || editing || aiOpen || noteEdit || taskEdit || ob) return;
     const el = e.target.closest && e.target.closest('.dblk');
     if (!el || e.target.closest('.dtick')) return;      // ticking is not dragging
+    // A finger on a block is usually a finger scrolling the day. On a touch
+    // screen a block only moves once it has been tapped and outlined; every
+    // other block lets the page scroll. A mouse cannot be mistaken for a
+    // scroll, so it moves any block straight away.
+    if (e.pointerType === 'touch' && !el.classList.contains('picked')) return;
     const col = app.querySelector('.dcol'); if (!col) return;
     const vd = viewDate();
     const b = blocksForDate(vd).find(x => String(x.uid || x.id) === el.dataset.blockid);
@@ -3832,6 +3867,9 @@
     }
     noClick = true; save(); render();
   });
+  // If the browser takes the gesture back (a scroll after all), put the block
+  // back where it was rather than leave it stranded half way.
+  app.addEventListener('pointercancel', () => { if (ddrag){ ddrag = null; render(); } });
 
   let drag = null, noClick = false;
   app.addEventListener('pointerdown', e => {
@@ -3839,6 +3877,10 @@
     // and this check quietly stopped matching when that changed, which killed
     // dragging in the week grid with nothing to say so.
     if (!weekShown() || !expanded || editing || aiOpen) return;
+    // On a touch screen the week is for looking and scrolling. Blocks here are
+    // small enough that a scroll would move one nearly every time, and tapping
+    // one opens it, where its time can be changed properly.
+    if (e.pointerType === 'touch') return;
     const cb = e.target.closest('.cb'); if (!cb) return;
     if (cb.classList.contains('cbstep')) return; // goal-step blocks aren't draggable
     const cols = app.querySelector('.calcols'); if (!cols) return;
@@ -3909,7 +3951,10 @@
   let swX = null, swY = null;
   app.addEventListener('touchstart', e => {
     const swipeable = (view === 'day');
-    if (!swipeable || editing || settingsOpen || aiOpen || ob || taskEdit || e.touches.length !== 1){ swX = null; return; }
+    // Not from a picked block either: that finger is moving the block, and a
+    // sideways wobble while doing it should not flip to another day.
+    if (!swipeable || editing || settingsOpen || aiOpen || ob || taskEdit || e.touches.length !== 1 ||
+        (e.target.closest && e.target.closest('.dblk.picked'))){ swX = null; return; }
     swX = e.touches[0].clientX; swY = e.touches[0].clientY;
   }, { passive: true });
   app.addEventListener('touchend', e => {
@@ -4388,11 +4433,11 @@
     if ((m = t('[data-dayblock]')) || ((m = t('.dblk')) && !t('.dtick') && (m = m.querySelector('[data-dayblock]')))){
       openDayBlock = m.dataset.dayblock;
       openBlockLater = null;
-      render();
-      // On a phone the detail opens under the whole day, out of sight. Bring it up.
-      if (!panelsOn()){ const d = app.querySelector('.ddet'); if (d) d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
-      return;
+      render(); return;
     }
+    // The bar a phone shows for a picked block: jump down to what is in it.
+    // (Its × is data-dayclose, which puts the block down.)
+    if (t('[data-blkjump]')){ const d = app.querySelector('.ddet'); if (d) d.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (t('[data-dayclose]')){ openDayBlock = ''; render(); return; }
     if (t('[data-review]')){ reviewOpen = true; render(); return; }
     if (t('[data-reviewclose]')){ reviewOpen = false; render(); return; }
