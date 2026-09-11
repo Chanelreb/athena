@@ -1148,12 +1148,21 @@
        the free space and push the panels to the edges. In the shell it is a
        plain flex item and the shell does the centring. */
     #ath-shell > #soft-app { margin: 0; flex: 0 1 600px; }
-    #ath-right:not([hidden]) { display: block; flex: 0 0 300px; position: sticky; top: 20px; }
+    /* A panel column stays put while the day scrolls, so it must never be
+       taller than the screen: a long list to place would otherwise have a
+       bottom nobody could reach. It scrolls on its own instead. */
+    #ath-right:not([hidden]) {
+      display: block; flex: 0 0 300px; position: sticky; top: 20px;
+      max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain;
+    }
   }
   /* Both panels the same width, or the middle column is not actually the middle. */
   @media (min-width: 1360px) {
     #ath-shell { gap: 22px; }
-    #ath-left:not([hidden]) { display: block; flex: 0 0 300px; position: sticky; top: 20px; }
+    #ath-left:not([hidden]) {
+      display: block; flex: 0 0 300px; position: sticky; top: 20px;
+      max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain;
+    }
   }
   .ath-side .panel {
     background: var(--bg); border: 1px solid var(--line);
@@ -1224,7 +1233,9 @@
   body.dragging-task #soft-app .dblk { transition: box-shadow .12s; }
   #soft-app .dblk.dropping { box-shadow: 0 0 0 2px var(--live); }
   #soft-app .dcol.dropping { outline-style: solid; }
-  body.dragging-task .ath-side .place { outline: 2px dashed var(--live); outline-offset: 4px; border-radius: 16px; }
+  /* Drawn inside the panel: the column now scrolls, and an outline outside its
+     edge would be clipped away. */
+  body.dragging-task .ath-side .place { outline: 2px dashed var(--live); outline-offset: -4px; border-radius: 16px; }
   #soft-app .tlist.inblock .trow[draggable="true"] { cursor: grab; }
 
   /* the scratchpad, reusing the app's own park styles inside a panel */

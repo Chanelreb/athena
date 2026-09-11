@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-11.1';
+  const BUILD = '2026-09-11.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2809,18 +2809,20 @@
     }
     const vd = viewDate(), dk = dayKey(vd);
     const park = '<div class="panel"><div class="panel-h">Scratchpad</div>'+parkHTML(dk, true)+'</div>';
-    // Tasks sit on the right, beside the grid they get dragged onto, and only
-    // on the Day view: there is nothing to drop them on anywhere else.
+    // The pile to place only exists on the Day view: there is nothing to drop
+    // it onto anywhere else.
     const place = (view === 'day' && !weekShown()) ? placePanelHTML(vd) : '';
     if (twoPanels()){
+      // Left is for capture: the scratchpad on top, the pile to place under it.
+      // Right is the clock, on its own at the top.
       L.hidden = R.hidden = false;
-      // With tasks to place, they take the right on their own and everything
-      // else moves left. Without them, the old arrangement stands.
-      if (place){ L.innerHTML = timerHTML() + park; R.innerHTML = place; }
-      else { L.innerHTML = timerHTML(); R.innerHTML = park; }
+      L.innerHTML = park + place;
+      R.innerHTML = timerHTML();
     } else {
+      // One rail only: the clock stays at the top, as it is on a wide screen,
+      // and the left column's two panels follow it in the same order.
       L.hidden = true; L.innerHTML = '';
-      R.hidden = false; R.innerHTML = place + timerHTML() + park;
+      R.hidden = false; R.innerHTML = timerHTML() + park + place;
     }
   }
 
