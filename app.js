@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-11.4';
+  const BUILD = '2026-09-11.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1184,10 +1184,18 @@
     return mine.concat(auto).sort(taskSorter(d));
   }
 
-  // What is still waiting to be given a place today.
+  // What is still waiting to be given a place today. With autofill on, a task
+  // already sitting in one of this day's blocks has a place, pin or no pin.
+  // Counting only pins listed it twice: once in its block, and again here as
+  // if it had nowhere to go. Anything dragged back to the list is held, so it
+  // leaves its block and shows here, which is what dragging it back means.
   function unplacedTasks(d){
+    const inBlock = {};
+    if (autofillOn()) blocksForDate(d).forEach(b => {
+      if (!b.allDay) tasksForBlock(b, d).forEach(tk => { inBlock[tk.id] = 1; });
+    });
     return openTasks(d)
-      .filter(tk => !taskAtOn(tk, d) && !pinLive(tk, d) && taskAvailableOn(tk, d))
+      .filter(tk => !taskAtOn(tk, d) && !pinLive(tk, d) && taskAvailableOn(tk, d) && !inBlock[tk.id])
       .sort(taskSorter(d));
   }
 
