@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-16.1';
+  const BUILD = '2026-09-16.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2553,6 +2553,7 @@
     }
     const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'>"+esc(c.label)+"</option>").join('');
     let h = '<h2>What you are building</h2>';
+    h += '<div class="dayadd" style="margin:0 0 16px"><button class="ai-btn" data-goalai>\u2726 Plan a goal with Athena</button></div>';
     if (!(S.goals || []).length){
       h += '<p class="park-empty">Nothing set yet. Name one thing you are building toward, give it a date, then open it and break it into milestones and small repeatable steps. Daily steps join your everyday ticks, and weekly steps land on your calendar.</p>';
     }
@@ -2656,6 +2657,215 @@
       '<button class="go" data-goalsave="'+g.id+'">Save changes</button></div>';
     h += '<button class="del wide" data-delgoal="'+g.id+'">Remove this goal</button>';
     return h;
+  }
+
+  /* ---- planning a goal with Athena ----
+     Two passes, deliberately. The first asks the two or three things nobody
+     can guess: what success actually looks like, by when, and how much time a
+     week there is for it. A plan built on assumptions is a plan for somebody
+     else. The second writes the goal SMART and breaks it into milestones, a
+     routine, repeating steps and the first few tasks.
+
+     Nothing lands until it has been ticked. An assistant that fills your week
+     on its own is a thing you end up fighting. */
+  let goalAI = null;
+
+  function goalAIOpen(){
+    goalAI = { step:'ask', seed:'', smart:'', questions:[], answers:[], plan:null, pick:{}, busy:false, error:'' };
+    render();
+  }
+
+  async function goalAICall(extra){
+    if (!cloud || !session) throw new Error('Sign in first to use the built-in assistant.');
+    const { data } = await sb.auth.getSession();
+    const token = data && data.session ? data.session.access_token : '';
+    const r = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'content-type':'application/json', Authorization:'Bearer ' + token },
+      body: JSON.stringify(Object.assign({
+        categories: S.categories.map(c => c.label).join(', '),
+        today: dayKey(new Date())
+      }, extra))
+    });
+    let j = {};
+    try { j = await r.json(); } catch(_){}
+    if (!r.ok) throw new Error((j && j.error) || 'That did not work. Try again in a moment.');
+    return aiParse(j.text);
+  }
+
+  async function goalAIQuestions(){
+    if (!goalAI) return;
+    const seed = ((document.getElementById('gai_seed') || {}).value || '').trim();
+    if (!seed){ const i = document.getElementById('gai_seed'); if (i) i.focus(); return; }
+    goalAI.seed = seed; goalAI.busy = true; goalAI.error = ''; render();
+    try {
+      const out = await goalAICall({ mode:'goalAsk', ask:seed });
+      goalAI.smart = String(out.smart || '');
+      goalAI.questions = (out.questions || []).slice(0, 3);
+      goalAI.answers = goalAI.questions.map(() => '');
+      goalAI.step = 'questions'; goalAI.busy = false; render();
+    } catch(e){ goalAI.busy = false; goalAI.error = e.message; render(); }
+  }
+
+  async function goalAIPlan(){
+    if (!goalAI) return;
+    goalAI.answers = goalAI.questions.map((q, i) => ((document.getElementById('gai_a'+i) || {}).value || '').trim());
+    goalAI.busy = true; goalAI.error = ''; render();
+    // Unanswered questions are said out loud rather than left blank, so the
+    // model knows to make its own call instead of planning around a hole.
+    const qa = goalAI.questions
+      .map((q, i) => q.label + ' ' + (goalAI.answers[i] || '(they did not say)'))
+      .join('  ');
+    try {
+      goalAI.plan = await goalAICall({ mode:'goalPlan', ask:goalAI.seed, answers:qa });
+      goalAI.pick = {}; goalAI.step = 'plan'; goalAI.busy = false; render();
+    } catch(e){ goalAI.busy = false; goalAI.error = e.message; render(); }
+  }
+
+  const gaiOn = k => !goalAI || goalAI.pick[k] !== false;
+  const okTime = t => /^\d\d:\d\d$/.test(String(t || '')) ? t : '07:00';
+  const okDay = n => (+n >= 0 && +n <= 6) ? +n : 1;
+  const weekdayList = wd => {
+    const list = (wd || []).map(Number).filter(n => n >= 0 && n <= 6).sort();
+    if (!list.length) return 'Every day';
+    if (list.length === 7) return 'Every day';
+    return list.map(n => SD[n]).join(', ');
+  };
+  const planStepWhen = s => s.freq === 'daily' ? 'Every day'
+    : s.freq === 'monthly' ? 'Monthly'
+    : SD[okDay(s.weekday)] + ' ' + clockOf(okTime(s.time));
+
+  function gpickRow(k, title, sub){
+    return '<label class="gpick"><input type="checkbox" data-gpick="'+k+'"'+(gaiOn(k) ? ' checked' : '')+'>'+
+      '<span class="gpk"><b>'+esc(title)+'</b>'+(sub ? '<em>'+esc(sub)+'</em>' : '')+'</span></label>';
+  }
+
+  function goalAIPlanHTML(p){
+    const cat = catOf(matchCat(p.category));
+    const bits = [];
+    if (p.targetDate) bits.push('by '+goalDate(p.targetDate));
+    bits.push(cat.label);
+    if (+p.measureTarget) bits.push((p.measureLabel || 'Progress')+': '+fmtNum(+p.measureStart || 0)+
+      ' to '+fmtNum(+p.measureTarget)+(p.measureUnit ? ' '+p.measureUnit : ''));
+    let h = '<div class="gai-goal"><b>'+esc(p.title)+'</b><em>'+esc(bits.join(' · '))+'</em>'+
+      (p.why ? '<p>'+esc(p.why)+'</p>' : '')+'</div>';
+    h += '<p class="ai-intro">Untick anything you do not want. The goal itself is kept either way, and you can change all of it afterwards.</p>';
+
+    if (p.routineName && (p.routineHabits || []).length){
+      h += '<div class="gai-h">A routine</div>';
+      h += gpickRow('ro', p.routineName,
+        weekdayList(p.routineWeekdays)+' '+clockOf(okTime(p.routineTime))+' · '+p.routineHabits.join(', '));
+    }
+    if ((p.steps || []).length){
+      h += '<div class="gai-h">What repeats</div>';
+      p.steps.forEach((s, i) => { h += gpickRow('st:'+i, s.label, planStepWhen(s)); });
+    }
+    if ((p.tasks || []).length){
+      h += '<div class="gai-h">To start with</div>';
+      p.tasks.forEach((tk, i) => {
+        const sub = [tk.due ? 'by '+goalDate(tk.due) : '', +tk.minutes ? dur(+tk.minutes) : ''].filter(Boolean).join(' · ');
+        h += gpickRow('tk:'+i, tk.title, sub);
+      });
+    }
+    if ((p.milestones || []).length){
+      h += '<div class="gai-h">Milestones</div>';
+      p.milestones.forEach((ms, i) => { h += gpickRow('ms:'+i, ms.label, ms.by ? goalDate(ms.by) : ''); });
+    }
+    if (p.note) h += '<p class="ai-howto">'+esc(p.note)+'</p>';
+    return h;
+  }
+
+  function goalAIHTML(){
+    const a = goalAI;
+    let h = '<div class="modal-back" data-gaiclose></div><div class="modal"><div class="modal-h">Plan a goal with Athena</div>';
+    if (a.step === 'ask'){
+      h += '<p class="ai-intro">Say it however it comes out. Athena asks a couple of things it cannot guess, then turns it into something specific and dated, broken into steps you can actually keep.</p>';
+      h += '<label class="fld"><span>What do you want?</span>'+
+        '<textarea id="gai_seed" rows="3" placeholder="e.g. get fit, or launch my side business"></textarea></label>';
+      h += '<button class="go ai-primary" data-gaiask'+(a.busy ? ' disabled' : '')+'>'+
+        (a.busy ? 'Thinking…' : 'Ask Athena')+'</button>';
+    } else if (a.step === 'questions'){
+      if (a.smart) h += '<p class="ai-intro">Athena is reading that as <b>'+esc(a.smart)+'</b>. A couple of things it cannot guess:</p>';
+      a.questions.forEach((q, i) => {
+        const kind = q.kind === 'date' ? 'date' : q.kind === 'number' ? 'number' : 'text';
+        h += '<label class="fld"><span>'+esc(q.label)+'</span>'+
+          '<input id="gai_a'+i+'" type="'+kind+'" placeholder="'+esc(q.placeholder || '')+'" autocomplete="off"></label>';
+      });
+      h += '<button class="go ai-primary" data-gaiplan'+(a.busy ? ' disabled' : '')+'>'+
+        (a.busy ? 'Writing the plan…' : 'Make me a plan')+'</button>';
+      h += '<p class="ai-howto">Skip anything you are unsure about. Athena will make a sensible call, and the plan is yours to change.</p>';
+    } else if (a.plan){
+      h += goalAIPlanHTML(a.plan);
+    }
+    if (a.error) h += '<p class="ai-error">'+esc(a.error)+'</p>';
+    h += '<div class="modal-actions">'+
+      (a.step === 'plan'
+        ? '<button class="ghost" data-gaiback>Back</button><span style="flex:1"></span>'+
+          '<button class="go" data-gaiapply>Add to my week</button>'
+        : '<button class="ghost" data-gaiclose>Cancel</button><span style="flex:1"></span>')+
+      '</div></div>';
+    return h;
+  }
+
+  /* Only what was left ticked. The goal itself always lands: it is the thing
+     they asked for, and an empty goal is still somewhere to put the rest. */
+  function goalAIApply(){
+    const p = goalAI && goalAI.plan;
+    if (!p) return;
+    const gid = 'g_'+uid8(), cat = matchCat(p.category), today = dayKey(new Date());
+    const goal = {
+      id: gid,
+      title: String(p.title || goalAI.seed).slice(0, 120),
+      why: String(p.why || '').slice(0, 200),
+      by: p.targetDate || '',
+      cat: cat,
+      measure: +p.measureTarget ? {
+        label: String(p.measureLabel || 'Progress').slice(0, 60),
+        unit: String(p.measureUnit || '').slice(0, 16),
+        target: +p.measureTarget, start: +p.measureStart || 0
+      } : null,
+      log: [], milestones: [], steps: []
+    };
+    (p.milestones || []).forEach((ms, i) => {
+      if (!gaiOn('ms:'+i)) return;
+      goal.milestones.push({ id:'ms_'+uid8(), label:String(ms.label).slice(0, 120), by:ms.by || '', doneAt:null });
+    });
+    (p.steps || []).forEach((s, i) => {
+      if (!gaiOn('st:'+i)) return;
+      const st = { id:'st_'+uid8(), label:String(s.label).slice(0, 120),
+        freq: s.freq === 'daily' ? 'daily' : s.freq === 'monthly' ? 'monthly' : 'weekly' };
+      if (st.freq === 'weekly'){ st.day = okDay(s.weekday); st.time = okTime(s.time); }
+      goal.steps.push(st);
+    });
+    S.goals.push(goal);
+
+    // A routine is its habits: they are what gets ticked, and the routine is
+    // the time they happen at.
+    if (gaiOn('ro') && p.routineName && (p.routineHabits || []).length){
+      const ids = [];
+      p.routineHabits.slice(0, 6).forEach(l => {
+        const id = 'hb_'+uid8();
+        S.habits.push({ id, label:String(l).slice(0, 80), cat:cat, target:1 });
+        ids.push(id);
+      });
+      S.routines = (S.routines || []).concat([{
+        id: 'ro_'+uid8(), name: String(p.routineName).slice(0, 60), time: okTime(p.routineTime),
+        weekdays: (p.routineWeekdays || []).map(Number).filter(n => n >= 0 && n <= 6), cat: cat, habits: ids
+      }]);
+    }
+    (p.tasks || []).forEach((tk, i) => {
+      if (!gaiOn('tk:'+i)) return;
+      S.tasks.push({
+        id: 'tk_'+uid8(), title: String(tk.title).slice(0, 120), note: '', cat: cat,
+        priority: tk.priority === 'high' ? 'high' : tk.priority === 'low' ? 'low' : 'normal',
+        due: tk.due || null, dateType: 'by', mins: +tk.minutes || 0, at: null, repeat: null,
+        pin: null, hold: false, doneAt: null, goal: gid, createdAt: new Date().toISOString()
+      });
+    });
+
+    goalAI = null; clearDraft('gai_seed');
+    view = 'grow'; growMode = 'goals'; openGoal = gid;
+    save(); render();
   }
 
   /* ---------- parked thoughts ---------- */
@@ -3369,6 +3579,10 @@
     // Picking a photo. noteSync first, or whatever was being typed is lost to
     // the re-render that follows the upload.
     shell.addEventListener('change', e => {
+      if (!goalAI || !e.target.dataset || e.target.dataset.gpick == null) return;
+      goalAI.pick[e.target.dataset.gpick] = !!e.target.checked;
+    });
+    shell.addEventListener('change', e => {
       if (e.target.id !== 'ne_file') return;
       const f = e.target.files && e.target.files[0];
       e.target.value = '';
@@ -3554,6 +3768,7 @@
     if (noteEdit) h += noteEditorHTML();
     if (settingsOpen) h += settingsHTML();
     if (aiOpen) h += aiHTML();
+    if (goalAI) h += goalAIHTML();
 
     paint(h);
   }
@@ -4192,6 +4407,12 @@
     if (t('[data-obskip]')){ obSkip(); return; }
 
     // ask your AI
+    if (t('[data-goalai]')){ goalAIOpen(); return; }
+    if (t('[data-gaiclose]')){ goalAI = null; clearDraft('gai_seed'); render(); return; }
+    if (t('[data-gaiask]')){ goalAIQuestions(); return; }
+    if (t('[data-gaiplan]')){ goalAIPlan(); return; }
+    if (t('[data-gaiback]')){ if (goalAI){ goalAI.step = 'questions'; goalAI.error = ''; } render(); return; }
+    if (t('[data-gaiapply]')){ goalAIApply(); return; }
     if (t('[data-aiopen]')){ aiOpen = true; aiStep = 'input'; aiPreview = null; aiError = ''; clearDraft('ai_paste'); clearDraft('ai_ask'); render(); return; }
     if (t('[data-aiclose]')){ aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; clearDraft('ai_paste'); clearDraft('ai_ask'); render(); return; }
     if (t('[data-aiask]')){ aiAskAthena(); return; }
@@ -4784,9 +5005,10 @@
     if (e.key === 'Enter' && e.target.id === 'tk_title'){ e.preventDefault(); const b = app.querySelector('[data-addtask]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newitem'){ e.preventDefault(); const b = app.querySelector('[data-noteadditem]'); if (b) b.click(); return; }
-    if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit || noteEdit)){
+    if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit || noteEdit || goalAI)){
       if (noteEdit){ const b = app.querySelector('[data-notecancel]'); if (b){ b.click(); return; } }
       editing = null; taskEdit = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input';
+      goalAI = null; clearDraft('gai_seed');
       clearDraft('ai_ask'); clearModalDrafts(); render();
     }
   });
@@ -4953,7 +5175,7 @@
 
   function userBusy(){
     const ae = document.activeElement;
-    return !!(editing || settingsOpen || aiOpen || ob || taskEdit || noteEdit ||
+    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit ||
       (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
   }
   function applyUpdate(){

@@ -1,9 +1,13 @@
 // Athena's built-in assistant.
 //
-// Turns a plain-language brain dump into the same JSON shape the paste flow
-// already understands, so the browser can reuse its existing preview and apply
-// pipeline unchanged. Structured outputs guarantee the shape, so there is no
-// prose-or-JSON guessing here.
+// Three jobs, one endpoint, chosen by `mode`:
+//   (none)     a brain dump turned into events, tasks, habits and goals
+//   goalAsk    the two or three questions nobody can guess about a goal
+//   goalPlan   that goal written SMART and broken into a plan
+//
+// Each returns JSON the browser's existing preview and apply path understands.
+// Structured outputs guarantee the shape, so there is no prose-or-JSON guessing
+// here.
 //
 // Requires one environment variable in Vercel: ANTHROPIC_API_KEY.
 // The Supabase values below are public (they ship in the browser already) and
@@ -49,7 +53,7 @@ const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_RO1
 
    Each field gets its own copy. Reusing one schema object makes the helper
    hoist it into a $ref, which the schema that is known to work never used. */
-function planSchema(cats){
+export function planSchema(cats){
   const Cat = () => cats.length ? z.enum(cats) : z.string();
   const Event = z.object({
     title: z.string(),
@@ -94,6 +98,54 @@ function planSchema(cats){
   });
 }
 
+/* What Athena asks before it plans a goal. Three at most: past that it stops
+   feeling like help and starts feeling like a form. */
+export function askSchema(){
+  return z.object({
+    smart: z.string(),
+    questions: z.array(z.object({
+      label: z.string(),
+      placeholder: z.string(),
+      kind: z.enum(['text', 'date', 'number'])
+    }))
+  });
+}
+
+/* The plan itself. Flat rather than nested: the measure and the routine are
+   spelled out field by field, which keeps every property plainly typed and the
+   union count at zero, for the same reason the schema above uses sentinels. */
+export function goalSchema(cats){
+  const Cat = () => cats.length ? z.enum(cats) : z.string();
+  return z.object({
+    title: z.string(),
+    why: z.string(),
+    category: Cat(),
+    targetDate: z.string(),
+    measureLabel: z.string(),
+    measureUnit: z.string(),
+    measureStart: z.number(),
+    measureTarget: z.number(),
+    milestones: z.array(z.object({ label: z.string(), by: z.string() })),
+    routineName: z.string(),
+    routineTime: z.string(),
+    routineWeekdays: z.array(z.number()),
+    routineHabits: z.array(z.string()),
+    steps: z.array(z.object({
+      label: z.string(),
+      freq: z.enum(['daily', 'weekly', 'monthly']),
+      weekday: z.number(),
+      time: z.string()
+    })),
+    tasks: z.array(z.object({
+      title: z.string(),
+      due: z.string(),
+      minutes: z.number(),
+      priority: z.enum(['high', 'normal', 'low'])
+    })),
+    note: z.string()
+  });
+}
+
 async function signedInUser(req){
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
@@ -121,9 +173,11 @@ export default async function handler(req, res){
   let body = req.body;
   if (typeof body === 'string'){ try { body = JSON.parse(body); } catch (_){ body = {}; } }
   const ask = String((body && body.ask) || '').trim().slice(0, 3000);
+  const mode = String((body && body.mode) || '').slice(0, 20);
+  const answers = String((body && body.answers) || '').slice(0, 1500);
   const categories = String((body && body.categories) || '').slice(0, 400);
   const catNames = Array.from(new Set(categories.split(',').map(s => s.trim()).filter(Boolean))).slice(0, 30);
-  const today = String((body && body.today) || '').slice(0, 10);
+  const today = String((body && body.today) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
   if (!ask){
     res.status(400).json({ error: 'Tell me what to add first.' });
     return;
@@ -135,7 +189,7 @@ export default async function handler(req, res){
     return;
   }
 
-  const system = [
+  const listSystem = [
     'You turn a person\'s plain-language notes into entries for their planner, Athena.',
     'Events are things with a time of day. Tasks are things to finish; give each a category and a priority.',
     'On a task, dateType says what its date means: "on" if it must happen that day, "by" if it only has to be done by then. Default to "by".',
@@ -143,7 +197,7 @@ export default async function handler(req, res){
     'at is an "HH:MM" time, and only for a task that must happen at a set time, like an appointment. Leave it empty otherwise: most tasks have no time and Athena places them itself.',
     'Habits are small daily things worth a streak. Goals are bigger, with a target date and repeatable steps.',
     'Their categories are: ' + (categories || 'Personal, Work, Health') + '. Use exactly these names.',
-    'Today is ' + (today || new Date().toISOString().slice(0, 10)) + '. Resolve relative dates like "Friday" against it.',
+    'Today is ' + today + '. Resolve relative dates like "Friday" against it.',
     'Put an item in only one list. Return empty lists for anything with nothing in it.',
     'Every field must be present. Where something was not given, use an empty value rather than inventing one: "" for text, 0 for numbers, [] for lists.',
     'Where a field must be one of a fixed set and nothing was said, choose the ordinary one: priority "normal", repeat "once", dateType "by", step freq "weekly".',
@@ -151,9 +205,45 @@ export default async function handler(req, res){
     'Do not invent detail the person did not imply.'
   ].join(' ');
 
+  const askSystem = [
+    'You help someone turn a vague goal into a SMART one: specific, measurable, achievable, relevant and time bound.',
+    'Put the sharpest version you can manage in "smart", as one short sentence in their own kind of words.',
+    'Then ask only what you genuinely cannot answer for them. At most three questions, and fewer is better.',
+    'The three usually worth asking are what success looks like as a number, by when, and how much time a week they can give it. Skip any you can already tell from what they wrote.',
+    'Each question must be answerable in a few words. Keep the wording warm and plain, never a form field.',
+    'kind is "date" for a date, "number" for a number, and "text" otherwise. placeholder is a short example answer.',
+    'Today is ' + today + '.'
+  ].join(' ');
+
+  const goalPlanSystem = [
+    'You turn a goal into a plan inside Athena, a personal planner.',
+    'Write it SMART. title is the goal itself, short, specific and measurable, in their words. why is one line on why it matters to them.',
+    'measureTarget is the number that means done, measureLabel names what is counted, measureUnit is its unit, and measureStart is where they are today. If the goal has no sensible number, set measureTarget to 0 and let the milestones carry it.',
+    'milestones are three to six points on the way, in order, each dated between today and the target date, and each one something they can tell they have reached.',
+    'A routine is small things done together at a set time, which is how the habit side of a goal actually happens: routineName, routineTime, routineWeekdays (0 is Sunday, 6 is Saturday), and routineHabits as two to five short labels. Leave routineName empty when the goal does not need one.',
+    'steps are what repeats beyond the routine, at most four, each with freq "daily", "weekly" or "monthly". A weekly step needs a weekday (0 to 6) and a time.',
+    'tasks are the first one to three things that get it moving, each due within the next fortnight, with minutes as a rough length.',
+    'Respect the time they said they have. If they gave you hours a week, everything you plan together must fit inside it with room to spare. A plan they cannot keep is worse than no plan.',
+    'Be honest about pace. If their date cannot be reached safely or sensibly, set a target date that can be and say so plainly in note.',
+    'Their categories are: ' + (categories || 'Personal, Work, Health') + '. Use exactly one of these names for category.',
+    'Today is ' + today + '. Dates are "YYYY-MM-DD" and times are "HH:MM" on a 24 hour clock.',
+    'Every field must be present. Where something does not apply, use an empty value: "" for text, 0 for numbers, [] for lists.',
+    'note is one short sentence to them about the plan, or "" if you have nothing worth adding.'
+  ].join(' ');
+
+  let system = listSystem, schema = planSchema(catNames), prompt = ask;
+  if (mode === 'goalAsk'){
+    system = askSystem;
+    schema = askSchema();
+  } else if (mode === 'goalPlan'){
+    system = goalPlanSystem;
+    schema = goalSchema(catNames);
+    prompt = ask + (answers ? '\n\nWhat they told me: ' + answers : '');
+  }
+
   try {
     const client = new Anthropic();   // reads ANTHROPIC_API_KEY
-    const output_config = { format: zodOutputFormat(planSchema(catNames)) };
+    const output_config = { format: zodOutputFormat(schema) };
     // effort is only accepted on some models, and Haiku is not one of them:
     // sending it there is a 400, not a polite ignore. Only add it when the
     // model in use actually supports it.
@@ -163,7 +253,7 @@ export default async function handler(req, res){
       max_tokens: 8000,
       system,
       output_config,
-      messages: [{ role: 'user', content: ask }]
+      messages: [{ role: 'user', content: prompt }]
     });
 
     if (response.stop_reason === 'refusal'){
