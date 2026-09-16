@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-16.2';
+  const BUILD = '2026-09-16.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2660,18 +2660,24 @@
   }
 
   /* ---- planning a goal with Athena ----
-     Two passes, deliberately. The first asks the two or three things nobody
-     can guess: what success actually looks like, by when, and how much time a
-     week there is for it. A plan built on assumptions is a plan for somebody
-     else. The second writes the goal SMART and breaks it into milestones, a
-     routine, repeating steps and the first few tasks.
+     Two passes, deliberately. The first asks the handful of things nobody can
+     guess: what success actually looks like, by when, how much time there is,
+     when in the week it fits, and what has stopped them before. A plan built
+     on assumptions is a plan for somebody else.
+
+     The second gets a proper brief rather than a list of answers: the goal in
+     their words, every question and what they said, and the shape of the week
+     it has to fit into, down to the routines it must not clash with. Then it
+     writes the goal SMART and breaks it into milestones, a routine, repeating
+     steps and the first few tasks.
 
      Nothing lands until it has been ticked. An assistant that fills your week
      on its own is a thing you end up fighting. */
   let goalAI = null;
 
   function goalAIOpen(){
-    goalAI = { step:'ask', seed:'', smart:'', questions:[], answers:[], plan:null, pick:{}, busy:false, error:'' };
+    goalAI = { step:'ask', seed:'', smart:'', questions:[], answers:[], extra:'',
+      plan:null, pick:{}, busy:false, error:'' };
     render();
   }
 
@@ -2701,23 +2707,60 @@
     try {
       const out = await goalAICall({ mode:'goalAsk', ask:seed });
       goalAI.smart = String(out.smart || '');
-      goalAI.questions = (out.questions || []).slice(0, 3);
+      goalAI.questions = (out.questions || []).slice(0, 6);
       goalAI.answers = goalAI.questions.map(() => '');
       goalAI.step = 'questions'; goalAI.busy = false; render();
     } catch(e){ goalAI.busy = false; goalAI.error = e.message; render(); }
   }
 
+  /* What the week already looks like, in a few lines. This is the difference
+     between a plan and a wish: Athena knows the evenings are gone and the
+     morning routine is at half six, so it can put the running somewhere that
+     actually exists. */
+  function goalAIWeek(){
+    const now = new Date(), out = [];
+    const byCat = {};
+    for (let i = 0; i < 7; i++){
+      const d = new Date(now); d.setDate(now.getDate() + i);
+      blocksForDate(d).forEach(b => {
+        if (b.step || b.task || b.allDay) return;
+        const c = catOf(b.c).label;
+        byCat[c] = (byCat[c] || 0) + (mins(b.e) - mins(b.s));
+      });
+    }
+    const cats = Object.keys(byCat);
+    if (cats.length) out.push('Their week already holds ' + cats.map(c => dur(byCat[c]) + ' of ' + c).join(', ') + '.');
+    const rs = routinesAll().filter(r => r.time)
+      .map(r => r.name + ' on ' + weekdayList(r.weekdays) + ' at ' + clockOf(r.time));
+    if (rs.length) out.push('Routines they already run: ' + rs.join('; ') + '. Do not clash with these, and add to one rather than inventing a second at the same hour.');
+    const hs = habitList().map(h => h.l);
+    if (hs.length) out.push('Habits they already keep: ' + hs.join(', ') + '.');
+    const gs = (S.goals || []).map(g => g.title + (g.by ? ' by ' + g.by : ''));
+    if (gs.length) out.push('Other goals on the go: ' + gs.join('; ') + '. Their time has to come from somewhere, so keep this one modest alongside them.');
+    return out;
+  }
+
+  // The whole brief, in the order a person would tell it.
+  function goalAIBrief(){
+    const lines = ['Their goal, in their words: ' + goalAI.seed];
+    if (goalAI.smart) lines.push('A first reading of it: ' + goalAI.smart);
+    goalAI.questions.forEach((q, i) => {
+      lines.push('Asked: ' + q.label + ' They said: ' + (goalAI.answers[i] || '(nothing, so decide for them)'));
+    });
+    if (goalAI.extra) lines.push('They added: ' + goalAI.extra);
+    const week = goalAIWeek();
+    if (week.length) lines.push('', 'The week this has to fit into:', week.join(' '));
+    lines.push('', 'Today is ' + dayKey(new Date()) + ', a ' + DAYS[new Date().getDay()] + '.');
+    return lines.join('\n');
+  }
+
   async function goalAIPlan(){
     if (!goalAI) return;
     goalAI.answers = goalAI.questions.map((q, i) => ((document.getElementById('gai_a'+i) || {}).value || '').trim());
+    goalAI.extra = ((document.getElementById('gai_extra') || {}).value || '').trim();
     goalAI.busy = true; goalAI.error = ''; render();
-    // Unanswered questions are said out loud rather than left blank, so the
-    // model knows to make its own call instead of planning around a hole.
-    const qa = goalAI.questions
-      .map((q, i) => q.label + ' ' + (goalAI.answers[i] || '(they did not say)'))
-      .join('  ');
     try {
-      goalAI.plan = await goalAICall({ mode:'goalPlan', ask:goalAI.seed, answers:qa });
+      goalAI.plan = await goalAICall({ mode:'goalPlan', ask:goalAI.seed, brief:goalAIBrief() });
       goalAI.pick = {}; goalAI.step = 'plan'; goalAI.busy = false; render();
     } catch(e){ goalAI.busy = false; goalAI.error = e.message; render(); }
   }
@@ -2727,8 +2770,7 @@
   const okDay = n => (+n >= 0 && +n <= 6) ? +n : 1;
   const weekdayList = wd => {
     const list = (wd || []).map(Number).filter(n => n >= 0 && n <= 6).sort();
-    if (!list.length) return 'Every day';
-    if (list.length === 7) return 'Every day';
+    if (!list.length || list.length === 7) return 'every day';
     return list.map(n => SD[n]).join(', ');
   };
   const planStepWhen = s => s.freq === 'daily' ? 'Every day'
@@ -2754,7 +2796,7 @@
     if (p.routineName && (p.routineHabits || []).length){
       h += '<div class="gai-h">A routine</div>';
       h += gpickRow('ro', p.routineName,
-        weekdayList(p.routineWeekdays)+' '+clockOf(okTime(p.routineTime))+' · '+p.routineHabits.join(', '));
+        weekdayList(p.routineWeekdays)+' at '+clockOf(okTime(p.routineTime))+' · '+p.routineHabits.join(', '));
     }
     if ((p.steps || []).length){
       h += '<div class="gai-h">What repeats</div>';
@@ -2775,25 +2817,37 @@
     return h;
   }
 
+  // A question with a short list of answers is a tap, not typing, which is the
+  // difference between six questions being thorough and being a chore.
+  function goalAIQuestionHTML(q, i){
+    const opts = (q.options || []).filter(Boolean).slice(0, 6);
+    if (opts.length)
+      return '<label class="fld"><span>'+esc(q.label)+'</span>'+
+        '<select id="gai_a'+i+'"><option value="">Choose one</option>'+
+        opts.map(o => '<option value="'+esc(o)+'">'+esc(o)+'</option>').join('')+
+        '</select></label>';
+    const kind = q.kind === 'date' ? 'date' : q.kind === 'number' ? 'number' : 'text';
+    return '<label class="fld"><span>'+esc(q.label)+'</span>'+
+      '<input id="gai_a'+i+'" type="'+kind+'" placeholder="'+esc(q.placeholder || '')+'" autocomplete="off"></label>';
+  }
+
   function goalAIHTML(){
     const a = goalAI;
     let h = '<div class="modal-back" data-gaiclose></div><div class="modal"><div class="modal-h">Plan a goal with Athena</div>';
     if (a.step === 'ask'){
-      h += '<p class="ai-intro">Say it however it comes out. Athena asks a couple of things it cannot guess, then turns it into something specific and dated, broken into steps you can actually keep.</p>';
+      h += '<p class="ai-intro">Say it however it comes out. Athena asks a few things it cannot guess, then turns it into something specific and dated, broken into steps that fit the week you already have.</p>';
       h += '<label class="fld"><span>What do you want?</span>'+
         '<textarea id="gai_seed" rows="3" placeholder="e.g. get fit, or launch my side business"></textarea></label>';
       h += '<button class="go ai-primary" data-gaiask'+(a.busy ? ' disabled' : '')+'>'+
         (a.busy ? 'Thinking…' : 'Ask Athena')+'</button>';
     } else if (a.step === 'questions'){
-      if (a.smart) h += '<p class="ai-intro">Athena is reading that as <b>'+esc(a.smart)+'</b>. A couple of things it cannot guess:</p>';
-      a.questions.forEach((q, i) => {
-        const kind = q.kind === 'date' ? 'date' : q.kind === 'number' ? 'number' : 'text';
-        h += '<label class="fld"><span>'+esc(q.label)+'</span>'+
-          '<input id="gai_a'+i+'" type="'+kind+'" placeholder="'+esc(q.placeholder || '')+'" autocomplete="off"></label>';
-      });
+      if (a.smart) h += '<p class="ai-intro">Athena is reading that as <b>'+esc(a.smart)+'</b>. The more of this it knows, the better the plan fits:</p>';
+      a.questions.forEach((q, i) => { h += goalAIQuestionHTML(q, i); });
+      h += '<label class="fld"><span>Anything else it should know?</span>'+
+        '<textarea id="gai_extra" rows="2" placeholder="What has got in the way before, what you have already, anything to work around"></textarea></label>';
       h += '<button class="go ai-primary" data-gaiplan'+(a.busy ? ' disabled' : '')+'>'+
         (a.busy ? 'Writing the plan…' : 'Make me a plan')+'</button>';
-      h += '<p class="ai-howto">Skip anything you are unsure about. Athena will make a sensible call, and the plan is yours to change.</p>';
+      h += '<p class="ai-howto">Skip anything you are unsure about. Athena decides it for you, and the plan is yours to change.</p>';
     } else if (a.plan){
       h += goalAIPlanHTML(a.plan);
     }
@@ -2812,7 +2866,7 @@
   function goalAIApply(){
     const p = goalAI && goalAI.plan;
     if (!p) return;
-    const gid = 'g_'+uid8(), cat = matchCat(p.category), today = dayKey(new Date());
+    const gid = 'g_'+uid8(), cat = matchCat(p.category);
     const goal = {
       id: gid,
       title: String(p.title || goalAI.seed).slice(0, 120),
@@ -2863,7 +2917,7 @@
       });
     });
 
-    goalAI = null; clearDraft('gai_seed');
+    goalAI = null; clearDraft('gai_seed'); clearDraft('gai_extra');
     view = 'grow'; growMode = 'goals'; openGoal = gid;
     save(); render();
   }

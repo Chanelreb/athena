@@ -98,15 +98,17 @@ export function planSchema(cats){
   });
 }
 
-/* What Athena asks before it plans a goal. Three at most: past that it stops
-   feeling like help and starts feeling like a form. */
+/* What Athena asks before it plans a goal. Six at most, and a question with a
+   short list of answers is a tap rather than typing, which is what keeps six
+   from feeling like a form. */
 export function askSchema(){
   return z.object({
     smart: z.string(),
     questions: z.array(z.object({
       label: z.string(),
       placeholder: z.string(),
-      kind: z.enum(['text', 'date', 'number'])
+      kind: z.enum(['text', 'date', 'number']),
+      options: z.array(z.string())
     }))
   });
 }
@@ -175,6 +177,9 @@ export default async function handler(req, res){
   const ask = String((body && body.ask) || '').trim().slice(0, 3000);
   const mode = String((body && body.mode) || '').slice(0, 20);
   const answers = String((body && body.answers) || '').slice(0, 1500);
+  // The brief is the whole picture: their words, every answer, and the shape of
+  // the week the plan has to fit into. Longer than an answer list, and worth it.
+  const brief = String((body && body.brief) || '').slice(0, 4000);
   const categories = String((body && body.categories) || '').slice(0, 400);
   const catNames = Array.from(new Set(categories.split(',').map(s => s.trim()).filter(Boolean))).slice(0, 30);
   const today = String((body && body.today) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
@@ -208,10 +213,12 @@ export default async function handler(req, res){
   const askSystem = [
     'You help someone turn a vague goal into a SMART one: specific, measurable, achievable, relevant and time bound.',
     'Put the sharpest version you can manage in "smart", as one short sentence in their own kind of words.',
-    'Then ask only what you genuinely cannot answer for them. At most three questions, and fewer is better.',
-    'The three usually worth asking are what success looks like as a number, by when, and how much time a week they can give it. Skip any you can already tell from what they wrote.',
-    'Each question must be answerable in a few words. Keep the wording warm and plain, never a form field.',
-    'kind is "date" for a date, "number" for a number, and "text" otherwise. placeholder is a short example answer.',
+    'Then ask four to six questions: enough to plan properly, never so many it becomes a form. Ask nothing you can already tell from what they wrote.',
+    'Cover the ground that changes the plan: what success looks like as a number, by when, how much time a week they have, which days or times of day actually suit them, what has stopped them before, and what they already have or still need (equipment, money, someone else involved).',
+    'Order them so the two that matter most come first, in case they answer only those.',
+    'Each question must be answerable in a few words. Keep the wording warm and plain, like a person who is interested, never a form field.',
+    'kind is "date" for a date, "number" for a number, and "text" otherwise.',
+    'When the sensible answers are a short list, put two to six of them in options and leave placeholder empty: choosing beats typing on a phone. Otherwise leave options empty and put a short example answer in placeholder.',
     'Today is ' + today + '.'
   ].join(' ');
 
@@ -223,7 +230,10 @@ export default async function handler(req, res){
     'A routine is small things done together at a set time, which is how the habit side of a goal actually happens: routineName, routineTime, routineWeekdays (0 is Sunday, 6 is Saturday), and routineHabits as two to five short labels. Leave routineName empty when the goal does not need one.',
     'steps are what repeats beyond the routine, at most four, each with freq "daily", "weekly" or "monthly". A weekly step needs a weekday (0 to 6) and a time.',
     'tasks are the first one to three things that get it moving, each due within the next fortnight, with minutes as a rough length.',
+    'You are given a brief: their goal in their own words, every question they were asked and what they said, and the shape of the week this has to fit into. Use all of it. Where they did not answer, decide for them and move on.',
     'Respect the time they said they have. If they gave you hours a week, everything you plan together must fit inside it with room to spare. A plan they cannot keep is worse than no plan.',
+    'Fit the plan around what is already in their week. Do not put a routine at an hour another routine already owns, and keep this goal modest when other goals are already running.',
+    'Use what they told you about themselves. If something has stopped them before, the plan should answer it rather than ignore it.',
     'Be honest about pace. If their date cannot be reached safely or sensibly, set a target date that can be and say so plainly in note.',
     'Their categories are: ' + (categories || 'Personal, Work, Health') + '. Use exactly one of these names for category.',
     'Today is ' + today + '. Dates are "YYYY-MM-DD" and times are "HH:MM" on a 24 hour clock.',
@@ -238,7 +248,7 @@ export default async function handler(req, res){
   } else if (mode === 'goalPlan'){
     system = goalPlanSystem;
     schema = goalSchema(catNames);
-    prompt = ask + (answers ? '\n\nWhat they told me: ' + answers : '');
+    prompt = brief || (ask + (answers ? '\n\nWhat they told me: ' + answers : ''));
   }
 
   try {
