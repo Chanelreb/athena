@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-11.6';
+  const BUILD = '2026-09-16.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2422,70 +2422,239 @@
     return h;
   }
 
-  /* ---------- goals ---------- */
+  /* ---------- goals ----------
+     A goal is the long view: what you are building toward, how you will know
+     you got there, and the few repeatable things that will take you. Progress
+     comes from whichever of those suits the goal: a number worth logging (5km,
+     ten clients, four thousand saved), or milestones to tick off. Everything
+     past the title is optional, because goals made before any of it existed
+     are still goals. */
   const stepDone = (st, now) => {
     if (st.freq === 'daily') return isDone(st.id, dayKey(now));
     if (st.freq === 'weekly') return isDone('w:'+st.id, weekKey(now));
     return isDone('m:'+st.id, monKey(now));
   };
-  function goalsView(now){
-    const today = dayKey(now);
-    const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'>"+esc(c.label)+"</option>").join('');
-    const DAYOPTS = [1,2,3,4,5,6,0].map(d => "<option value='"+d+"'>"+SD[d]+"</option>").join('');
-    const freqText = st => st.freq === 'daily' ? 'Every day'
-      : st.freq === 'weekly' ? (st.time != null ? SD[st.day == null ? 1 : st.day] + ' ' + clockOf(st.time) : 'Weekly')
-      : 'Monthly';
-    const nice = d => { const x = parseDay(d); return x.getDate()+' '+SHORT[x.getMonth()]+' '+x.getFullYear(); };
+  const freqText = st => st.freq === 'daily' ? 'Every day'
+    : st.freq === 'weekly' ? (st.time != null ? SD[st.day == null ? 1 : st.day] + ' ' + clockOf(st.time) : 'Weekly')
+    : 'Monthly';
+  const goalDate = d => { const x = parseDay(d); return x.getDate()+' '+SHORT[x.getMonth()]; };
+  const fmtNum = n => String(Math.round(n * 100) / 100);
 
-    let h = '<h2>What you are building</h2>';
-    if (!(S.goals||[]).length){
-      h += '<p class="park-empty">Nothing set yet. Name one thing you are building toward, give it a date, then break it into small repeatable steps. Daily steps join your everyday ticks automatically.</p>';
-    }
-    (S.goals||[]).forEach(g => {
-      const steps = g.steps || [];
-      const done = steps.filter(st => stepDone(st, now)).length;
-      const col = catColor(g.cat);
-      let sub = 'No date set';
-      if (g.by){
-        const left = daysBetween(today, g.by);
-        sub = left > 1 ? left + ' days to go · ' + nice(g.by)
-            : left === 1 ? 'Tomorrow · ' + nice(g.by)
-            : left === 0 ? 'Today is the day'
-            : 'Date passed · ' + nice(g.by);
-      }
-      h += '<div class="goal"><button class="ghead" data-goal="'+g.id+'">'+
-        '<span class="swatch" style="background:'+col+'"></span>'+
-        '<span class="gl"><b>'+esc(g.title)+'</b><small'+(g.by && g.by < today ? ' class="late"' : '')+'>'+esc(sub)+'</small></span>'+
-        '<span class="bar"><i style="width:'+(steps.length ? done/steps.length*100 : 0)+'%;background:'+col+'"></i></span>'+
-        '<span class="val">'+done+' of '+steps.length+'</span></button>';
-      if (openGoal === g.id){
-        h += '<div class="gbody">';
-        if (!steps.length) h += '<p class="park-empty" style="padding:8px 2px 4px">No steps yet. What will you do daily, weekly or monthly to get there?</p>';
-        steps.forEach(st => {
-          const on = stepDone(st, now);
-          h += '<div class="grow2"><button class="mini'+(on?' on':'')+'" data-step="'+g.id+':'+st.id+'">'+
-            '<span class="mark" style="'+(on?'background:'+col+';border-color:'+col:'')+'"></span>'+
-            '<span>'+esc(st.label)+'</span><span class="day">'+esc(freqText(st))+'</span></button>'+
-            '<button class="del" data-delstep="'+g.id+':'+st.id+'" aria-label="Remove step">×</button></div>';
-        });
-        h += '<div class="gform">'+
-          '<input id="sl_'+g.id+'" type="text" placeholder="A step you will repeat" autocomplete="off">'+
-          '<div class="frow">'+
-            '<select id="sf_'+g.id+'"><option value="daily">Daily</option><option value="weekly" selected>Weekly</option><option value="monthly">Monthly</option></select>'+
-            '<select id="sday_'+g.id+'">'+DAYOPTS+'</select>'+
-            '<input id="stime_'+g.id+'" type="time" value="17:00">'+
-          '</div>'+
-          '<button class="go" data-addstep="'+g.id+'">Add step</button>'+
-          '<small class="gform-hint">Day and time apply to weekly steps, which then appear on your calendar.</small></div>';
-        h += '<button class="del wide" data-delgoal="'+g.id+'">Remove this goal</button>';
-        h += '</div>';
-      }
+  // Milestones in date order, undated last: a plan reads as a sequence.
+  const goalMs = g => (g.milestones || []).slice()
+    .sort((a, b) => String(a.by || '9999-99-99').localeCompare(String(b.by || '9999-99-99')));
+  const goalTasks = g => (S.tasks || []).filter(tk => tk.goal === g.id);
+  // A measure only counts if it has somewhere to get to.
+  const measureOf = g => {
+    const m = g.measure;
+    if (!m || !+m.target) return null;
+    return { label: m.label || 'Progress', unit: m.unit || '', start: +m.start || 0, target: +m.target };
+  };
+  const goalValue = g => {
+    const log = g.log || [];
+    if (log.length) return +log[log.length - 1].v;
+    const m = measureOf(g);
+    return m ? m.start : 0;
+  };
+  /* One number for the ring, from whichever measure the goal actually has.
+     Steps are the last resort: "kept today" is a poor measure of a year, but
+     it beats a ring that never moves. */
+  function goalPct(g, now){
+    const m = measureOf(g);
+    if (m && m.target !== m.start)
+      return Math.max(0, Math.min(1, (goalValue(g) - m.start) / (m.target - m.start)));
+    const ms = goalMs(g);
+    if (ms.length) return ms.filter(x => x.doneAt).length / ms.length;
+    const steps = g.steps || [];
+    if (!steps.length) return 0;
+    return steps.filter(st => stepDone(st, now || new Date())).length / steps.length;
+  }
+  // The next thing that would actually move it, so a card says what to do
+  // rather than only how far along you are.
+  function goalNext(g, now){
+    const open = goalMs(g).filter(x => !x.doneAt)[0];
+    if (open) return open.label + (open.by ? ' · ' + goalDate(open.by) : '');
+    const tk = goalTasks(g).filter(x => !taskDone(x, now)).sort(taskSorter(now))[0];
+    if (tk) return tk.title + (tk.due ? ' · ' + dueLabel(tk.due, now, tk.dateType).text : '');
+    const st = (g.steps || []).filter(x => !stepDone(x, now))[0];
+    if (st) return st.label + ' · ' + freqText(st);
+    return '';
+  }
+  // Behind means a date has gone by with the work not done. Said only when
+  // true: a goal that cries wolf gets ignored.
+  function goalLate(g, today, now){
+    if (goalMs(g).some(x => !x.doneAt && x.by && x.by < today)) return true;
+    return !!(g.by && g.by < today && goalPct(g, now) < 1);
+  }
+
+  function ringHTML(pct, col, size){
+    const r = (size - 5) / 2, c = 2 * Math.PI * r, mid = size / 2;
+    return '<svg class="gring" width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'" aria-hidden="true">'+
+      '<circle cx="'+mid+'" cy="'+mid+'" r="'+r+'" fill="none" stroke="var(--line)" stroke-width="4"/>'+
+      '<circle cx="'+mid+'" cy="'+mid+'" r="'+r+'" fill="none" stroke="'+col+'" stroke-width="4" stroke-linecap="round" '+
+        'stroke-dasharray="'+(c * pct).toFixed(1)+' '+c.toFixed(1)+'" transform="rotate(-90 '+mid+' '+mid+')"/>'+
+      '<text x="'+mid+'" y="'+(mid + 4)+'" text-anchor="middle" class="gringt">'+Math.round(pct * 100)+'</text></svg>';
+  }
+
+  /* The milestones as a line from here to the date. Dots sit at even spacing
+     rather than by date: with one milestone a fortnight away and the next in
+     June, true spacing squashes the near ones into an unreadable clump. */
+  function timelineHTML(g, col){
+    const ms = goalMs(g);
+    if (ms.length < 2) return '';
+    const n = ms.length;
+    const pos = i => i / (n - 1) * 100;
+    const edge = i => i === 0 ? 'translateX(0)' : i === n - 1 ? 'translateX(-100%)' : 'translateX(-50%)';
+    let lastDone = -1;
+    ms.forEach((x, i) => { if (x.doneAt) lastDone = i; });
+    let h = '<div class="gtl"><i class="gtl-line"></i>'+
+      '<i class="gtl-line on" style="width:'+(lastDone < 0 ? 0 : pos(lastDone))+'%;background:'+col+'"></i>';
+    ms.forEach((x, i) => {
+      h += '<span class="gtl-dot'+(x.doneAt ? ' on' : '')+'" style="left:'+pos(i)+'%;transform:'+edge(i)+';'+
+        (x.doneAt ? 'background:'+col+';border-color:'+col : 'border-color:'+col)+'"></span>';
     });
+    // Only the ends are named. A label per dot collides as soon as there are
+    // four of them on a phone, and the card already says which one is next.
+    h += '</div><div class="gtl-lbl"><span>'+esc(ms[0].label)+'</span>'+
+      '<span>'+esc(ms[n - 1].label)+'</span></div>';
+    return h;
+  }
+
+  function goalCardHTML(g, now){
+    const today = dayKey(now), col = catColor(g.cat);
+    const pct = goalPct(g, now), late = goalLate(g, today, now), nxt = goalNext(g, now);
+    let sub;
+    if (!g.by) sub = 'No date set';
+    else {
+      const left = daysBetween(today, g.by);
+      sub = left > 1 ? goalDate(g.by)+' · '+left+' days to go'
+          : left === 1 ? 'Tomorrow · '+goalDate(g.by)
+          : left === 0 ? 'Today is the day'
+          : 'Date passed · '+goalDate(g.by);
+    }
+    let h = '<div class="gcard'+(late ? ' late' : '')+'" style="--gc:'+col+'">'+
+      '<button class="gcard-h" data-goalopen="'+g.id+'">'+ringHTML(pct, col, 46)+
+      '<span class="gc-l"><b>'+esc(g.title)+'</b>'+
+      '<small'+(late ? ' class="late"' : '')+'>'+esc(sub)+'</small></span>'+
+      '<span class="gc-go" aria-hidden="true">›</span></button>';
+    const m = measureOf(g);
+    if (m) h += '<div class="gc-meas"><span>'+esc(m.label)+'</span>'+
+      '<b>'+fmtNum(goalValue(g))+' of '+fmtNum(m.target)+(m.unit ? ' '+esc(m.unit) : '')+'</b></div>';
+    if (nxt) h += '<div class="gc-next"><em>Next</em>'+esc(nxt)+'</div>';
+    h += timelineHTML(g, col);
+    return h + '</div>';
+  }
+
+  function goalsView(now){
+    if (openGoal){
+      const g = (S.goals || []).find(x => x.id === openGoal);
+      if (g) return goalPageHTML(g, now);
+      openGoal = null;
+    }
+    const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'>"+esc(c.label)+"</option>").join('');
+    let h = '<h2>What you are building</h2>';
+    if (!(S.goals || []).length){
+      h += '<p class="park-empty">Nothing set yet. Name one thing you are building toward, give it a date, then open it and break it into milestones and small repeatable steps. Daily steps join your everyday ticks, and weekly steps land on your calendar.</p>';
+    }
+    (S.goals || []).forEach(g => { h += goalCardHTML(g, now); });
     h += '<h2>New goal</h2><div class="gform">'+
       '<input id="gt" type="text" placeholder="What are you building toward?" autocomplete="off">'+
       '<div class="frow"><input id="gb" type="date"><select id="gc">'+CATOPTS+'</select></div>'+
       '<button class="go" data-addgoal>Add goal</button></div>';
-    h += '<p class="slack" style="padding-top:16px">Daily steps become everyday tick-offs. Weekly steps show up in your calendar on the day and time you pick. Monthly steps are tracked here.</p>';
+    return h;
+  }
+
+  /* A goal gets a page of its own. On a card there is room for how far along
+     you are and what is next; everything else about it lives here. */
+  function goalPageHTML(g, now){
+    const today = dayKey(now), col = catColor(g.cat), m = measureOf(g);
+    const pct = goalPct(g, now), late = goalLate(g, today, now);
+    const ms = goalMs(g), steps = g.steps || [], tasks = goalTasks(g);
+    const CATOPTS = S.categories.map(c =>
+      "<option value='"+c.id+"'"+(c.id === g.cat ? ' selected' : '')+">"+esc(c.label)+"</option>").join('');
+    const DAYOPTS = [1,2,3,4,5,6,0].map(d => "<option value='"+d+"'>"+SD[d]+"</option>").join('');
+
+    let when = 'No date set';
+    if (g.by){
+      const left = daysBetween(today, g.by);
+      when = goalDate(g.by)+' · '+(left > 1 ? left+' days to go' : left === 1 ? 'tomorrow'
+           : left === 0 ? 'today is the day' : 'date passed');
+    }
+
+    let h = '<button class="gp-back" data-goalback>‹ All goals</button>'+
+      '<div class="gp-h" style="--gc:'+col+'">'+ringHTML(pct, col, 58)+
+      '<div class="gp-ht"><h1>'+esc(g.title)+'</h1>'+
+      '<p'+(late ? ' class="late"' : '')+'>'+esc(catOf(g.cat).label)+' · '+esc(when)+'</p></div></div>';
+    if (g.why) h += '<p class="gp-why">'+esc(g.why)+'</p>';
+
+    if (m){
+      const v = goalValue(g), span = m.target - m.start;
+      const w = span ? Math.max(0, Math.min(1, (v - m.start) / span)) * 100 : 0;
+      h += '<div class="gp-meas"><div class="gp-mh"><span>'+esc(m.label)+'</span>'+
+        '<b>'+fmtNum(v)+' of '+fmtNum(m.target)+(m.unit ? ' '+esc(m.unit) : '')+'</b></div>'+
+        '<div class="gmeter"><i style="width:'+w.toFixed(1)+'%;background:'+col+'"></i></div>'+
+        '<div class="gp-log"><input id="lg_'+g.id+'" type="number" step="any" inputmode="decimal" '+
+          'placeholder="Where are you now?" autocomplete="off">'+
+          '<button class="ghostbtn" data-goallog="'+g.id+'">Log it</button></div>';
+      const log = g.log || [];
+      if (log.length > 1){
+        const first = +log[0].v, moved = v - first;
+        h += '<p class="gp-logged">Logged '+log.length+' times'+
+          (moved ? ' · '+(moved > 0 ? 'up ' : 'down ')+fmtNum(Math.abs(moved))+(m.unit ? ' '+esc(m.unit) : '')+
+            ' since '+goalDate(log[0].d) : '')+'</p>';
+      }
+      h += '</div>';
+    }
+
+    h += '<h2>Milestones</h2>';
+    if (!ms.length) h += '<p class="park-empty">None yet. A milestone is a point you can name and tick off on the way, like "3km without walking".</p>';
+    h += '<div class="mslist">' + ms.map(x =>
+      '<div class="msrow'+(x.doneAt ? ' done' : '')+(!x.doneAt && x.by && x.by < today ? ' late' : '')+'">'+
+        '<button class="mstick" data-mstick="'+g.id+':'+x.id+'" aria-label="'+(x.doneAt ? 'Undo ' : 'Tick off ')+esc(x.label)+'">'+
+          '<span class="mark" style="'+(x.doneAt ? 'background:'+col+';border-color:'+col : 'border-color:'+col)+'">'+TICK+'</span></button>'+
+        '<span class="msl"><b>'+esc(x.label)+'</b>'+
+          (x.by ? '<em>'+esc(x.doneAt ? 'done '+goalDate(x.doneAt) : goalDate(x.by))+'</em>' : '')+'</span>'+
+        '<button class="del" data-delms="'+g.id+':'+x.id+'" aria-label="Remove milestone">×</button></div>').join('') + '</div>';
+    h += '<div class="gform"><input id="ml_'+g.id+'" type="text" placeholder="A point on the way" autocomplete="off">'+
+      '<div class="frow"><input id="mld_'+g.id+'" type="date">'+
+      '<button class="go" data-addms="'+g.id+'">Add milestone</button></div></div>';
+
+    h += '<h2>Every week</h2>';
+    if (!steps.length) h += '<p class="park-empty">No repeating steps yet. What will you do daily, weekly or monthly to get there?</p>';
+    steps.forEach(st => {
+      const on = stepDone(st, now);
+      h += '<div class="grow2"><button class="mini'+(on ? ' on' : '')+'" data-step="'+g.id+':'+st.id+'">'+
+        '<span class="mark" style="'+(on ? 'background:'+col+';border-color:'+col : '')+'"></span>'+
+        '<span>'+esc(st.label)+'</span><span class="day">'+esc(freqText(st))+'</span></button>'+
+        '<button class="del" data-delstep="'+g.id+':'+st.id+'" aria-label="Remove step">×</button></div>';
+    });
+    h += '<div class="gform">'+
+      '<input id="sl_'+g.id+'" type="text" placeholder="A step you will repeat" autocomplete="off">'+
+      '<div class="frow">'+
+        '<select id="sf_'+g.id+'"><option value="daily">Daily</option><option value="weekly" selected>Weekly</option><option value="monthly">Monthly</option></select>'+
+        '<select id="sday_'+g.id+'">'+DAYOPTS+'</select>'+
+        '<input id="stime_'+g.id+'" type="time" value="17:00">'+
+      '</div>'+
+      '<button class="go" data-addstep="'+g.id+'">Add step</button>'+
+      '<small class="gform-hint">Day and time apply to weekly steps, which then appear on your calendar.</small></div>';
+
+    if (tasks.length){
+      h += '<h2>Tasks for this</h2><div class="tlist">'+
+        tasks.slice().sort(taskSorter(now)).map(tk => taskRow(tk, now, true)).join('')+'</div>';
+    }
+
+    h += '<h2>The goal itself</h2><div class="gform">'+
+      '<input id="gt_'+g.id+'" type="text" value="'+esc(g.title)+'" autocomplete="off">'+
+      '<input id="gw_'+g.id+'" type="text" value="'+esc(g.why || '')+'" placeholder="Why it matters, in one line" autocomplete="off">'+
+      '<div class="frow"><input id="gb_'+g.id+'" type="date" value="'+esc(g.by || '')+'"><select id="gc_'+g.id+'">'+CATOPTS+'</select></div>'+
+      '<small class="gform-hint">A number to track, if this goal has one. Leave the target empty to go by milestones instead.</small>'+
+      '<div class="frow" style="margin-top:8px">'+
+        '<input id="gml_'+g.id+'" type="text" value="'+esc((g.measure && g.measure.label) || '')+'" placeholder="What you measure" autocomplete="off">'+
+        '<input id="gmt_'+g.id+'" type="number" step="any" value="'+esc(g.measure && g.measure.target != null ? String(g.measure.target) : '')+'" placeholder="Target">'+
+        '<input id="gmu_'+g.id+'" type="text" value="'+esc((g.measure && g.measure.unit) || '')+'" placeholder="Unit" autocomplete="off">'+
+      '</div>'+
+      '<button class="go" data-goalsave="'+g.id+'">Save changes</button></div>';
+    h += '<button class="del wide" data-delgoal="'+g.id+'">Remove this goal</button>';
     return h;
   }
 
@@ -4368,7 +4537,61 @@
     if (t('[data-weekmode]')){ weekMode = (weekMode === 'days' ? 'strips' : 'days'); render(); return; }
     if (t('[data-expand]')){ expanded = !expanded; render(); return; }
     if ((m = t('[data-day]'))){ const d = +m.dataset.day; openDay = (openDay === d) ? null : d; render(); return; }
-    if ((m = t('[data-goal]'))){ const id = m.dataset.goal; openGoal = (openGoal === id) ? null : id; render(); return; }
+    if ((m = t('[data-goalopen]'))){ openGoal = m.dataset.goalopen; render(); return; }
+    if (t('[data-goalback]')){ openGoal = null; render(); return; }
+    if ((m = t('[data-mstick]'))){
+      const [gid, mid] = m.dataset.mstick.split(':');
+      const g = S.goals.find(x => x.id === gid);
+      const ms = g && (g.milestones || []).find(x => x.id === mid);
+      if (!ms) return;
+      ms.doneAt = ms.doneAt ? null : today;
+      if (ms.doneAt){ markJustDone(mid); buzz(12); }
+      save(); render(); return;
+    }
+    if ((m = t('[data-addms]'))){
+      const gid = m.dataset.addms, g = S.goals.find(x => x.id === gid); if (!g) return;
+      const lab = ((document.getElementById('ml_'+gid) || {}).value || '').trim();
+      if (!lab) return;
+      const by = (document.getElementById('mld_'+gid) || {}).value || '';
+      clearDraft('ml_'+gid); clearDraft('mld_'+gid);
+      g.milestones = (g.milestones || []).concat([{ id:'ms_'+uid8(), label:lab.slice(0,120), by:by, doneAt:null }]);
+      save(); render(); return;
+    }
+    if ((m = t('[data-delms]'))){
+      markUndo('Milestone removed');
+      const [gid, mid] = m.dataset.delms.split(':');
+      const g = S.goals.find(x => x.id === gid);
+      if (g) g.milestones = (g.milestones || []).filter(x => x.id !== mid);
+      save(); render(); return;
+    }
+    // Logging keeps the whole run, not only the latest number. The climb is the
+    // encouraging part, and it is the only way to say "up 1.4km since August".
+    if ((m = t('[data-goallog]'))){
+      const gid = m.dataset.goallog, g = S.goals.find(x => x.id === gid); if (!g) return;
+      const el = document.getElementById('lg_'+gid);
+      const v = el && el.value !== '' ? +el.value : null;
+      if (v == null || isNaN(v)){ if (el) el.focus(); return; }
+      clearDraft('lg_'+gid);
+      g.log = (g.log || []).concat([{ d:today, v:v }]);
+      buzz(10); save(); render(); return;
+    }
+    if ((m = t('[data-goalsave]'))){
+      const gid = m.dataset.goalsave, g = S.goals.find(x => x.id === gid); if (!g) return;
+      const val = k => ((document.getElementById(k+'_'+gid) || {}).value || '').trim();
+      const ti = val('gt');
+      if (ti) g.title = ti.slice(0, 120);
+      g.why = val('gw').slice(0, 200);
+      g.by = val('gb');
+      g.cat = val('gc') || g.cat;
+      // An empty target means this goal is not the kind with a number in it,
+      // and it goes back to counting milestones.
+      const target = val('gmt');
+      if (target === '') g.measure = null;
+      else g.measure = { label:val('gml').slice(0, 60) || 'Progress', unit:val('gmu').slice(0, 16),
+        target:+target, start:(g.measure && +g.measure.start) || 0 };
+      ['gt','gw','gb','gc','gml','gmt','gmu'].forEach(k => clearDraft(k+'_'+gid));
+      save(); render(); return;
+    }
 
     if ((m = t('[data-done]'))){
       const [id, dk] = m.dataset.done.split('|');
@@ -4417,7 +4640,8 @@
       clearDraft('gt'); clearDraft('gb');
       const id = 'g_'+uid8();
       S.goals.push({ id, title:ti.trim().slice(0,120), by:(document.getElementById('gb')||{}).value||'',
-        cat:(document.getElementById('gc')||{}).value||(S.categories[0]||{}).id, steps:[] });
+        cat:(document.getElementById('gc')||{}).value||(S.categories[0]||{}).id,
+        why:'', measure:null, log:[], milestones:[], steps:[] });
       openGoal = id; save(); render(); return;
     }
     if ((m = t('[data-addstep]'))){

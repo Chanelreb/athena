@@ -303,17 +303,6 @@
   #soft-app .hgrid i.fut { opacity: .3; }
   #soft-app .hgrid i.td { box-shadow: 0 0 0 1.5px var(--live); }
   #soft-app .seg button { padding: 7px 13px; }
-  #soft-app .goal { margin-bottom: 9px; }
-  #soft-app .ghead {
-    width: 100%; display: flex; align-items: center; gap: 13px;
-    background: var(--raise); border: 1px solid var(--line); border-radius: 14px;
-    padding: 15px 16px; font: inherit; color: var(--text); text-align: left; cursor: pointer;
-  }
-  #soft-app .ghead .gl { flex: 1; min-width: 0; }
-  #soft-app .ghead .gl b { display: block; font-size: 15.5px; font-weight: 500; }
-  #soft-app .ghead .gl small { display: block; font-size: 12.5px; color: var(--dim); margin-top: 3px; }
-  #soft-app .ghead .gl small.late { color: var(--live); }
-  #soft-app .gbody { padding: 6px 4px 16px; }
   #soft-app .grow2 { display: flex; align-items: center; gap: 6px; }
   #soft-app .grow2 .mini { flex: 1; }
   #soft-app .del {
@@ -1477,3 +1466,106 @@
   /* habits on the Day view, tucked under the ring they count toward */
   #soft-app .dayhab-h { margin-top: 0; }
   #soft-app .dayhab-h + .chips { margin-bottom: 20px; }
+
+  /* ===== Goals: a card each in the list, a page each when opened ===== */
+  #soft-app .gcard {
+    background: var(--raise); border: 1px solid var(--line); border-left: 3px solid var(--gc);
+    border-radius: 0; padding: 13px 15px 14px; margin-bottom: 10px;
+  }
+  #soft-app .gcard-h {
+    width: 100%; display: flex; align-items: center; gap: 13px;
+    background: none; border: 0; padding: 0; font: inherit; color: var(--text);
+    text-align: left; cursor: pointer;
+  }
+  #soft-app .gring { flex: 0 0 auto; }
+  #soft-app .gringt { fill: var(--text); font-size: 11.5px; font-family: var(--sans); }
+  #soft-app .gcard-h .gc-l { flex: 1; min-width: 0; }
+  #soft-app .gc-l b { display: block; font-size: 15.5px; font-weight: 500; line-height: 1.3; }
+  #soft-app .gc-l small { display: block; font-size: 12.5px; color: var(--dim); margin-top: 3px; }
+  #soft-app .gc-l small.late { color: var(--warn); }
+  #soft-app .gc-go { flex: 0 0 auto; color: var(--ghost); font-size: 20px; line-height: 1; }
+  #soft-app .gc-meas {
+    display: flex; justify-content: space-between; gap: 10px;
+    font-size: 12.5px; color: var(--dim); margin-top: 12px;
+  }
+  #soft-app .gc-meas b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  #soft-app .gc-next { font-size: 12.5px; color: var(--dim); margin-top: 10px; line-height: 1.4; }
+  #soft-app .gc-next em {
+    font-style: normal; font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--ghost); margin-right: 8px;
+  }
+
+  /* the milestone line. Dots are evenly spaced, so the labels stay readable */
+  #soft-app .gtl { position: relative; height: 12px; margin: 14px 2px 0; }
+  #soft-app .gtl-line {
+    position: absolute; top: 5px; left: 0; right: 0; height: 2px;
+    background: var(--line); border-radius: 1px;
+  }
+  #soft-app .gtl-line.on { right: auto; }
+  #soft-app .gtl-dot {
+    position: absolute; top: 0; width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid var(--ghost); background: var(--raise); box-sizing: border-box;
+  }
+  #soft-app .gtl-lbl { display: flex; justify-content: space-between; gap: 12px; margin: 4px 2px 0; }
+  #soft-app .gtl-lbl span {
+    max-width: 46%; font-size: 10.5px; color: var(--ghost);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #soft-app .gtl-lbl span:last-child { text-align: right; }
+
+  /* the page for one goal */
+  #soft-app .gp-back {
+    background: none; border: 0; padding: 0; margin: 0 0 14px; font: inherit;
+    font-size: 13px; color: var(--dim); cursor: pointer;
+  }
+  #soft-app .gp-back:hover { color: var(--text); }
+  #soft-app .gp-h { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+  #soft-app .gp-ht { flex: 1; min-width: 0; }
+  #soft-app .gp-ht h1 { font-size: 19px; font-weight: 500; line-height: 1.3; margin: 0; }
+  #soft-app .gp-ht p { font-size: 12.5px; color: var(--dim); margin: 4px 0 0; }
+  #soft-app .gp-ht p.late { color: var(--warn); }
+  #soft-app .gp-why {
+    font-family: var(--serif); font-size: 15px; line-height: 1.55; color: var(--dim);
+    margin: 0 0 16px; padding-left: 12px; border-left: 2px solid var(--line);
+  }
+  #soft-app .gp-meas { background: var(--raise); border-radius: 12px; padding: 13px 14px 14px; }
+  #soft-app .gp-mh {
+    display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px;
+    color: var(--dim); margin-bottom: 9px;
+  }
+  #soft-app .gp-mh b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  #soft-app .gmeter { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  #soft-app .gmeter i { display: block; height: 100%; border-radius: 3px; }
+  #soft-app .gp-log { display: flex; gap: 8px; margin-top: 12px; }
+  #soft-app .gp-log input {
+    flex: 1; min-width: 0; font: inherit; font-size: 14.5px; color: var(--text);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+  }
+  #soft-app .gp-log input:focus { outline: 2px solid var(--live); outline-offset: 1px; }
+  #soft-app .ghostbtn {
+    flex: 0 0 auto; font: inherit; font-size: 14px; background: none; color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; cursor: pointer;
+  }
+  #soft-app .ghostbtn:hover { border-color: var(--ghost); }
+  #soft-app .gp-logged { font-size: 11.5px; color: var(--ghost); margin: 10px 0 0; }
+
+  #soft-app .mslist { display: flex; flex-direction: column; }
+  #soft-app .msrow {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--line);
+  }
+  #soft-app .msrow:last-child { border-bottom: 0; }
+  #soft-app .mstick { flex: 0 0 auto; background: none; border: 0; padding: 0; cursor: pointer; }
+  #soft-app .mstick .mark {
+    display: grid; place-items: center; width: 19px; height: 19px;
+    border-radius: 50%; border: 1.5px solid var(--ghost);
+  }
+  #soft-app .mstick .mark svg { width: 10px; height: 10px; opacity: 0; }
+  #soft-app .msrow.done .mstick .mark svg { opacity: 1; }
+  #soft-app .msl { flex: 1; min-width: 0; }
+  #soft-app .msl b { display: block; font-size: 14.5px; font-weight: 400; line-height: 1.35; }
+  #soft-app .msl em {
+    font-style: normal; display: block; font-size: 11.5px; color: var(--ghost); margin-top: 2px;
+  }
+  #soft-app .msrow.done .msl b { color: var(--ghost); text-decoration: line-through; }
+  #soft-app .msrow.late .msl em { color: var(--warn); }
