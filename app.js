@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-16.3';
+  const BUILD = '2026-09-16.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2677,7 +2677,7 @@
 
   function goalAIOpen(){
     goalAI = { step:'ask', seed:'', smart:'', questions:[], answers:[], extra:'',
-      plan:null, pick:{}, busy:false, error:'' };
+      rounds:0, plan:null, pick:{}, busy:false, error:'' };
     render();
   }
 
@@ -2709,7 +2709,44 @@
       goalAI.smart = String(out.smart || '');
       goalAI.questions = (out.questions || []).slice(0, 6);
       goalAI.answers = goalAI.questions.map(() => '');
+      goalAI.rounds = 1;
       goalAI.step = 'questions'; goalAI.busy = false; render();
+    } catch(e){ goalAI.busy = false; goalAI.error = e.message; render(); }
+  }
+
+  /* Whatever is typed right now goes into state before any redraw, so asking
+     for more questions never costs you the answers already given. */
+  function goalAICapture(){
+    if (!goalAI) return;
+    goalAI.answers = goalAI.questions.map((q, i) => {
+      const el = document.getElementById('gai_a'+i);
+      return el ? (el.value || '').trim() : (goalAI.answers[i] || '');
+    });
+    const ex = document.getElementById('gai_extra');
+    if (ex) goalAI.extra = (ex.value || '').trim();
+  }
+
+  /* Another round, asked knowing everything said so far. Some goals are worth
+     a dozen questions and most are not, so it is a button rather than a rule. */
+  async function goalAIMore(){
+    if (!goalAI) return;
+    goalAICapture();
+    goalAI.busy = 'more'; goalAI.error = ''; render();
+    try {
+      const out = await goalAICall({ mode:'goalAsk', ask:goalAI.seed, brief:goalAIBrief() });
+      if (out.smart) goalAI.smart = String(out.smart);
+      const seen = {};
+      goalAI.questions.forEach(q => { seen[String(q.label).trim().toLowerCase()] = 1; });
+      const more = (out.questions || [])
+        .filter(q => q.label && !seen[String(q.label).trim().toLowerCase()]).slice(0, 4);
+      if (!more.length){
+        goalAI.error = 'Athena has run out of things it needs to ask. Make the plan whenever you are ready.';
+      } else {
+        goalAI.questions = goalAI.questions.concat(more);
+        more.forEach(() => goalAI.answers.push(''));
+        goalAI.rounds++;
+      }
+      goalAI.busy = false; render();
     } catch(e){ goalAI.busy = false; goalAI.error = e.message; render(); }
   }
 
@@ -2756,9 +2793,8 @@
 
   async function goalAIPlan(){
     if (!goalAI) return;
-    goalAI.answers = goalAI.questions.map((q, i) => ((document.getElementById('gai_a'+i) || {}).value || '').trim());
-    goalAI.extra = ((document.getElementById('gai_extra') || {}).value || '').trim();
-    goalAI.busy = true; goalAI.error = ''; render();
+    goalAICapture();
+    goalAI.busy = 'plan'; goalAI.error = ''; render();
     try {
       goalAI.plan = await goalAICall({ mode:'goalPlan', ask:goalAI.seed, brief:goalAIBrief() });
       goalAI.pick = {}; goalAI.step = 'plan'; goalAI.busy = false; render();
@@ -2820,15 +2856,17 @@
   // A question with a short list of answers is a tap, not typing, which is the
   // difference between six questions being thorough and being a chore.
   function goalAIQuestionHTML(q, i){
+    const val = (goalAI.answers[i] || '');
     const opts = (q.options || []).filter(Boolean).slice(0, 6);
     if (opts.length)
       return '<label class="fld"><span>'+esc(q.label)+'</span>'+
         '<select id="gai_a'+i+'"><option value="">Choose one</option>'+
-        opts.map(o => '<option value="'+esc(o)+'">'+esc(o)+'</option>').join('')+
+        opts.map(o => '<option value="'+esc(o)+'"'+(o === val ? ' selected' : '')+'>'+esc(o)+'</option>').join('')+
+        '<option value="'+esc(val)+'"'+(val && opts.indexOf(val) === -1 ? ' selected' : '')+' hidden></option>'+
         '</select></label>';
     const kind = q.kind === 'date' ? 'date' : q.kind === 'number' ? 'number' : 'text';
     return '<label class="fld"><span>'+esc(q.label)+'</span>'+
-      '<input id="gai_a'+i+'" type="'+kind+'" placeholder="'+esc(q.placeholder || '')+'" autocomplete="off"></label>';
+      '<input id="gai_a'+i+'" type="'+kind+'" value="'+esc(val)+'" placeholder="'+esc(q.placeholder || '')+'" autocomplete="off"></label>';
   }
 
   function goalAIHTML(){
@@ -2841,13 +2879,20 @@
       h += '<button class="go ai-primary" data-gaiask'+(a.busy ? ' disabled' : '')+'>'+
         (a.busy ? 'Thinking…' : 'Ask Athena')+'</button>';
     } else if (a.step === 'questions'){
-      if (a.smart) h += '<p class="ai-intro">Athena is reading that as <b>'+esc(a.smart)+'</b>. The more of this it knows, the better the plan fits:</p>';
+      if (a.smart) h += '<p class="ai-intro">Athena is reading that as <b>'+esc(a.smart)+'</b>. Answer what you like, tell it anything it has not thought to ask, then send it off or ask for more questions.</p>';
       a.questions.forEach((q, i) => { h += goalAIQuestionHTML(q, i); });
       h += '<label class="fld"><span>Anything else it should know?</span>'+
-        '<textarea id="gai_extra" rows="2" placeholder="What has got in the way before, what you have already, anything to work around"></textarea></label>';
+        '<textarea id="gai_extra" rows="2" placeholder="What has got in the way before, what you have already, anything to work around">'+esc(a.extra || '')+'</textarea></label>';
       h += '<button class="go ai-primary" data-gaiplan'+(a.busy ? ' disabled' : '')+'>'+
-        (a.busy ? 'Writing the plan…' : 'Make me a plan')+'</button>';
-      h += '<p class="ai-howto">Skip anything you are unsure about. Athena decides it for you, and the plan is yours to change.</p>';
+        (a.busy === 'plan' ? 'Writing the plan…' : 'That is enough, make the plan')+'</button>';
+      // Some goals are worth a dozen questions and most are not, so how far to
+      // go is theirs to decide rather than a number Athena picked.
+      const enough = a.questions.length >= 10;
+      h += '<button class="linkish ai-alt" data-gaimore'+((a.busy || enough) ? ' disabled' : '')+'>'+
+        (a.busy === 'more' ? 'Thinking what else to ask…'
+          : enough ? 'That is everything Athena can think to ask'
+          : 'Ask me more questions')+'</button>';
+      h += '<p class="ai-howto">Skip anything you are unsure about. Athena decides it for you, and the plan is yours to change afterwards.</p>';
     } else if (a.plan){
       h += goalAIPlanHTML(a.plan);
     }
@@ -4465,6 +4510,7 @@
     if (t('[data-gaiclose]')){ goalAI = null; clearDraft('gai_seed'); render(); return; }
     if (t('[data-gaiask]')){ goalAIQuestions(); return; }
     if (t('[data-gaiplan]')){ goalAIPlan(); return; }
+    if (t('[data-gaimore]')){ goalAIMore(); return; }
     if (t('[data-gaiback]')){ if (goalAI){ goalAI.step = 'questions'; goalAI.error = ''; } render(); return; }
     if (t('[data-gaiapply]')){ goalAIApply(); return; }
     if (t('[data-aiopen]')){ aiOpen = true; aiStep = 'input'; aiPreview = null; aiError = ''; clearDraft('ai_paste'); clearDraft('ai_ask'); render(); return; }

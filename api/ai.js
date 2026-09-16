@@ -216,6 +216,7 @@ export default async function handler(req, res){
     'Then ask four to six questions: enough to plan properly, never so many it becomes a form. Ask nothing you can already tell from what they wrote.',
     'Cover the ground that changes the plan: what success looks like as a number, by when, how much time a week they have, which days or times of day actually suit them, what has stopped them before, and what they already have or still need (equipment, money, someone else involved).',
     'Order them so the two that matter most come first, in case they answer only those.',
+    'You may be given a brief holding what has already been asked and answered. When you are, ask a further one to four questions on ground nobody has covered yet, never a reword of a question already there, and never something they have already answered. Go deeper: the specifics of how they will actually do it, what could derail it, and what support or kit it needs.',
     'Each question must be answerable in a few words. Keep the wording warm and plain, like a person who is interested, never a form field.',
     'kind is "date" for a date, "number" for a number, and "text" otherwise.',
     'When the sensible answers are a short list, put two to six of them in options and leave placeholder empty: choosing beats typing on a phone. Otherwise leave options empty and put a short example answer in placeholder.',
@@ -245,6 +246,8 @@ export default async function handler(req, res){
   if (mode === 'goalAsk'){
     system = askSystem;
     schema = askSchema();
+    // A second round gets the brief, so it can ask what is still missing.
+    prompt = brief || ask;
   } else if (mode === 'goalPlan'){
     system = goalPlanSystem;
     schema = goalSchema(catNames);
