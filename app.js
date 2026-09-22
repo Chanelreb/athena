@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-16.4';
+  const BUILD = '2026-09-22.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -132,6 +132,8 @@
     '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6Z"/></svg>';
   // A settings control should look like a settings control. The daily drawing is
   // lovely and told you nothing about what tapping it would do.
+  const MAG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">'+
+    '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.4 15.4 21 21"/></svg>';
   const COG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+
     '<circle cx="12" cy="12" r="3.2"/>'+
     '<path d="M19.4 14.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 1 1-4 0v-.11a1.7 1.7 0 0 0-1.1-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.05H3a2 2 0 1 1 0-4h.11a1.7 1.7 0 0 0 1.56-1.1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1.05-1.56V3a2 2 0 1 1 4 0v.11a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1.05H21a2 2 0 1 1 0 4h-.11a1.7 1.7 0 0 0-1.56 1.04Z"/></svg>';
@@ -3690,6 +3692,14 @@
     // Notes filter as you type. Re-rendering blows the field away, so put the
     // cursor back exactly where it was afterwards.
     shell.addEventListener('input', e => {
+      if (e.target.id !== 'gs_q') return;
+      searchQ = e.target.value;
+      const p = e.target.selectionStart;
+      render();
+      const el = document.getElementById('gs_q');
+      if (el){ el.focus(); try { el.setSelectionRange(p, p); } catch(_){} }
+    });
+    shell.addEventListener('input', e => {
       if (e.target.id !== 'nt_search') return;
       noteSearch = e.target.value;
       const pos = e.target.selectionStart;
@@ -3806,7 +3816,10 @@
       '<span class="namemotif" aria-hidden="true">'+(hr >= 20 || hr < 5 ? MOON : MOTIFS[doy % MOTIFS.length])+'</span></h1>'+
       '<p>'+DAYS[now.getDay()]+' '+now.getDate()+' '+MON[now.getMonth()]+' · '+
       clockOf(pad(now.getHours())+':'+pad(now.getMinutes()))+'</p></div>'+
-      '<button class="cog" data-settings aria-label="Settings">'+COG+'</button></div>';
+      '<div class="greetbtns">'+
+        '<button class="cog mag" data-search aria-label="Find anything">'+MAG+'</button>'+
+        '<button class="cog" data-settings aria-label="Settings">'+COG+'</button>'+
+      '</div></div>';
     h += '<div class="quote"><p>'+esc(LINES[doy % LINES.length])+'</p></div>';
 
     // Blocks are a top-level place now, not a mode hidden inside the week. Today
@@ -3865,6 +3878,7 @@
     if (editing) h += editorHTML();
     if (taskEdit) h += taskEditorHTML();
     if (noteEdit) h += noteEditorHTML();
+    if (searchOpen) h += searchHTML();
     if (settingsOpen) h += settingsHTML();
     if (aiOpen) h += aiHTML();
     if (goalAI) h += goalAIHTML();
@@ -3933,6 +3947,181 @@
     } catch(_){}
     // Cache-busted so nothing in front of us can answer from a stale copy.
     location.replace(location.origin + location.pathname + '?fresh=' + Date.now());
+  }
+
+  /* ---------- finding things ----------
+     Athena keeps a year of your thinking and had exactly one search box, inside
+     Notes. Everything else could only be found by remembering where you put it,
+     which stops being possible somewhere around the two hundredth task. This
+     looks in every place at once: tasks, blocks, goals and the steps and
+     milestones inside them, routines, habits, notes and parked thoughts.
+
+     The matching is deliberately plain. Every word you type has to appear
+     somewhere in the thing, so "gym mon" finds the Monday gym block and nothing
+     else. Fuzzy matching guesses, and a guess that hides the thing you know is
+     there is worse than having no search at all. */
+  let searchOpen = false, searchQ = '', searchOld = false;
+
+  function openSearch(){
+    searchOpen = true; searchQ = ''; searchOld = false; clearDraft('gs_q');
+    render();
+    const el = document.getElementById('gs_q');
+    if (el) el.focus();
+  }
+
+  // Everything a thing could be called, flattened into one lowercase line.
+  const hayOf = bits => bits.filter(Boolean).join(' ').toLowerCase();
+  const catName = id => { const c = (S.categories || []).find(x => x.id === id); return c ? c.label : ''; };
+
+  // The next day this event happens, so a result can take you somewhere real.
+  // A one-off in the past has no next day, and says so by giving back its own.
+  function nextOn(ev){
+    const D = new Date(); D.setHours(0, 0, 0, 0);
+    for (let i = 0; i < 400; i++){
+      if (occursOn(ev, D)) return dayKey(D);
+      D.setDate(D.getDate() + 1);
+    }
+    return ev.date || null;
+  }
+
+  function searchResults(){
+    const words = searchQ.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return null;
+    const hit = function(){
+      const s = hayOf(Array.prototype.slice.call(arguments));
+      return words.every(w => s.indexOf(w) !== -1);
+    };
+    const groups = [];
+    const add = (label, rows) => { if (rows.length) groups.push({ label: label, rows: rows }); };
+
+    const tasks = [];
+    (S.tasks || []).forEach(tk => {
+      const done = !!tk.doneAt;
+      if (done && !searchOld) return;
+      if (!hit(tk.title, tk.note, catName(tk.cat))) return;
+      tasks.push({ act: 'task:' + tk.id, c: tk.cat, t: tk.title, sub: tk.note || '',
+        meta: done ? 'Done' + (tk.doneAt ? ' ' + goalDate(tk.doneAt) : '')
+          : tk.due ? ((tk.dateType === 'on' ? 'On ' : 'By ') + goalDate(tk.due))
+          : tk.repeat ? 'Repeating' : 'Anytime' });
+    });
+    add('Tasks', tasks);
+
+    const blocks = [];
+    (S.events || []).forEach(ev => {
+      if (!hit(ev.title, ev.note, catName(ev.cat))) return;
+      blocks.push({ act: 'event:' + ev.id, c: ev.cat, t: ev.title, sub: ev.note || '', meta: aiWhen(ev) });
+    });
+    add('Blocks and events', blocks);
+
+    const goals = [];
+    (S.goals || []).forEach(g => {
+      // A step or a milestone counts as finding its goal. You remember the
+      // piece far more often than you remember what you called the whole thing.
+      const step = (g.steps || []).find(st => hit(st.label));
+      const ms = goalMs(g).find(x => hit(x.label));
+      if (!hit(g.title, catName(g.cat)) && !step && !ms) return;
+      goals.push({ act: 'goal:' + g.id, c: g.cat, t: g.title,
+        sub: step ? step.label : ms ? ms.label : '',
+        meta: g.by ? 'By ' + goalDate(g.by) : '' });
+    });
+    add('Goals', goals);
+
+    const routines = [];
+    routinesAll().forEach(r => {
+      if (!hit(r.name, catName(r.cat))) return;
+      routines.push({ act: 'routine:' + r.id, c: r.cat, t: r.name,
+        meta: r.time ? clockOf(r.time) : 'No time set' });
+    });
+    add('Routines', routines);
+
+    const habits = [];
+    (S.habits || []).forEach(hb => {
+      if (!hit(hb.label, catName(hb.cat))) return;
+      habits.push({ act: 'habit:' + hb.id, c: hb.cat, t: hb.label,
+        meta: hb.target > 1 ? hb.target + ' times a day' : 'Every day' });
+    });
+    add('Habits', habits);
+
+    const notes = [];
+    notesAll().forEach(n => {
+      if (n.archived && !searchOld) return;
+      const items = (n.items || []).map(i => i.text).join(' ');
+      if (!hit(n.title, n.body, items, catName(n.cat))) return;
+      const body = (n.body || items || '').replace(/\s+/g, ' ').trim();
+      notes.push({ act: 'note:' + n.id, c: n.cat, t: n.title || 'Untitled note',
+        sub: body.slice(0, 90), meta: n.archived ? 'Archived' : '' });
+    });
+    add('Notes', notes);
+
+    const parked = [];
+    (S.parked || []).forEach((p, i) => {
+      if (!hit(p.t)) return;
+      parked.push({ act: 'park:' + i, c: '', t: p.t, meta: 'Parked' });
+    });
+    add('Parked thoughts', parked);
+
+    return groups;
+  }
+
+  function searchRowHTML(r){
+    return '<button class="sres" data-sgo="' + esc(r.act) + '">' +
+      (r.c ? '<span class="cd" style="background:' + catColor(r.c) + '"></span>' : '<span class="cd none"></span>') +
+      '<span class="st">' + esc(r.t) + (r.sub ? '<small>' + esc(r.sub) + '</small>' : '') + '</span>' +
+      (r.meta ? '<span class="sm">' + esc(r.meta) + '</span>' : '') + '</button>';
+  }
+
+  function searchHTML(){
+    let h = '<div class="modal-back" data-closesearch></div>';
+    h += '<div class="modal find"><div class="modal-h">Find anything</div>';
+    h += '<div class="findbar"><input id="gs_q" type="search" placeholder="Search everything…" ' +
+      'autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(searchQ) + '"></div>';
+    const groups = searchResults();
+    if (!groups){
+      h += '<p class="park-empty">Tasks, blocks, goals, routines, habits, notes and anything parked. ' +
+        'Type a word or two.</p>';
+    } else {
+      const total = groups.reduce((a, g) => a + g.rows.length, 0);
+      if (!total){
+        h += '<p class="park-empty">Nothing matches &ldquo;' + esc(searchQ.trim()) + '&rdquo;' +
+          (searchOld ? '.' : ', at least not among the things still open.') + '</p>';
+      }
+      groups.forEach(g => {
+        h += '<h2 class="sgrp">' + g.label + ' <span class="tcount">' + g.rows.length + '</span></h2>';
+        // Six is enough to recognise what you were after. Past that the answer
+        // is a better search, not a longer list.
+        h += g.rows.slice(0, 6).map(searchRowHTML).join('');
+        if (g.rows.length > 6)
+          h += '<p class="smore">and ' + (g.rows.length - 6) + ' more. Add another word to narrow it.</p>';
+      });
+    }
+    h += '<label class="fld chk sold"><input id="gs_old" type="checkbox" data-solddone' + (searchOld ? ' checked' : '') + '>' +
+      '<span>Include finished and archived things</span></label>';
+    h += '<div class="modal-actions"><span style="flex:1"></span><button class="go" data-closesearch>Close</button></div>';
+    return h + '</div>';
+  }
+
+  // Taking you to the thing. Each kind lands where you can actually act on it:
+  // a task opens its editor, a block lands on the next day it happens and is
+  // picked out on the grid, a goal opens its page.
+  function searchGo(act){
+    const kind = act.slice(0, act.indexOf(':'));
+    const id = act.slice(act.indexOf(':') + 1);
+    searchOpen = false; clearDraft('gs_q');
+    if (kind === 'task'){ openTaskEditor(id); return; }
+    if (kind === 'event'){
+      const ev = findEvent(id);
+      const dk = ev && nextOn(ev);
+      // A block on the grid is keyed by event and date together, not by the
+      // event alone: the same event is a different block on every day it runs.
+      if (dk){ dayShift = daysBetween(dayKey(new Date()), dk); openDayBlock = ev.id + '@' + dk; }
+      view = 'day'; dayMode = 'today'; render(); return;
+    }
+    if (kind === 'goal'){ view = 'grow'; growMode = 'goals'; openGoal = id; render(); return; }
+    if (kind === 'routine'){ view = 'grow'; growMode = 'routines'; render(); return; }
+    if (kind === 'habit'){ view = 'grow'; growMode = 'habits'; render(); return; }
+    if (kind === 'note'){ noteEdit = findNote(id) || null; imgError = ''; render(); return; }
+    if (kind === 'park'){ view = 'day'; dayShift = 0; parkOpen = +id; render(); return; }
+    render();
   }
 
   /* ---------- settings (name + categories) ---------- */
@@ -4450,7 +4639,7 @@
     const swipeable = (view === 'day');
     // Not from a picked block either: that finger is moving the block, and a
     // sideways wobble while doing it should not flip to another day.
-    if (!swipeable || editing || settingsOpen || aiOpen || ob || taskEdit || e.touches.length !== 1 ||
+    if (!swipeable || editing || settingsOpen || aiOpen || ob || taskEdit || searchOpen || e.touches.length !== 1 ||
         (e.target.closest && e.target.closest('.dblk.picked'))){ swX = null; return; }
     swX = e.touches[0].clientX; swY = e.touches[0].clientY;
   }, { passive: true });
@@ -4603,6 +4792,10 @@
     if ((m = t('[data-delevent]'))){ markUndo('Event deleted'); S.events = S.events.filter(x => x.id !== m.dataset.delevent); editing = null; clearModalDrafts(); save(); render(); return; }
     if ((m = t('[data-wd]'))){ syncEditor(); const d = +m.dataset.wd; const i = editing.weekdays.indexOf(d); if (i===-1) editing.weekdays.push(d); else editing.weekdays.splice(i,1); render(); return; }
     if ((m = t('[data-settheme]'))){ commitSettings(); S.profile.theme = m.dataset.settheme; applyTheme(); save(); render(); return; }
+    if (t('[data-search]')){ openSearch(); return; }
+    if (t('[data-closesearch]')){ searchOpen = false; clearDraft('gs_q'); render(); return; }
+    if ((m = t('[data-sgo]'))){ searchGo(m.dataset.sgo); return; }
+    if (t('[data-solddone]')){ searchOld = !searchOld; render(); return; }
     if (t('[data-settings]')){ clearModalDrafts(); settingsOpen = true; render(); return; }
     if (t('[data-closesettings]')){ commitSettings(); settingsOpen = false; clearModalDrafts(); render(); return; }
     if (t('[data-addcat]')){ commitSettings(); S.categories.push({ id:'c_'+uid8(), label:'New', color:'#B7B2BE' }); save(); render(); return; }
@@ -5093,6 +5286,16 @@
     save();
   }
 
+  // Slash is the one key every search box on the internet answers to. It hangs
+  // off the document rather than the shell, because the moment it is most
+  // wanted is when nothing is focused at all, and a listener on the shell
+  // never hears a key pressed with focus sitting on the body.
+  document.addEventListener('keydown', e => {
+    if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (searchOpen || userBusy() || ob || needsOnboarding()) return;
+    e.preventDefault(); openSearch();
+  });
+
   shell.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target.id === 'auth_email'){ e.preventDefault(); sendCode(); return; }
     if (e.key === 'Enter' && e.target.id === 'auth_code'){ e.preventDefault(); verifyCode(); return; }
@@ -5105,6 +5308,7 @@
     if (e.key === 'Enter' && e.target.id === 'tk_title'){ e.preventDefault(); const b = app.querySelector('[data-addtask]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newitem'){ e.preventDefault(); const b = app.querySelector('[data-noteadditem]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && searchOpen){ searchOpen = false; clearDraft('gs_q'); render(); return; }
     if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit || noteEdit || goalAI)){
       if (noteEdit){ const b = app.querySelector('[data-notecancel]'); if (b){ b.click(); return; } }
       editing = null; taskEdit = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input';
@@ -5275,7 +5479,7 @@
 
   function userBusy(){
     const ae = document.activeElement;
-    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit ||
+    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || searchOpen ||
       (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
   }
   function applyUpdate(){
