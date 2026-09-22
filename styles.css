@@ -1635,3 +1635,37 @@
   #soft-app .sres .sm { flex: 0 0 auto; color: var(--ghost); font-size: 12px; padding-top: 2px; }
   #soft-app .smore { color: var(--ghost); font-size: 12.5px; padding: 2px 10px 0; }
   #soft-app .fld.sold { margin: 16px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+  /* ---- setting up tomorrow -------------------------------------------------
+     A decision screen, so the choices are the loudest thing on each row and
+     the one that is currently true is the one that looks pressed. */
+  #soft-app .modal.tmrw { width: min(520px, calc(100vw - 28px)); }
+  #soft-app h2.tmh {
+    font-family: var(--serif); font-size: 13px; font-weight: 400; color: var(--dim);
+    text-transform: uppercase; letter-spacing: .08em; margin: 18px 0 6px;
+  }
+  #soft-app .tmnote { font-size: 13px; color: var(--dim); margin: 0 0 8px; line-height: 1.5; }
+  #soft-app .tmclean { font-size: 13.5px; color: var(--dim); margin: 0; line-height: 1.55; max-width: 46ch; }
+  #soft-app .tmrow {
+    display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;
+    padding: 10px 0; border-bottom: 1px solid var(--line);
+  }
+  #soft-app .tmrow .cd { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; margin-top: 5px; }
+  #soft-app .tmrow .tmt { flex: 1 1 140px; min-width: 0; font-size: 14.5px; }
+  #soft-app .tmrow .tmt small { display: block; color: var(--dim); font-size: 12.5px; margin-top: 2px; }
+  #soft-app .tmchoice { display: flex; gap: 6px; flex: 0 0 auto; }
+  #soft-app .tmbtn {
+    background: none; border: 1px solid var(--line); color: var(--dim);
+    border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  #soft-app .tmbtn:hover { color: var(--text); border-color: var(--ghost); }
+  #soft-app .tmbtn.on { background: var(--live); border-color: var(--live); color: var(--on-live); }
+  #soft-app .tmblocks { display: flex; flex-direction: column; gap: 2px; }
+  #soft-app .tmb { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 14px; }
+  #soft-app .tmb .cd { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+  #soft-app .tmb .tmt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #soft-app .tmb em { flex: 0 0 auto; font-style: normal; color: var(--ghost); font-size: 12.5px; }
+  #soft-app .tmplace { margin-top: 10px; }
+  @media (pointer: coarse) {
+    #soft-app .tmbtn { padding: 9px 14px; font-size: 13px; }
+  }

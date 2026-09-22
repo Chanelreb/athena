@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-22.1';
+  const BUILD = '2026-09-22.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1857,8 +1857,182 @@
 
     h += '<div class="dayadd"><button data-newon="'+dk+'">+ New event</button>'+
       '<button class="ai-btn" data-aiopen>✦ Ask your AI</button>'+
+      // An ordinary button all day, and the obvious one to press once the
+      // evening it belongs to has arrived and it has not been answered yet.
+      (isToday ? '<button'+((now.getHours() >= eveHour() && !tomorrowSorted()) ? ' class="go"' : '')+
+        ' data-tomorrow>Set up tomorrow</button>' : '')+
       (reviewOpen ? '' : '<button data-review>How today went</button>')+'</div>';
     return h;
+  }
+
+  /* ---------- setting up tomorrow ----------
+     Athena could already tell you how today went, and it could already fill
+     tomorrow's blocks. What it had no way to do was the five minutes in the
+     evening where those two meet: deciding what happens to the things you did
+     not get to, and seeing tomorrow whole before you are standing in it.
+
+     Nothing moves on its own. Automatic rollover is how tomorrow quietly fills
+     with a fortnight of avoidance, and the whole point of this screen is that
+     every leftover gets looked at once and answered. */
+  let tomorrowOpen = false;
+  // What has been decided for each loose end, by key: 'move', 'drop' or absent
+  // for leave it where it is, which is also what happens if you change nothing.
+  let tmrw = {};
+
+  // The hour the evening belongs to. A setting of its own when nudges land;
+  // until then, eight o'clock, which is when most people stop planning today.
+  const eveHour = () => {
+    const n = (S.profile && S.profile.nudges) || {};
+    const h = parseInt(String(n.evening || '').slice(0, 2), 10);
+    return (h >= 0 && h <= 23) ? h : 20;
+  };
+  const tomorrowDate = () => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() + 1); return d; };
+  // Whether tonight's tomorrow has already been dealt with, so the button can
+  // stop asking once it has been answered.
+  const tomorrowSorted = () => ((S.profile || {}).sortedFor === dayKey(tomorrowDate()));
+
+  /* Everything today is about to leave behind. Two kinds, because they deserve
+     different answers: a task can be moved, left or dropped, while a block that
+     has already been and gone can only be put on tomorrow or let go. */
+  function looseEnds(){
+    const now = new Date(), today = new Date(); today.setHours(0,0,0,0);
+    const dk = dayKey(today), nowM = now.getHours() * 60 + now.getMinutes();
+
+    const tasks = (S.tasks || []).filter(tk => {
+      if (tk.repeat || taskDone(tk, today)) return false;     // repeating things do not roll
+      const due = tk.due && tk.due <= dk;
+      const pinned = tk.pin && tk.pin.d === dk;               // put in a block today, never ticked
+      return !!(due || pinned);
+    }).sort(taskSorter(today));
+
+    // Only blocks that have actually finished. A block at nine tonight has not
+    // been missed yet, and calling it a loose end at eight would be a lie.
+    const blocks = blocksForDate(today).filter(b => {
+      if (b.allDay || b.step || b.task || b.routine) return false;
+      if (mins(b.e) > nowM) return false;
+      return !isDone(b.id, dk);
+    });
+    return { tasks: tasks, blocks: blocks };
+  }
+
+  function tmrwChoiceHTML(key, opts){
+    return '<span class="tmchoice">' + opts.map(o =>
+      '<button class="tmbtn' + ((tmrw[key] || 'leave') === o[0] ? ' on' : '') + '" ' +
+      'data-tmpick="' + key + '|' + o[0] + '">' + o[1] + '</button>').join('') + '</span>';
+  }
+
+  function tomorrowHTML(){
+    const tm = tomorrowDate(), tmk = dayKey(tm);
+    const loose = looseEnds();
+    const blocks = blocksForDate(tm).filter(b => !b.allDay);
+    const allDay = blocksForDate(tm).filter(b => b.allDay);
+    const waiting = unplacedTasks(tm);
+
+    let h = '<div class="modal-back" data-closetomorrow></div>';
+    h += '<div class="modal tmrw"><div class="modal-h">Tomorrow, ' + DAYS[tm.getDay()] + ' ' +
+      tm.getDate() + ' ' + MON[tm.getMonth()] + '</div>';
+
+    // ---- what today is leaving behind
+    const anyLoose = loose.tasks.length + loose.blocks.length;
+    if (anyLoose){
+      h += '<h2 class="tmh">Left over from today <span class="tcount">' + anyLoose + '</span></h2>';
+      h += '<p class="tmnote">Nothing here moves unless you say so.</p>';
+      loose.tasks.forEach(tk => {
+        const key = 'task:' + tk.id;
+        const bits = [];
+        if (tk.due) bits.push(dueLabel(tk.due, new Date(), tk.dateType).text);
+        if (tk.mins) bits.push(dur(tk.mins));
+        h += '<div class="tmrow"><span class="cd" style="background:' + catColor(tk.cat) + '"></span>' +
+          '<span class="tmt">' + esc(tk.title) + (bits.length ? '<small>' + esc(bits.join(' · ')) + '</small>' : '') + '</span>' +
+          tmrwChoiceHTML(key, [['move','Tomorrow'],['leave','Leave'],['drop','Drop']]) + '</div>';
+      });
+      loose.blocks.forEach(b => {
+        const key = 'block:' + b.id;
+        h += '<div class="tmrow"><span class="cd" style="background:' + catColor(b.c) + '"></span>' +
+          '<span class="tmt">' + esc(b.t) + '<small>' + clockOf(b.s) + ' · not ticked off</small></span>' +
+          tmrwChoiceHTML(key, [['move','Tomorrow'],['leave','Let it go']]) + '</div>';
+      });
+    } else {
+      h += '<p class="tmclean">Today has nothing left hanging. Every block was kept and nothing is overdue.</p>';
+    }
+
+    // ---- tomorrow as it stands
+    h += '<h2 class="tmh">How tomorrow looks</h2>';
+    if (!blocks.length && !allDay.length){
+      h += '<p class="park-empty">Nothing scheduled. An open day is a fine thing to have, and anything you move here will find a home when you place it.</p>';
+    } else {
+      const timed = blocks.filter(b => !b.step && !b.task);
+      const booked = timed.reduce((a, b) => a + (mins(b.e) - mins(b.s)), 0);
+      if (booked) h += '<p class="tmnote">Tomorrow asks for <b>' + dur(booked) + '</b> across ' +
+        timed.length + ' block' + (timed.length !== 1 ? 's' : '') + '.</p>';
+      h += '<div class="tmblocks">' +
+        allDay.map(b => '<div class="tmb"><span class="cd" style="background:' + catColor(b.c) + '"></span>' +
+          '<span class="tmt">' + esc(b.t) + '</span><em>All day</em></div>').join('') +
+        blocks.map(b => '<div class="tmb"><span class="cd" style="background:' + catColor(b.c) + '"></span>' +
+          '<span class="tmt">' + esc(b.t) + '</span><em>' + clockOf(b.s) + '</em></div>').join('') +
+        '</div>';
+      const run = longestRun(blocks);
+      if (run && run.mins >= 180)
+        h += '<p class="tmnote">' + dur(run.mins) + ' back to back from ' + clockOf(run.from) + '. Worth a gap.</p>';
+    }
+
+    // ---- what has nowhere to go yet
+    if (waiting.length){
+      h += '<h2 class="tmh">Still needs a home <span class="tcount">' + waiting.length + '</span></h2>';
+      h += '<div class="tmblocks">' + waiting.slice(0, 8).map(tk =>
+        '<div class="tmb"><span class="cd" style="background:' + catColor(tk.cat) + '"></span>' +
+        '<span class="tmt">' + esc(tk.title) + '</span><em>' + (tk.mins ? dur(tk.mins) : '') + '</em></div>').join('') +
+        (waiting.length > 8 ? '<p class="smore">and ' + (waiting.length - 8) + ' more</p>' : '') + '</div>';
+      // Only offer to place them when at least one of them can be placed. A
+      // repeating task lives by category rather than by being pinned to a
+      // block, so a button that would move none of them is a button that lies.
+      if (waiting.some(placeable))
+        h += '<button class="ghost tmplace" data-tmplace>Find them blocks</button>';
+    }
+
+    h += '<div class="modal-actions"><button class="ghost" data-closetomorrow>Not now</button>' +
+      '<span style="flex:1"></span><button class="go" data-tmdone>Tomorrow is sorted</button></div>';
+    return h + '</div>';
+  }
+
+  /* Everything decided, applied in one go under a single undo. A task carries
+     its stale pin with it if you are not careful: it would land on tomorrow
+     still attached to a block that finished hours ago, and never surface. */
+  function tomorrowApply(){
+    const tm = tomorrowDate(), tmk = dayKey(tm);
+    const moved = [], dropped = [];
+    markUndo('Tomorrow set up');
+    Object.keys(tmrw).forEach(key => {
+      const choice = tmrw[key];
+      if (choice !== 'move' && choice !== 'drop') return;
+      const kind = key.slice(0, key.indexOf(':')), id = key.slice(key.indexOf(':') + 1);
+      if (kind === 'task'){
+        const tk = findTask(id);
+        if (!tk) return;
+        if (choice === 'drop'){ S.tasks = (S.tasks || []).filter(x => x.id !== id); dropped.push(tk.title); return; }
+        tk.due = tmk;
+        tk.pin = null;             // the block it was pinned to is in the past
+        tk.hold = false;
+        moved.push(tk.title);
+      } else if (kind === 'block' && choice === 'move'){
+        const ev = findEvent(id);
+        if (!ev) return;
+        // A one-off simply changes its date. A repeating block cannot be moved
+        // to a day it does not repeat on, so tomorrow gets a copy of its own
+        // and the repeat carries on untouched.
+        if (!ev.rrule) ev.date = tmk;
+        else S.events.push({ id:'ev_'+uid8(), title:ev.title, note:ev.note || '', cat:ev.cat,
+          allDay:!!ev.allDay, start:ev.start, end:ev.end, rrule:null, date:tmk, ex:{}, skip:[] });
+        moved.push(ev.title);
+      }
+    });
+    (S.profile || (S.profile = {})).sortedFor = tmk;
+    const parts = [];
+    if (moved.length) parts.push(moved.length + ' moved to tomorrow');
+    if (dropped.length) parts.push(dropped.length + ' dropped');
+    announce(parts.length ? parts.join(', ') : 'Tomorrow is sorted');
+    tomorrowOpen = false; tmrw = {};
+    save(); render();
   }
 
   /* ---------- habits ---------- */
@@ -3878,6 +4052,7 @@
     if (editing) h += editorHTML();
     if (taskEdit) h += taskEditorHTML();
     if (noteEdit) h += noteEditorHTML();
+    if (tomorrowOpen) h += tomorrowHTML();
     if (searchOpen) h += searchHTML();
     if (settingsOpen) h += settingsHTML();
     if (aiOpen) h += aiHTML();
@@ -4639,7 +4814,7 @@
     const swipeable = (view === 'day');
     // Not from a picked block either: that finger is moving the block, and a
     // sideways wobble while doing it should not flip to another day.
-    if (!swipeable || editing || settingsOpen || aiOpen || ob || taskEdit || searchOpen || e.touches.length !== 1 ||
+    if (!swipeable || editing || settingsOpen || aiOpen || ob || taskEdit || searchOpen || tomorrowOpen || e.touches.length !== 1 ||
         (e.target.closest && e.target.closest('.dblk.picked'))){ swX = null; return; }
     swX = e.touches[0].clientX; swY = e.touches[0].clientY;
   }, { passive: true });
@@ -4792,6 +4967,19 @@
     if ((m = t('[data-delevent]'))){ markUndo('Event deleted'); S.events = S.events.filter(x => x.id !== m.dataset.delevent); editing = null; clearModalDrafts(); save(); render(); return; }
     if ((m = t('[data-wd]'))){ syncEditor(); const d = +m.dataset.wd; const i = editing.weekdays.indexOf(d); if (i===-1) editing.weekdays.push(d); else editing.weekdays.splice(i,1); render(); return; }
     if ((m = t('[data-settheme]'))){ commitSettings(); S.profile.theme = m.dataset.settheme; applyTheme(); save(); render(); return; }
+    if (t('[data-tomorrow]')){ tomorrowOpen = true; tmrw = {}; render(); return; }
+    if (t('[data-closetomorrow]')){ tomorrowOpen = false; tmrw = {}; render(); return; }
+    if ((m = t('[data-tmpick]'))){
+      const bits = m.dataset.tmpick.split('|');
+      tmrw[bits[0]] = bits[1]; render(); return;
+    }
+    if (t('[data-tmplace]')){
+      const tm = tomorrowDate();
+      markUndo('Placing');
+      announce(placedSummary(placeByCapacity(unplacedTasks(tm).filter(placeable), tm)));
+      save(); render(); return;
+    }
+    if (t('[data-tmdone]')){ tomorrowApply(); return; }
     if (t('[data-search]')){ openSearch(); return; }
     if (t('[data-closesearch]')){ searchOpen = false; clearDraft('gs_q'); render(); return; }
     if ((m = t('[data-sgo]'))){ searchGo(m.dataset.sgo); return; }
@@ -5309,6 +5497,7 @@
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newitem'){ e.preventDefault(); const b = app.querySelector('[data-noteadditem]'); if (b) b.click(); return; }
     if (e.key === 'Escape' && searchOpen){ searchOpen = false; clearDraft('gs_q'); render(); return; }
+    if (e.key === 'Escape' && tomorrowOpen){ tomorrowOpen = false; tmrw = {}; render(); return; }
     if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit || noteEdit || goalAI)){
       if (noteEdit){ const b = app.querySelector('[data-notecancel]'); if (b){ b.click(); return; } }
       editing = null; taskEdit = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input';
@@ -5479,7 +5668,7 @@
 
   function userBusy(){
     const ae = document.activeElement;
-    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || searchOpen ||
+    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || searchOpen || tomorrowOpen ||
       (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
   }
   function applyUpdate(){
