@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-22.2';
+  const BUILD = '2026-09-22.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -311,6 +311,9 @@
   function save(){
     clearTimeout(tm);
     savePending = true;
+    // What is queued to be said about this week is part of the week. Its own
+    // debounce is longer, and it does nothing at all when nothing moved.
+    pushQueueSync(false);
     tm = setTimeout(async () => {
       try { await store.set(JSON.stringify(S)); ok = true; }
       catch(e){ ok = false; }
@@ -1883,7 +1886,7 @@
   // until then, eight o'clock, which is when most people stop planning today.
   const eveHour = () => {
     const n = (S.profile && S.profile.nudges) || {};
-    const h = parseInt(String(n.evening || '').slice(0, 2), 10);
+    const h = parseInt(String(n.eveningAt || '').slice(0, 2), 10);
     return (h >= 0 && h <= 23) ? h : 20;
   };
   const tomorrowDate = () => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() + 1); return d; };
@@ -3379,18 +3382,18 @@
   function timerStart(){
     timer.endsAt = Date.now() + (timer.leftMs > 0 ? timer.leftMs : timer.mins * 60000);
     timer.startedAt = Date.now();
-    timerSave(); timerLoop(); paintPanels();
+    timerSave(); timerLoop(); paintPanels(); timerNudgeSet();
   }
   function timerPause(){
     timerBank();
     timer.leftMs = timerLeft(); timer.endsAt = null;
-    clearInterval(timerTick); timerSave(); paintPanels();
+    clearInterval(timerTick); timerSave(); paintPanels(); timerNudgeClear();
   }
   function timerReset(mins){
     timerBank();
     if (mins) timer.mins = mins;
     timer.endsAt = null; timer.leftMs = timer.mins * 60000;
-    clearInterval(timerTick); timerSave(); paintPanels();
+    clearInterval(timerTick); timerSave(); paintPanels(); timerNudgeClear();
   }
   function timerFinish(){
     timerBank();
@@ -3399,7 +3402,7 @@
     timerSave();
     try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch(_){}
     markJustDone('timer');
-    paintPanels();
+    paintPanels(); timerNudgeClear();
   }
   function timerLoop(){
     clearInterval(timerTick);
@@ -3865,6 +3868,14 @@
     });
     // Notes filter as you type. Re-rendering blows the field away, so put the
     // cursor back exactly where it was afterwards.
+    // Times and lead times take effect where they are changed. Leaving them
+    // to be read when Settings closes would mean a nudge quietly kept its old
+    // time for anyone who navigated away instead of tapping Done.
+    shell.addEventListener('change', e => {
+      const k = e.target && e.target.dataset && e.target.dataset.nudgeval;
+      if (!k) return;
+      setNudge(k, k === 'lead' ? +e.target.value : e.target.value);
+    });
     shell.addEventListener('input', e => {
       if (e.target.id !== 'gs_q') return;
       searchQ = e.target.value;
@@ -4075,6 +4086,16 @@
     return bits.join('. ') + (boot ? '. Errors: ' + boot : '') + '.';
   }
 
+  // A nudge can ask for a particular screen. The flag is taken off the
+  // address straight away, so a reload later in the evening does not reopen
+  // a screen that was dealt with hours ago.
+  function consumeNudge(){
+    if (typeof location === 'undefined' || !/[?&]n=tomorrow/.test(location.search)) return;
+    tomorrowOpen = true; tmrw = {};
+    try { history.replaceState({}, '', location.pathname); } catch(_){}
+    render();
+  }
+
   /* ---------- getting your data out, and getting unstuck ----------
      Athena had no way to take a copy of your own data, which makes every "did I
      just lose that?" moment worse than it needs to be. This writes the whole
@@ -4122,6 +4143,314 @@
     } catch(_){}
     // Cache-busted so nothing in front of us can answer from a stale copy.
     location.replace(location.origin + location.pathname + '?fresh=' + Date.now());
+  }
+
+  /* ---------- nudges ----------
+     Athena had no way to reach you. The focus timer buzzed, which does nothing
+     once a phone is locked, and everything else waited politely to be opened.
+     A planner you have to remember to look at is doing half its job.
+
+     How this works, because it is worth being able to read it back in a year.
+     The browser is the only part of Athena that understands a week, so the
+     browser decides what to say and when: it writes the next seven days of
+     nudges, already worded, into a queue table. A job in Supabase wakes once a
+     minute, takes whatever has come due, and hands it to /api/push to encrypt
+     and send. Nothing on the server works anything out. That is deliberate.
+     The alternative, teaching the server about blocks and repeats and
+     exceptions, means two copies of the hardest logic in the app, and the copy
+     nobody looks at is the one that goes wrong.
+
+     The cost of this design, stated plainly: if nobody opens Athena for seven
+     days the queue runs dry and the nudges stop until somebody does. */
+  const NUDGE_DAYS = 7;
+  const DEV_KEY = 'athena:device';
+  let pushState = 'unknown';   // unknown | unsupported | homescreen | blocked | off | busy | on
+  let pushErr = '';
+
+  const nudgeDefaults = () => ({
+    timer: true, blocks: true, lead: 5,
+    morning: true, morningAt: '07:00',
+    evening: true, eveningAt: '20:00',
+    quietFrom: '22:00', quietTo: '06:30'
+  });
+  const nudges = () => Object.assign(nudgeDefaults(), (S.profile && S.profile.nudges) || {});
+  function setNudge(k, v){
+    if (!S.profile) S.profile = blank().profile;
+    S.profile.nudges = Object.assign(nudgeDefaults(), S.profile.nudges || {});
+    S.profile.nudges[k] = v;
+    save(); pushQueueSync(true);
+  }
+
+  // A device, not a browser session. Keyed on this, a phone that renews its
+  // subscription replaces its own row instead of leaving a dead one behind.
+  function deviceId(){
+    let d = lsGet(DEV_KEY);
+    if (!d){ d = 'dv_' + uid8() + uid8(); lsSet(DEV_KEY, d); }
+    return d;
+  }
+
+  const pushSupported = () => typeof window !== 'undefined' && typeof navigator !== 'undefined' &&
+    'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
+  const onIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent || '') ||
+    (/Mac/.test(navigator.userAgent || '') && navigator.maxTouchPoints > 1);
+  const installed = () => !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+    !!navigator.standalone;
+
+  // The key the browser needs to subscribe. Fetched rather than written into
+  // the app, so it can be changed in one place and never appears in the repo.
+  async function pushKey(){
+    const r = await fetch('/api/push', { cache: 'no-store' });
+    if (!r.ok) throw new Error('Athena could not fetch its push key, so nudges are not set up on the server yet.');
+    const j = await r.json();
+    if (!j || !j.key) throw new Error('The push key came back empty.');
+    return j.key;
+  }
+  function b64ToBytes(s){
+    const pad = '='.repeat((4 - (s.length % 4)) % 4);
+    const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  async function pushCheck(){
+    if (!pushSupported()){ pushState = 'unsupported'; return; }
+    // Apple only allows this for an app that has been added to the home
+    // screen. Saying so is the difference between a broken button and an
+    // instruction, so it is its own state rather than a failure.
+    if (onIOS() && !installed()){ pushState = 'homescreen'; return; }
+    if (Notification.permission === 'denied'){ pushState = 'blocked'; return; }
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub && Notification.permission === 'granted'){
+        pushState = 'on';
+        pushRemember(sub);            // keep seen_at fresh so the tidy-up leaves it alone
+        pushQueueSync(true);
+      } else pushState = 'off';
+    } catch(_){ pushState = 'off'; }
+  }
+
+  async function pushRemember(sub){
+    if (!cloud || !session || !sub) return;
+    const j = sub.toJSON ? sub.toJSON() : null;
+    if (!j || !j.keys) return;
+    try {
+      await sb.from('push_subs').upsert({
+        user_id: session.user.id, device: deviceId(),
+        endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth,
+        seen_at: new Date().toISOString()
+      });
+    } catch(_){ /* a nudge that cannot be registered is not worth an error screen */ }
+  }
+
+  async function pushEnable(){
+    pushErr = ''; pushState = 'busy'; render();
+    try {
+      if (!cloud || !session) throw new Error('Sign in first, so your nudges know where to find you.');
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted'){ pushState = perm === 'denied' ? 'blocked' : 'off'; render(); return; }
+      const key = await pushKey();
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+      await pushRemember(sub);
+      pushState = 'on';
+      await queueWrite(true);
+      render();
+    } catch(e){
+      pushState = 'off'; pushErr = (e && e.message) || String(e); render();
+    }
+  }
+
+  async function pushDisable(){
+    pushState = 'busy'; render();
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) await sub.unsubscribe();
+    } catch(_){}
+    try {
+      if (cloud && session)
+        await sb.from('push_subs').delete().eq('user_id', session.user.id).eq('device', deviceId());
+    } catch(_){}
+    pushState = 'off'; pushErr = ''; render();
+  }
+
+  /* ---- what to say, and when ----
+     Everything here is worked out in the browser because everything here needs
+     to know what a block is. */
+  function inQuiet(n, at){
+    const m = at.getHours() * 60 + at.getMinutes();
+    const a = mins(n.quietFrom), b = mins(n.quietTo);
+    if (a === b) return false;
+    return a < b ? (m >= a && m < b) : (m >= a || m < b);
+  }
+
+  function nudgeMoments(){
+    const n = nudges();
+    const out = [];
+    const soon = Date.now() + 60000;     // no point queueing something for a minute from now
+    const at = (d, hhmm) => {
+      const x = new Date(d);
+      x.setHours(+String(hhmm).slice(0, 2) || 0, +String(hhmm).slice(3, 5) || 0, 0, 0);
+      return x;
+    };
+    for (let i = 0; i < NUDGE_DAYS; i++){
+      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i);
+      const dk = dayKey(d);
+      const blocks = blocksForDate(d).filter(b => !b.allDay);
+
+      if (n.morning){
+        const real = blocks.filter(b => !b.step && !b.task);
+        const first = real[0];
+        const late = (S.tasks || []).filter(tk => !tk.repeat && !tk.doneAt && tk.due && tk.due < dk).length;
+        const bits = [real.length ? real.length + ' block' + (real.length !== 1 ? 's' : '') : 'Nothing scheduled'];
+        if (first) bits.push('first is ' + first.t + ' at ' + clockOf(first.s));
+        if (late) bits.push(late + ' overdue');
+        out.push({ at: at(d, n.morningAt), kind: 'morning', tag: 'm:' + dk,
+          title: 'Today', body: bits.join(', ') + '.', url: './' });
+      }
+
+      if (n.blocks) blocks.forEach(b => {
+        // A goal step and a timed task are already their own reminder, and a
+        // routine announces itself by being the thing you are doing.
+        if (b.step || b.task) return;
+        const when = at(d, b.s);
+        when.setMinutes(when.getMinutes() - (+n.lead || 5));
+        let waiting = 0;
+        try { waiting = tasksForBlock(b, d).length; } catch(_){ waiting = 0; }
+        out.push({ at: when, kind: 'block', tag: 'b:' + (b.uid || b.id),
+          title: b.t,
+          body: 'Starts at ' + clockOf(b.s) + (waiting ? ' · ' + waiting + ' waiting in it' : ''),
+          url: './' });
+      });
+
+      if (n.evening){
+        out.push({ at: at(d, n.eveningAt), kind: 'evening', tag: 'e:' + dk,
+          title: 'Set up tomorrow',
+          body: 'Five minutes now and tomorrow is already decided.',
+          url: './?n=tomorrow' });
+      }
+    }
+    // Quiet hours only silence the nudges Athena chose the time for. A morning
+    // or evening time you picked yourself is a request, and dropping it because
+    // it happens to fall inside your own quiet hours would just look broken.
+    return out.filter(m => m.at.getTime() > soon && !(m.kind === 'block' && inQuiet(n, m.at)));
+  }
+
+  /* ---- keeping the queue honest ----
+     The whole future is rewritten rather than patched. Working out which single
+     row a change affects means knowing exactly how a block, a repeat and an
+     exception interact, which is the thing this design exists to avoid doing
+     twice. A hash stops it writing when nothing has actually moved. */
+  let qHash = '', qTimer = null, qBusy = false;
+  function pushQueueSync(force){
+    clearTimeout(qTimer);
+    qTimer = setTimeout(() => { queueWrite(force); }, 4000);
+  }
+  async function queueWrite(force){
+    if (qBusy || pushState !== 'on' || !cloud || !session) return;
+    let moments;
+    try { moments = nudgeMoments(); } catch(_){ return; }
+    const rows = moments.map(m => ({
+      user_id: session.user.id,
+      fire_at: m.at.toISOString(),
+      kind: m.kind,
+      title: String(m.title || 'Athena').slice(0, 120),
+      body: String(m.body || '').slice(0, 300),
+      tag: String(m.tag || 'athena').slice(0, 60),
+      url: m.url || './'
+    }));
+    const h = JSON.stringify(rows.map(r => r.fire_at + '|' + r.tag + '|' + r.title + '|' + r.body));
+    if (!force && h === qHash) return;
+    qBusy = true;
+    try {
+      // The timer's own row is left alone: it belongs to a clock that is
+      // running right now, not to the shape of the week.
+      await sb.from('push_queue').delete()
+        .eq('user_id', session.user.id).is('sent_at', null)
+        .neq('kind', 'timer').gt('fire_at', new Date().toISOString());
+      if (rows.length) await sb.from('push_queue').insert(rows);
+      qHash = h;
+    } catch(_){ qHash = ''; }
+    finally { qBusy = false; }
+  }
+
+  // The focus timer rides the same rails, so it can still reach you when the
+  // phone is in your pocket, which is exactly where it usually is.
+  async function timerNudgeClear(){
+    if (!cloud || !session) return;
+    try {
+      await sb.from('push_queue').delete()
+        .eq('user_id', session.user.id).eq('kind', 'timer').is('sent_at', null);
+    } catch(_){}
+  }
+  async function timerNudgeSet(){
+    if (!cloud || !session) return;
+    await timerNudgeClear();
+    if (pushState !== 'on' || !nudges().timer || !timerRunning()) return;
+    try {
+      await sb.from('push_queue').insert([{
+        user_id: session.user.id, fire_at: new Date(timer.endsAt).toISOString(),
+        kind: 'timer', title: 'Time', body: timer.mins + ' minutes up.', tag: 'timer', url: './'
+      }]);
+    } catch(_){}
+  }
+
+  const LEADS = [[2,'2 minutes before'], [5,'5 minutes before'], [10,'10 minutes before'], [15,'15 minutes before']];
+  const HOURS = (() => { const o = []; for (let h = 0; h < 24; h++){ o.push(pad(h)+':00'); o.push(pad(h)+':30'); } return o; })();
+  const hourOpts = (sel) => HOURS.map(t => '<option value="'+t+'"'+(t === sel ? ' selected' : '')+'>'+clockOf(t)+'</option>').join('');
+
+  function nudgeSettingsHTML(){
+    const n = nudges();
+    let h = '<div class="modal-h" style="margin-top:8px">Nudges</div>';
+
+    if (pushState === 'unsupported'){
+      h += '<p class="setnote">This browser cannot send notifications. Athena works exactly the same without them.</p>';
+      return h;
+    }
+    if (pushState === 'homescreen'){
+      h += '<p class="setnote">On an iPhone or iPad, notifications only work once Athena is on your home screen. ' +
+        'Tap the share button in Safari, choose <b>Add to Home Screen</b>, then open Athena from there and come back here.</p>';
+      return h;
+    }
+    if (pushState === 'blocked'){
+      h += '<p class="setnote">Notifications are blocked for Athena in this browser’s own settings. ' +
+        'Allow them there and this will come back to life.</p>';
+      return h;
+    }
+    if (pushState !== 'on'){
+      h += '<p class="setnote">Athena can reach you when it is closed: the focus timer finishing, a block about to start, ' +
+        'and a quiet word morning and evening. You choose which, and you can turn any of them off again.</p>';
+      if (pushErr) h += '<div class="errdetail"><b>That did not work</b><span>'+esc(pushErr)+'</span></div>';
+      h += '<button class="go" data-pushon'+(pushState === 'busy' ? ' disabled' : '')+'>'+
+        (pushState === 'busy' ? 'Asking…' : 'Turn on nudges on this device')+'</button>';
+      return h;
+    }
+
+    h += '<p class="setnote">Nudges are on for this device. What they say is shared across all your devices; ' +
+      'whether this one buzzes is decided here.</p>';
+    const chk = (k, label) => '<label class="fld chk"><input type="checkbox" data-nudge="'+k+'"'+(n[k] ? ' checked' : '')+'>'+
+      '<span>'+label+'</span></label>';
+    h += chk('timer', 'Focus timer finished');
+    h += chk('blocks', 'A block is about to start');
+    if (n.blocks)
+      h += '<label class="fld"><span>How much warning</span><select data-nudgeval="lead">'+
+        LEADS.map(l => '<option value="'+l[0]+'"'+(+n.lead === l[0] ? ' selected' : '')+'>'+l[1]+'</option>').join('')+
+        '</select></label>';
+    h += chk('morning', 'Morning: today at a glance');
+    if (n.morning)
+      h += '<label class="fld"><span>Morning time</span><select data-nudgeval="morningAt">'+hourOpts(n.morningAt)+'</select></label>';
+    h += chk('evening', 'Evening: set up tomorrow');
+    if (n.evening)
+      h += '<label class="fld"><span>Evening time</span><select data-nudgeval="eveningAt">'+hourOpts(n.eveningAt)+'</select></label>';
+    h += '<div class="fld two"><label><span>Quiet from</span><select data-nudgeval="quietFrom">'+hourOpts(n.quietFrom)+'</select></label>'+
+      '<label><span>Quiet until</span><select data-nudgeval="quietTo">'+hourOpts(n.quietTo)+'</select></label></div>';
+    h += '<p class="setnote">Quiet hours hold back block reminders. The morning and evening ones keep the times you set above, ' +
+      'because you chose those yourself.</p>';
+    h += '<button class="ghost" data-pushoff>Turn off on this device</button>';
+    return h;
   }
 
   /* ---------- finding things ----------
@@ -4329,6 +4658,7 @@
     h += '<button class="ghost" data-obrerun>Walk me through setup again</button>';
     h += '<p class="setnote">The same questions as the first time, filled in with what you have now. '+
       'Change the hours, add a category, and Athena shows you exactly what it would move before anything happens.</p>';
+    h += nudgeSettingsHTML();
     h += '<div class="modal-h" style="margin-top:8px">Account</div>';
     if (cloud && session){
       h += '<div class="acctrow"><span class="acctmail">'+esc(session.user.email || 'Signed in')+'</span>'+
@@ -5389,6 +5719,9 @@
       if (editing){ editing.start = parts[0]; editing.end = fmtM(Math.min(DE, mins(parts[0]) + 15)); render(); }
       return;
     }
+    if (t('[data-pushon]')){ pushEnable(); return; }
+    if (t('[data-pushoff]')){ pushDisable(); return; }
+    if ((m = t('[data-nudge]'))){ setNudge(m.dataset.nudge, !!m.checked); render(); return; }
     if ((m = t('[data-autofill]'))){
       if (!S.profile) S.profile = blank().profile;
       S.profile.autofill = !!m.checked;
@@ -5625,6 +5958,8 @@
       applyTheme();
       render();
       consumeShare();      // anything Android handed us on the way in
+      consumeNudge();      // and anything a notification sent us here to do
+      pushCheck();         // is this device set up to be nudged at all
       setInterval(() => {
         const ae = document.activeElement;
         if (editing || settingsOpen || aiOpen || taskEdit) return;

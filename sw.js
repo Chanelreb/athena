@@ -3,7 +3,7 @@
    freshest file and we refresh the cache; when offline we serve the last good
    copy (falling back to the app shell for navigations). All user data lives in
    localStorage / Supabase, never here. */
-const CACHE = 'athena-shell-v43';
+const CACHE = 'athena-shell-v44';
 const ASSETS = [
   './',
   './index.html',
@@ -89,5 +89,42 @@ self.addEventListener('fetch', (e) => {
         if (req.mode === 'navigate') return caches.match('./index.html');
         return new Response('', { status: 504, statusText: 'Offline and not cached' });
       }))
+  );
+});
+
+/* ---- nudges ----
+   The payload arrives already worded: Athena decided what to say when it wrote
+   the queue, days ago, because that is the only place that knows what a block
+   or a task is. Nothing is worked out here. */
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_){ d = {}; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Athena', {
+    body: d.body || '',
+    // A tag replaces rather than stacks. Two reminders about the same block,
+    // because two devices are subscribed or because one arrived late, should
+    // be one line on the lock screen, not two.
+    tag: d.tag || 'athena',
+    icon: './icons/icon-192.png',
+    badge: './icons/icon-192.png',
+    data: { url: d.url || './' }
+  }));
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || './';
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      // Reuse a window that is already open rather than piling up tabs. Only
+      // navigate it if it is not already where the nudge wanted to go.
+      for (const c of list){
+        if (!('focus' in c)) continue;
+        const want = new URL(url, self.location.origin).href;
+        if (c.url !== want && 'navigate' in c) return c.navigate(want).then((w) => (w || c).focus());
+        return c.focus();
+      }
+      return self.clients.openWindow(url);
+    })
   );
 });

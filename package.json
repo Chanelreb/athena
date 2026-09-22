@@ -5,6 +5,7 @@
   "description": "Athena is a static site; these dependencies exist only for the serverless function in /api.",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
+    "web-push": "^3.6.7",
     "zod": "^4.5.4"
   }
 }
