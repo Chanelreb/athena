@@ -1669,3 +1669,28 @@
   @media (pointer: coarse) {
     #soft-app .tmbtn { padding: 9px 14px; font-size: 13px; }
   }
+
+  /* ---- one box ------------------------------------------------------------
+     Sits above everything it can change, and looks like a thing you type into
+     rather than a feature you have to find. */
+  #soft-app .askbar { display: flex; gap: 8px; margin: 14px 0 6px; }
+  #soft-app .askbar input {
+    flex: 1; min-width: 0; background: var(--raise); border: 1px solid var(--line); color: var(--text);
+    border-radius: 12px; padding: 11px 14px; font: inherit; -webkit-appearance: none; appearance: none;
+  }
+  #soft-app .askbar input:focus { outline: none; border-color: var(--live); }
+  #soft-app .askbar input:disabled { opacity: .6; }
+  #soft-app .askbar .go {
+    flex: 0 0 auto; background: var(--live); color: var(--on-live); border: 0;
+    border-radius: 12px; padding: 11px 18px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  #soft-app .askbar .go:disabled { opacity: .55; cursor: default; }
+  #soft-app .askhint { font-size: 12.5px; color: var(--ghost); margin: 0 0 4px; line-height: 1.5; max-width: 52ch; }
+  #soft-app .askreply {
+    position: relative; background: var(--raise); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 34px 12px 14px; margin: 10px 0 4px;
+  }
+  #soft-app .askreply p { margin: 0; font-size: 14.5px; line-height: 1.55; }
+  #soft-app .askreply .ddet-x { position: absolute; top: 6px; right: 8px; }
+  #soft-app .askreply-in { font-size: 14px; color: var(--dim); line-height: 1.55; margin: 0 0 12px; }
+  #soft-app .modal.ask { width: min(520px, calc(100vw - 28px)); }

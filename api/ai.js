@@ -2,7 +2,9 @@
 //
 // Three jobs, one endpoint, chosen by `mode`:
 //   (none)     a brain dump turned into events, tasks, habits and goals
-//   goalAsk    the two or three questions nobody can guess about a goal
+//   ask        one box for anything: adds things, answers questions about
+//              the week, or proposes changes to what is already there
+//   goalAsk    the questions nobody can guess about a goal
 //   goalPlan   that goal written SMART and broken into a plan
 //
 // Each returns JSON the browser's existing preview and apply path understands.
@@ -98,6 +100,51 @@ export function planSchema(cats){
   });
 }
 
+/* One box, three possible answers, one schema.
+
+   It would read better as a union of three shapes, and it cannot be: the API
+   caps a schema at sixteen union-typed parameters, and a union of three
+   object shapes blows straight past it. So intent says which of the fields
+   actually matter and the rest come back empty, which is the same bargain the
+   import schema already makes and for the same reason.
+
+   A change is flat and deliberately narrow. category and priority are plain
+   strings rather than enums because they are only filled in on two of the ten
+   actions, and the browser checks them against the real list anyway. Nothing
+   here is trusted: every change is matched against a real id, shown as a tick
+   box, and dropped if the browser cannot carry it out. */
+export function anythingSchema(cats){
+  const Cat = () => cats.length ? z.enum(cats) : z.string();
+  return z.object({
+    intent: z.enum(['add', 'answer', 'change']),
+    reply: z.string(),
+    events: z.array(z.object({
+      title: z.string(), category: Cat(), start: z.string(), end: z.string(),
+      repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'fortnightly', 'monthly']),
+      weekdays: z.array(z.number()), date: z.string(), note: z.string()
+    })),
+    tasks: z.array(z.object({
+      title: z.string(), category: Cat(), priority: z.enum(['high', 'normal', 'low']),
+      due: z.string(), dateType: z.enum(['by', 'on']), minutes: z.number(),
+      at: z.string(), repeat: z.enum(['once', 'daily', 'weekly', 'monthly']), note: z.string()
+    })),
+    habits: z.array(z.object({ label: z.string(), category: Cat(), timesPerDay: z.number() })),
+    goals: z.array(z.object({
+      title: z.string(), targetDate: z.string(), category: Cat(),
+      steps: z.array(z.object({ label: z.string(), freq: z.enum(['daily', 'weekly', 'monthly']) }))
+    })),
+    changes: z.array(z.object({
+      target: z.enum(['event', 'task', 'goal', 'routine', 'habit']),
+      id: z.string(),
+      action: z.enum(['move', 'retime', 'rename', 'recategorise', 'setdue',
+        'setminutes', 'setpriority', 'done', 'skip', 'delete']),
+      date: z.string(), start: z.string(), end: z.string(),
+      title: z.string(), category: z.string(), priority: z.string(),
+      minutes: z.number(), why: z.string()
+    }))
+  });
+}
+
 /* What Athena asks before it plans a goal. Six at most, and a question with a
    short list of answers is a tap rather than typing, which is what keeps six
    from feeling like a form. */
@@ -180,6 +227,10 @@ export default async function handler(req, res){
   // The brief is the whole picture: their words, every answer, and the shape of
   // the week the plan has to fit into. Longer than an answer list, and worth it.
   const brief = String((body && body.brief) || '').slice(0, 4000);
+  // The one box gets a picture of the whole week, with ids, so it can answer
+  // questions about it and point at the exact thing to change. Much longer
+  // than a goal brief, and there is no way round that.
+  const week = String((body && body.week) || '').slice(0, 14000);
   const categories = String((body && body.categories) || '').slice(0, 400);
   const catNames = Array.from(new Set(categories.split(',').map(s => s.trim()).filter(Boolean))).slice(0, 30);
   const today = String((body && body.today) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
@@ -242,8 +293,28 @@ export default async function handler(req, res){
     'note is one short sentence to them about the plan, or "" if you have nothing worth adding.'
   ].join(' ');
 
+  const anythingSystem = [
+    'You are Athena, the planner this person uses every day. They have typed one line into a box that does three different things, and your first job is to work out which.',
+    'intent "add" when they are telling you about something new: appointments, things to do, a habit, a goal. Fill events, tasks, habits and goals exactly as you would for an import, leave changes empty, and put one short line in reply saying what you understood.',
+    'intent "answer" when they are asking about their own week rather than changing it. Answer in reply, in at most three sentences, using their real blocks, tasks and times from the brief. Name actual things and actual times. Leave every list empty.',
+    'intent "change" when they want something that already exists to be different. Put one entry in changes for each thing that has to move, and one short line in reply describing the lot in plain words.',
+    'Never invent an id. Every id in changes must be copied exactly from the brief, and target must say which kind it is. If you cannot find the thing they mean, use intent "answer" and say which one you could not find.',
+    'What each action needs: "move" a date; "retime" a start and an end, or just a start for a routine; "rename" a title; "recategorise" a category; "setdue" a date; "setminutes" minutes; "setpriority" a priority; "skip" the date to miss; "done" and "delete" need nothing more. Leave every other field empty.',
+    'Moving a repeating block moves that one day only and leaves the repeat alone. Changing its time changes it from now on. If they asked for something you cannot express with those actions, use intent "answer" and say so plainly rather than doing something close to it.',
+    'why is one short phrase saying what that single change does, in their words, for them to read before they agree to it.',
+    'Be careful with delete. Prefer skipping one day, or marking something done, unless they clearly meant to get rid of the thing itself.',
+    'Their categories are: ' + (categories || 'Personal, Work, Health') + '. Use exactly these names.',
+    'Today is ' + today + '. Dates are "YYYY-MM-DD" and times are "HH:MM" on a 24 hour clock. Resolve "Friday" and "next week" against today.',
+    'Every field must be present. Where something does not apply, use an empty value: "" for text, 0 for numbers, [] for lists.',
+    'Warm, plain and short. Never a form, never a lecture.'
+  ].join(' ');
+
   let system = listSystem, schema = planSchema(catNames), prompt = ask;
-  if (mode === 'goalAsk'){
+  if (mode === 'ask'){
+    system = anythingSystem;
+    schema = anythingSchema(catNames);
+    prompt = week ? (week + '\n\nThey typed: ' + ask) : ask;
+  } else if (mode === 'goalAsk'){
     system = askSystem;
     schema = askSchema();
     // A second round gets the brief, so it can ask what is still missing.

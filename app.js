@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-22.3';
+  const BUILD = '2026-09-22.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1859,7 +1859,7 @@
     if (reviewOpen) h += dayReviewHTML(vd);
 
     h += '<div class="dayadd"><button data-newon="'+dk+'">+ New event</button>'+
-      '<button class="ai-btn" data-aiopen>✦ Ask your AI</button>'+
+      '<button class="ai-btn" data-aiopen>✦ Dump a list</button>'+
       // An ordinary button all day, and the obvious one to press once the
       // evening it belongs to has arrived and it has not been answered yet.
       (isToday ? '<button'+((now.getHours() >= eveHour() && !tomorrowSorted()) ? ' class="go"' : '')+
@@ -4028,6 +4028,9 @@
     app.classList.toggle('wide', weekShown() && gridShown());
 
     h += dateNav(vd, now);
+    // One line, above everything it can change. On any other view it would be
+    // asking about a week you are not looking at.
+    if (view === 'day') h += askBarHTML();
 
     if (view === 'day')    h += weekShown() ? weekView(vd, now) : dayRail(vd, now);
     else if (view === 'blocks') h += blocksManagerHTML(now);
@@ -4063,6 +4066,7 @@
     if (editing) h += editorHTML();
     if (taskEdit) h += taskEditorHTML();
     if (noteEdit) h += noteEditorHTML();
+    if (askChanges) h += askChangesHTML();
     if (tomorrowOpen) h += tomorrowHTML();
     if (searchOpen) h += searchHTML();
     if (settingsOpen) h += settingsHTML();
@@ -4143,6 +4147,366 @@
     } catch(_){}
     // Cache-busted so nothing in front of us can answer from a stale copy.
     location.replace(location.origin + location.pathname + '?fresh=' + Date.now());
+  }
+
+  /* ---------- one box ----------
+     Athena's help used to be behind three different doors: a brain dump
+     importer, a goal coach, and nothing at all for the questions you actually
+     ask a planner, which are "what should I be doing" and "when am I free".
+     This is one line you can type anything into.
+
+     Three things can come back. Something new to add, which goes through the
+     preview that already exists. An answer, which changes nothing. Or a set of
+     changes to what is already there, which arrive as tick boxes and land only
+     when you say so. Nothing the model sends is trusted: every change is
+     matched to a real id and dropped if Athena cannot actually carry it out. */
+  let askBusy = false, askReply = '', askErr = '', askChanges = null, askPick = {}, askSaid = '';
+
+  /* The week, with ids, so a question can be answered about the real thing and
+     a change can point at exactly one of them. This is the biggest thing Athena
+     sends anywhere, and it is the reason the box can be useful at all. */
+  function weekBrief(){
+    const now = new Date();
+    const L = [];
+    const cat = id => { const c = (S.categories || []).find(x => x.id === id); return c ? c.label : 'none'; };
+    L.push('Their categories: ' + (S.categories || []).map(c => c.label).join(', ') + '.');
+    L.push('Today is ' + dayKey(now) + ', a ' + DAYS[now.getDay()] +
+      ', and the time is ' + clockOf(pad(now.getHours()) + ':' + pad(now.getMinutes())) + '.');
+
+    L.push('');
+    L.push('The next seven days. Each block is written as: id, name, time, category.');
+    for (let i = 0; i < 7; i++){
+      const d = new Date(now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i);
+      const bl = blocksForDate(d);
+      const line = DAYS[d.getDay()] + ' ' + dayKey(d) + ': ';
+      if (!bl.length){ L.push(line + 'nothing scheduled'); continue; }
+      L.push(line + bl.map(b => {
+        const id = b.routine ? b.routine.id : b.step ? b.step.sid : b.task ? b.task.id : b.id;
+        const when = b.allDay ? 'all day' : clockOf(b.s) + ' to ' + clockOf(b.e);
+        const what = b.routine ? ' (a routine)' : b.step ? ' (a goal step)' : b.task ? ' (a task with a time)' : '';
+        return id + ' ' + b.t + ' ' + when + ' [' + cat(b.c) + ']' + what;
+      }).join('; '));
+    }
+
+    const open = (S.tasks || []).filter(tk => !tk.doneAt).slice(0, 40);
+    L.push('');
+    L.push(open.length ? 'Tasks not done yet:' : 'No open tasks.');
+    open.forEach(tk => {
+      const bits = [cat(tk.cat)];
+      if (tk.due) bits.push((tk.dateType === 'on' ? 'do on ' : 'due by ') + tk.due);
+      if (tk.mins) bits.push(tk.mins + ' min');
+      if (tk.priority && tk.priority !== 'normal') bits.push(tk.priority + ' priority');
+      if (tk.repeat) bits.push('repeats ' + tk.repeat.freq);
+      if (tk.at) bits.push('at ' + tk.at);
+      L.push('  ' + tk.id + ' ' + tk.title + ' [' + bits.join(', ') + ']');
+    });
+
+    if ((S.goals || []).length){
+      L.push('');
+      L.push('Goals:');
+      (S.goals || []).forEach(g => {
+        L.push('  ' + g.id + ' ' + g.title + (g.by ? ' by ' + g.by : '') + ' [' + cat(g.cat) + ']');
+        (g.steps || []).forEach(st => L.push('    step ' + st.id + ' ' + st.label + ' (' + st.freq + ')'));
+      });
+    }
+    if (routinesAll().length){
+      L.push('');
+      L.push('Routines:');
+      routinesAll().forEach(r => L.push('  ' + r.id + ' ' + r.name + ' at ' + (r.time || 'no time') +
+        ' [' + cat(r.cat) + ']'));
+    }
+    if ((S.habits || []).length){
+      L.push('');
+      L.push('Habits:');
+      (S.habits || []).forEach(hb => L.push('  ' + hb.id + ' ' + hb.label + ' [' + cat(hb.cat) +
+        (hb.target > 1 ? ', ' + hb.target + ' times a day' : '') + ']'));
+    }
+
+    // What the week actually cost, which is the only way to answer "where did
+    // my week go" with something other than a guess.
+    const wk = weekKey(now), byCat = {};
+    Object.keys(spentAll()).forEach(dk => {
+      if (weekKey(parseDay(dk)) !== wk) return;
+      const day = spentAll()[dk];
+      Object.keys(day).forEach(ref => {
+        let c = null;
+        if (ref.indexOf('tk_') === 0){ const t = findTask(ref.slice(3)); c = t && t.cat; }
+        else if (ref.indexOf('ro_') === 0){ const r = routinesAll().find(x => x.id === ref.slice(3)); c = r && r.cat; }
+        else { const ev = findEvent(ref); c = ev && ev.cat; }
+        byCat[c || 'other'] = (byCat[c || 'other'] || 0) + day[ref];
+      });
+    });
+    const keys = Object.keys(byCat);
+    if (keys.length){
+      L.push('');
+      L.push('Time actually tracked this week: ' + keys.map(k => cat(k) + ' ' + dur(byCat[k])).join(', ') + '.');
+    }
+    return L.join('\n');
+  }
+
+  /* Turning what came back into something Athena can actually do, or into
+     nothing at all. Anything that names a thing that is not there, or asks for
+     a change that does not apply to that kind of thing, is dropped here rather
+     than half applied later. */
+  // The model's own one-line reason rides along with whatever Athena decided
+  // it could safely do, so the tick box says both what will happen and why.
+  function prepChange(c){
+    const out = prepChangeOne(c);
+    if (out) out.why = String((c && c.why) || '').slice(0, 140);
+    return out;
+  }
+  function prepChangeOne(c){
+    if (!c || !c.id || !c.action) return null;
+    const id = String(c.id).trim();
+    const act = String(c.action);
+    const okDate = d => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+    const okTime = t => /^\d{2}:\d{2}$/.test(String(t || ''));
+
+    if (c.target === 'task'){
+      const tk = findTask(id);
+      if (!tk) return null;
+      if (act === 'setdue' || act === 'move'){
+        if (!okDate(c.date)) return null;
+        return { kind:'task', id, act:'setdue', date:c.date, name:tk.title,
+          line:'Move "' + tk.title + '" to ' + goalDate(c.date) };
+      }
+      if (act === 'setminutes'){
+        const m = Math.round(+c.minutes || 0);
+        if (m < 1 || m > 600) return null;
+        return { kind:'task', id, act:'setminutes', minutes:m, name:tk.title,
+          line:'Give "' + tk.title + '" ' + dur(m) };
+      }
+      if (act === 'setpriority'){
+        if (['high','normal','low'].indexOf(c.priority) === -1) return null;
+        return { kind:'task', id, act:'setpriority', priority:c.priority, name:tk.title,
+          line:'Make "' + tk.title + '" ' + c.priority + ' priority' };
+      }
+      if (act === 'recategorise'){
+        const cid = matchCatInfo(c.category);
+        if (cid.guessed) return null;
+        return { kind:'task', id, act:'recategorise', cat:cid.id, name:tk.title,
+          line:'File "' + tk.title + '" under ' + c.category };
+      }
+      if (act === 'rename' && c.title) return { kind:'task', id, act:'rename', title:String(c.title).slice(0,140),
+        name:tk.title, line:'Rename "' + tk.title + '" to "' + c.title + '"' };
+      if (act === 'done') return { kind:'task', id, act:'done', name:tk.title, line:'Tick off "' + tk.title + '"' };
+      if (act === 'delete') return { kind:'task', id, act:'delete', name:tk.title, line:'Delete the task "' + tk.title + '"' };
+      return null;
+    }
+
+    if (c.target === 'event'){
+      const ev = findEvent(id);
+      if (!ev) return null;
+      if (act === 'move'){
+        if (!okDate(c.date)) return null;
+        return { kind:'event', id, act:'move', date:c.date, name:ev.title,
+          line: ev.rrule
+            ? 'Put "' + ev.title + '" on ' + goalDate(c.date) + ' as a one-off, leaving the repeat alone'
+            : 'Move "' + ev.title + '" to ' + goalDate(c.date) };
+      }
+      if (act === 'retime'){
+        if (!okTime(c.start)) return null;
+        const end = okTime(c.end) ? c.end : fmtM(mins(c.start) + (mins(ev.end || '10:00') - mins(ev.start || '09:00')));
+        if (mins(end) <= mins(c.start)) return null;
+        return { kind:'event', id, act:'retime', start:c.start, end, name:ev.title,
+          line:'Move "' + ev.title + '" to ' + clockOf(c.start) + ' to ' + clockOf(end) +
+            (ev.rrule ? ', from now on' : '') };
+      }
+      if (act === 'skip'){
+        if (!okDate(c.date)) return null;
+        return { kind:'event', id, act:'skip', date:c.date, name:ev.title,
+          line:'Skip "' + ev.title + '" on ' + goalDate(c.date) };
+      }
+      if (act === 'rename' && c.title) return { kind:'event', id, act:'rename', title:String(c.title).slice(0,120),
+        name:ev.title, line:'Rename "' + ev.title + '" to "' + c.title + '"' };
+      if (act === 'recategorise'){
+        const cid = matchCatInfo(c.category);
+        if (cid.guessed) return null;
+        return { kind:'event', id, act:'recategorise', cat:cid.id, name:ev.title,
+          line:'File "' + ev.title + '" under ' + c.category };
+      }
+      if (act === 'delete') return { kind:'event', id, act:'delete', name:ev.title,
+        line:'Delete "' + ev.title + '" and every time it repeats' };
+      return null;
+    }
+
+    if (c.target === 'routine'){
+      const r = routinesAll().find(x => x.id === id);
+      if (!r) return null;
+      if (act === 'retime' && okTime(c.start))
+        return { kind:'routine', id, act:'retime', start:c.start, name:r.name,
+          line:'Move the ' + r.name + ' routine to ' + clockOf(c.start) };
+      if (act === 'rename' && c.title) return { kind:'routine', id, act:'rename', title:String(c.title).slice(0,80),
+        name:r.name, line:'Rename the ' + r.name + ' routine to "' + c.title + '"' };
+      if (act === 'delete') return { kind:'routine', id, act:'delete', name:r.name,
+        line:'Delete the ' + r.name + ' routine' };
+      return null;
+    }
+
+    if (c.target === 'goal'){
+      const g = (S.goals || []).find(x => x.id === id);
+      if (!g) return null;
+      if (act === 'setdue' || act === 'move'){
+        if (!okDate(c.date)) return null;
+        return { kind:'goal', id, act:'setdue', date:c.date, name:g.title,
+          line:'Move the date on "' + g.title + '" to ' + goalDate(c.date) };
+      }
+      if (act === 'rename' && c.title) return { kind:'goal', id, act:'rename', title:String(c.title).slice(0,120),
+        name:g.title, line:'Rename "' + g.title + '" to "' + c.title + '"' };
+      if (act === 'delete') return { kind:'goal', id, act:'delete', name:g.title,
+        line:'Delete the goal "' + g.title + '"' };
+      return null;
+    }
+
+    if (c.target === 'habit'){
+      const hb = (S.habits || []).find(x => x.id === id);
+      if (!hb) return null;
+      if (act === 'rename' && c.title) return { kind:'habit', id, act:'rename', title:String(c.title).slice(0,80),
+        name:hb.label, line:'Rename the habit "' + hb.label + '" to "' + c.title + '"' };
+      if (act === 'delete') return { kind:'habit', id, act:'delete', name:hb.label,
+        line:'Delete the habit "' + hb.label + '"' };
+      return null;
+    }
+    return null;
+  }
+
+  async function askAthena(){
+    const q = ((document.getElementById('ask_q') || {}).value || '').trim();
+    if (!q){ const i = document.getElementById('ask_q'); if (i) i.focus(); return; }
+    if (!cloud || !session){ askErr = 'Sign in first to ask Athena anything.'; render(); return; }
+    askBusy = true; askErr = ''; askReply = ''; askChanges = null; askSaid = q; render();
+    try {
+      const { data } = await sb.auth.getSession();
+      const token = data && data.session ? data.session.access_token : '';
+      const r = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({
+          mode: 'ask', ask: q, week: weekBrief(),
+          categories: S.categories.map(c => c.label).join(', '),
+          today: dayKey(new Date())
+        })
+      });
+      let j = {};
+      try { j = await r.json(); } catch(_){}
+      askBusy = false;
+      if (!r.ok){ askErr = (j && j.error) || 'That did not work. Try again in a moment.'; render(); return; }
+      let out = {};
+      try { out = JSON.parse(j.text); } catch(_){ askErr = 'Athena replied in a shape Athena did not understand.'; render(); return; }
+
+      if (out.intent === 'change'){
+        const list = (out.changes || []).map(prepChange).filter(Boolean);
+        if (list.length){
+          askChanges = list; askPick = {};
+          list.forEach((_, i) => { askPick[i] = true; });
+          askReply = out.reply || '';
+        } else {
+          // Everything it proposed was for something that is not there, or was
+          // something Athena has no way to do. Saying so beats a blank screen.
+          askReply = (out.reply ? out.reply + ' ' : '') +
+            'Athena could not turn that into a change it is sure about, so nothing has been touched.';
+        }
+      } else if (out.intent === 'answer'){
+        askReply = out.reply || 'Athena had nothing to say to that.';
+      } else {
+        clearDraft('ask_q');
+        askSaid = '';
+        aiOpen = true; aiManual = false;
+        aiBuildPreview(j.text);
+        return;
+      }
+      clearDraft('ask_q');
+      render();
+    } catch(e){
+      askBusy = false;
+      askErr = 'Could not reach Athena just now. Check your connection.';
+      render();
+    }
+  }
+
+  function askApply(){
+    if (!askChanges) return;
+    const chosen = askChanges.filter((_, i) => askPick[i]);
+    if (!chosen.length){ askChanges = null; askReply = ''; render(); return; }
+    markUndo('Athena made ' + chosen.length + ' change' + (chosen.length !== 1 ? 's' : ''));
+    const tmk = c => c.date;
+    chosen.forEach(c => {
+      if (c.kind === 'task'){
+        const tk = findTask(c.id);
+        if (!tk) return;
+        if (c.act === 'setdue'){ tk.due = c.date; tk.pin = null; tk.hold = false; }
+        else if (c.act === 'setminutes') tk.mins = c.minutes;
+        else if (c.act === 'setpriority') tk.priority = c.priority;
+        else if (c.act === 'recategorise'){ tk.cat = c.cat; tk.pin = null; }
+        else if (c.act === 'rename') tk.title = c.title;
+        else if (c.act === 'done') tk.doneAt = dayKey(new Date());
+        else if (c.act === 'delete') S.tasks = (S.tasks || []).filter(x => x.id !== c.id);
+      } else if (c.kind === 'event'){
+        const ev = findEvent(c.id);
+        if (!ev) return;
+        if (c.act === 'move'){
+          // A repeating block cannot be moved to a day it does not repeat on,
+          // so that day gets a copy and the repeat carries on as it was.
+          if (!ev.rrule) ev.date = c.date;
+          else S.events.push({ id:'ev_'+uid8(), title:ev.title, note:ev.note || '', cat:ev.cat,
+            allDay:!!ev.allDay, start:ev.start, end:ev.end, rrule:null, date:c.date, ex:{}, skip:[] });
+        }
+        else if (c.act === 'retime'){ ev.start = c.start; ev.end = c.end; ev.allDay = false; }
+        else if (c.act === 'skip'){ ev.skip = (ev.skip || []).concat([c.date]); }
+        else if (c.act === 'rename') ev.title = c.title;
+        else if (c.act === 'recategorise') ev.cat = c.cat;
+        else if (c.act === 'delete') S.events = (S.events || []).filter(x => x.id !== c.id);
+      } else if (c.kind === 'routine'){
+        const r = routinesAll().find(x => x.id === c.id);
+        if (!r) return;
+        if (c.act === 'retime') r.time = c.start;
+        else if (c.act === 'rename') r.name = c.title;
+        else if (c.act === 'delete') S.routines = routinesAll().filter(x => x.id !== c.id);
+      } else if (c.kind === 'goal'){
+        const g = (S.goals || []).find(x => x.id === c.id);
+        if (!g) return;
+        if (c.act === 'setdue') g.by = c.date;
+        else if (c.act === 'rename') g.title = c.title;
+        else if (c.act === 'delete') S.goals = (S.goals || []).filter(x => x.id !== c.id);
+      } else if (c.kind === 'habit'){
+        const hb = (S.habits || []).find(x => x.id === c.id);
+        if (!hb) return;
+        if (c.act === 'rename') hb.label = c.title;
+        else if (c.act === 'delete') S.habits = (S.habits || []).filter(x => x.id !== c.id);
+      }
+    });
+    announce(chosen.length + ' change' + (chosen.length !== 1 ? 's' : '') + ' made');
+    askChanges = null; askPick = {}; askReply = ''; askSaid = '';
+    save(); render();
+  }
+
+  function askBarHTML(){
+    let h = '<div class="askbar">'+
+      '<input id="ask_q" type="text" placeholder="Ask Athena anything…" autocomplete="off"'+
+      (askBusy ? ' disabled' : '')+'>'+
+      '<button class="go" data-askgo'+(askBusy ? ' disabled' : '')+'>'+(askBusy ? '…' : 'Ask')+'</button>'+
+      '</div>';
+    h += '<p class="askhint">Add something, ask how your week looks, or tell it to move things around. '+
+      'Nothing changes until you say so.</p>';
+    if (askErr) h += '<div class="savewarn">'+esc(askErr)+'</div>';
+    if (askReply && !askChanges)
+      h += '<div class="askreply"><p>'+esc(askReply)+'</p>'+
+        '<button class="ddet-x" data-askclear aria-label="Close">×</button></div>';
+    return h;
+  }
+
+  function askChangesHTML(){
+    let h = '<div class="modal-back" data-askclear></div>';
+    h += '<div class="modal ask"><div class="modal-h">Athena would change this</div>';
+    if (askSaid) h += '<p class="ai-intro">You said: <b>'+esc(askSaid)+'</b></p>';
+    if (askReply) h += '<p class="askreply-in">'+esc(askReply)+'</p>';
+    h += askChanges.map((c, i) =>
+      '<label class="gpick"><input type="checkbox" data-askpick="'+i+'"'+(askPick[i] ? ' checked' : '')+'>'+
+      '<span class="gpk"><b>'+esc(c.line)+'</b>'+(c.why ? '<em>'+esc(c.why)+'</em>' : '')+'</span></label>').join('');
+    h += '<p class="ai-howto">Untick anything you would rather keep. Undo will still be there afterwards.</p>';
+    h += '<div class="modal-actions"><button class="ghost" data-askclear>Change nothing</button>'+
+      '<span style="flex:1"></span><button class="go" data-askapply>Make these changes</button></div>';
+    return h + '</div>';
   }
 
   /* ---------- nudges ----------
@@ -5144,7 +5508,7 @@
     const swipeable = (view === 'day');
     // Not from a picked block either: that finger is moving the block, and a
     // sideways wobble while doing it should not flip to another day.
-    if (!swipeable || editing || settingsOpen || aiOpen || ob || taskEdit || searchOpen || tomorrowOpen || e.touches.length !== 1 ||
+    if (!swipeable || editing || settingsOpen || aiOpen || ob || taskEdit || searchOpen || tomorrowOpen || askChanges || e.touches.length !== 1 ||
         (e.target.closest && e.target.closest('.dblk.picked'))){ swX = null; return; }
     swX = e.touches[0].clientX; swY = e.touches[0].clientY;
   }, { passive: true });
@@ -5297,6 +5661,10 @@
     if ((m = t('[data-delevent]'))){ markUndo('Event deleted'); S.events = S.events.filter(x => x.id !== m.dataset.delevent); editing = null; clearModalDrafts(); save(); render(); return; }
     if ((m = t('[data-wd]'))){ syncEditor(); const d = +m.dataset.wd; const i = editing.weekdays.indexOf(d); if (i===-1) editing.weekdays.push(d); else editing.weekdays.splice(i,1); render(); return; }
     if ((m = t('[data-settheme]'))){ commitSettings(); S.profile.theme = m.dataset.settheme; applyTheme(); save(); render(); return; }
+    if (t('[data-askgo]')){ askAthena(); return; }
+    if (t('[data-askclear]')){ askChanges = null; askPick = {}; askReply = ''; askErr = ''; askSaid = ''; render(); return; }
+    if ((m = t('[data-askpick]'))){ askPick[m.dataset.askpick] = !!m.checked; return; }
+    if (t('[data-askapply]')){ askApply(); return; }
     if (t('[data-tomorrow]')){ tomorrowOpen = true; tmrw = {}; render(); return; }
     if (t('[data-closetomorrow]')){ tomorrowOpen = false; tmrw = {}; render(); return; }
     if ((m = t('[data-tmpick]'))){
@@ -5826,11 +6194,13 @@
       e.preventDefault(); const v = e.target.value.trim();
       if (v){ S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
     }
+    if (e.key === 'Enter' && e.target.id === 'ask_q'){ e.preventDefault(); askAthena(); return; }
     if (e.key === 'Enter' && e.target.id === 'tk_title'){ e.preventDefault(); const b = app.querySelector('[data-addtask]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newitem'){ e.preventDefault(); const b = app.querySelector('[data-noteadditem]'); if (b) b.click(); return; }
     if (e.key === 'Escape' && searchOpen){ searchOpen = false; clearDraft('gs_q'); render(); return; }
     if (e.key === 'Escape' && tomorrowOpen){ tomorrowOpen = false; tmrw = {}; render(); return; }
+    if (e.key === 'Escape' && askChanges){ askChanges = null; askPick = {}; askReply = ''; askSaid = ''; render(); return; }
     if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit || noteEdit || goalAI)){
       if (noteEdit){ const b = app.querySelector('[data-notecancel]'); if (b){ b.click(); return; } }
       editing = null; taskEdit = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input';
@@ -6003,7 +6373,7 @@
 
   function userBusy(){
     const ae = document.activeElement;
-    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || searchOpen || tomorrowOpen ||
+    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || searchOpen || tomorrowOpen || !!askChanges ||
       (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
   }
   function applyUpdate(){
