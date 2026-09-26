@@ -64,7 +64,12 @@ export default async function handler(req, res){
       title: String(it.title || 'Athena').slice(0, 120),
       body: String(it.body || '').slice(0, 300),
       tag: String(it.tag || 'athena').slice(0, 60),
-      url: String(it.url || './').slice(0, 200)
+      url: String(it.url || './').slice(0, 200),
+      // Not sent by anything yet. The queue gains a column for it when the
+      // must-not-miss deadlines land, and the service worker already knows
+      // what to do with it, so that change is one SQL statement rather than a
+      // new deploy on every side at once.
+      urgent: !!it.urgent
     });
     try {
       await webpush.sendNotification(

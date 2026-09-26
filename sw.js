@@ -3,7 +3,7 @@
    freshest file and we refresh the cache; when offline we serve the last good
    copy (falling back to the app shell for navigations). All user data lives in
    localStorage / Supabase, never here. */
-const CACHE = 'athena-shell-v46';
+const CACHE = 'athena-shell-v47';
 const ASSETS = [
   './',
   './index.html',
@@ -99,12 +99,23 @@ self.addEventListener('fetch', (e) => {
 self.addEventListener('push', (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_){ d = {}; }
+  // Reserved for the deadline chase: the ones where missing it costs money
+  // stay on screen and buzz harder than a reminder that a block is starting.
+  const urgent = !!d.urgent;
   e.waitUntil(self.registration.showNotification(d.title || 'Athena', {
     body: d.body || '',
     // A tag replaces rather than stacks. Two reminders about the same block,
     // because two devices are subscribed or because one arrived late, should
     // be one line on the lock screen, not two.
     tag: d.tag || 'athena',
+    // Android delivers a replacement silently unless asked not to, so without
+    // this every reminder after the first one about the same thing arrives
+    // with no sound at all. For a deadline being chased through the day that
+    // is precisely backwards: the later ones need to be louder, not quieter.
+    renotify: true,
+    silent: false,
+    vibrate: urgent ? [300, 120, 300, 120, 300] : [200, 100, 200],
+    requireInteraction: urgent,
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
     data: { url: d.url || './' }
