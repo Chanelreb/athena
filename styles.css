@@ -1760,3 +1760,20 @@
     #soft-app .hb-tick { width: 30px; height: 30px; }
     #soft-app .hb-drop { padding: 8px 13px; }
   }
+
+  /* ---- the receipt after adding a task -------------------------------------
+     Sits directly under the box it was typed into, because that is where the
+     eye already is. A confirmation further down the page is no confirmation. */
+  #soft-app .added {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin: 10px 0 2px; padding: 10px 14px;
+    background: var(--raise); border: 1px solid var(--line);
+    border-left: 3px solid var(--live); border-radius: 12px;
+    animation: athSlip .28s ease;
+  }
+  #soft-app .ad-t { flex: 1; min-width: 0; font-size: 14px; }
+  #soft-app .ad-t b { font-weight: 600; }
+  #soft-app .ad-t em { display: block; font-style: normal; font-size: 12.5px; color: var(--dim); margin-top: 2px; }
+  #soft-app .added .linkish { flex: 0 0 auto; }
+  @keyframes athSlip { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { #soft-app .added { animation: none; } }

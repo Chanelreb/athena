@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-26.3';
+  const BUILD = '2026-09-26.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3192,6 +3192,29 @@
       '</div>';
   }
 
+  /* The receipt.
+     Adding a task empties the box and puts the cursor back, which is right for
+     dumping six things in a row and completely wrong as the only feedback you
+     get. The task did save: it was sorted straight into Overdue or Coming up,
+     often below the fold, so all you saw was the field going blank. That reads
+     as a failure, so you type it again, and now you have two.
+     This says what landed, where it went, and offers both ways out. */
+  let lastAdded = null;
+  function addedHTML(){
+    const tk = lastAdded && findTask(lastAdded);
+    if (!tk) return '';
+    const bits = [catOf(tk.cat).label];
+    if (tk.due) bits.push(dueLabel(tk.due, new Date(), tk.dateType).text);
+    if (tk.at) bits.push('at ' + clockOf(tk.at));
+    else if (tk.mins) bits.push(dur(tk.mins));
+    if (tk.repeat) bits.push(repeatLabel(tk.repeat));
+    if (tk.hard && hardOK(tk)) bits.push('closes ' + clockOf(hardClose(tk)));
+    return '<div class="added"><span class="ad-t">Saved <b>' + esc(tk.title) + '</b>' +
+      '<em>' + esc(bits.join(' \u00b7 ')) + '</em></span>' +
+      '<button class="linkish" data-taskedit="' + tk.id + '">Change it</button>' +
+      '<button class="linkish" data-undoadd="' + tk.id + '">Undo</button></div>';
+  }
+
   function tasksView(now){
     const today = dayKey(now);
     const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'>"+esc(c.label)+"</option>").join('');
@@ -3233,6 +3256,8 @@
       '<button class="go" data-addtask>Add task</button>'+
       '<small class="gform-hint">Only the name is required. "Due by" stays on your list until it is done; "Do on" only turns up that day. '+
       'Add a time and it stops queueing inside a block and takes its own place in the day, like an appointment.</small></div>';
+
+    h += addedHTML();
 
     h += '<div class="dayadd" style="margin-top:14px"><button class="ai-btn" data-aiopen>✦ Dump a list with your AI</button></div>';
 
@@ -5816,6 +5841,7 @@
       // afterwards is exactly the friction that loses the thing.
       if ((document.getElementById('tk_hard') || {}).checked && hardOK(nt)) nt.hard = true;
       S.tasks.push(nt);
+      lastAdded = nt.id;
       clearDraft('tk_title'); clearDraft('tk_due'); clearDraft('tk_at'); clearDraft('tk_hard');
       save(); render();
       const i = document.getElementById('tk_title'); if (i) i.focus();   // keep dumping
@@ -5862,7 +5888,7 @@
       openEditor({ date: m.dataset.newon }); return;
     }
 
-    if ((m = t('[data-view]'))){ view = m.dataset.view; openDay = null; render(); return; }
+    if ((m = t('[data-view]'))){ view = m.dataset.view; openDay = null; lastAdded = null; render(); return; }
     if ((m = t('[data-shift]'))){ dayShift += +m.dataset.shift; openDay = null; render(); return; }
     if (t('[data-today]')){ dayShift = 0; openDay = null; render(); return; }
     if ((m = t('[data-daymode]'))){ dayMode = m.dataset.daymode; openDay = null; render(); return; }
@@ -6262,6 +6288,10 @@
       taskEdit.hard = !!g('te_hard').checked;
       const b = g('te_by'); if (b) taskEdit.by = b.value;
       clearModalDrafts(); render(); return;
+    }
+    if ((m = t('[data-undoadd]'))){
+      S.tasks = (S.tasks || []).filter(x => x.id !== m.dataset.undoadd);
+      lastAdded = null; save(); render(); return;
     }
     if ((m = t('[data-hardstop]'))){
       const tk = findTask(m.dataset.hardstop);
