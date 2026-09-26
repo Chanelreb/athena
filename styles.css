@@ -1793,3 +1793,73 @@
   :is(#soft-app, .ath-side) .tmeta .twhere.loose { color: var(--ghost); }
   :is(#soft-app, .ath-side) .tmeta .twhere.placed { color: var(--text); opacity: .85; }
   :is(#soft-app, .ath-side) .tmeta .twhere.held { color: var(--warn); }
+
+  /* ---- the coach: the daily check and commitments --------------------------
+     Quieter than must-not-miss on purpose. A deadline shouts because missing it
+     costs money. A commitment asks, because being told off by an app is how an
+     app stops being opened. */
+  #soft-app .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  #soft-app .seg::-webkit-scrollbar { display: none; }
+  #soft-app .seg button { flex: 0 0 auto; white-space: nowrap; }
+
+  #soft-app .check {
+    border: 1px solid var(--line); border-radius: 14px;
+    background: var(--raise); padding: 12px 14px; margin: 14px 0 4px;
+  }
+  #soft-app .ck-h {
+    font-family: var(--serif); font-size: 12.5px; color: var(--dim);
+    text-transform: uppercase; letter-spacing: .1em; margin-bottom: 8px;
+  }
+  #soft-app .ck-quiet { margin: 0; font-size: 13.5px; color: var(--dim); line-height: 1.5; }
+  #soft-app .ck-row { padding: 8px 0; }
+  #soft-app .ck-row + .ck-row { border-top: 1px solid var(--line); }
+  #soft-app .ck-t b { display: block; font-size: 15px; font-weight: 600; }
+  #soft-app .ck-t em { display: block; font-style: normal; font-size: 12.5px; color: var(--dim); margin-top: 2px; }
+  #soft-app .ck-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
+  #soft-app .ck-acts button {
+    background: none; border: 1px solid var(--line); color: var(--dim);
+    border-radius: 999px; padding: 6px 13px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  #soft-app .ck-acts button:hover { color: var(--text); border-color: var(--ghost); }
+  #soft-app .ck-acts .ck-yes { background: var(--live); border-color: var(--live); color: var(--on-live); font-weight: 600; }
+  #soft-app .ck-note { margin: 10px 0 0; font-size: 12px; color: var(--ghost); line-height: 1.5; }
+
+  #soft-app .cmlist { display: flex; flex-direction: column; }
+  #soft-app .cmrow { display: flex; align-items: center; gap: 11px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  #soft-app .cm-tick {
+    flex: 0 0 auto; width: 24px; height: 24px; padding: 0; cursor: pointer;
+    background: none; border: 1.5px solid var(--ghost); border-radius: 8px; color: var(--live);
+  }
+  #soft-app .cm-tick:hover { border-color: var(--live); }
+  #soft-app .cm-tick svg { width: 15px; height: 15px; display: block; margin: 0 auto; }
+  #soft-app .cm-mark {
+    flex: 0 0 auto; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+    color: var(--ghost); font-size: 15px;
+  }
+  #soft-app .cm-mark.did { color: var(--live); }
+  #soft-app .cm-mark svg { width: 15px; height: 15px; display: block; }
+  #soft-app .cm-t { flex: 1; min-width: 0; }
+  #soft-app .cm-t b { display: block; font-weight: 500; font-size: 14.5px; }
+  #soft-app .cm-t em { display: block; font-style: normal; font-size: 12.5px; color: var(--dim); margin-top: 2px; }
+  #soft-app .cmrow.closed { opacity: .6; }
+  #soft-app .cmrow.closed .cm-t b { text-decoration: line-through; }
+  #soft-app .cm-go {
+    flex: 0 0 auto; background: none; border: 1px solid var(--line); color: var(--ghost);
+    border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  #soft-app .cm-go:hover { color: var(--text); border-color: var(--ghost); }
+
+  #soft-app .trackrow { display: flex; align-items: center; gap: 9px; padding: 6px 0; }
+  #soft-app .trackrow .cd { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+  #soft-app .tr-l { flex: 1; min-width: 0; font-size: 14px; }
+  #soft-app .tr-seg { display: flex; gap: 4px; flex: 0 0 auto; }
+  #soft-app .tr-b {
+    background: none; border: 1px solid var(--line); color: var(--dim);
+    border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  #soft-app .tr-b.on { background: var(--live); border-color: var(--live); color: var(--on-live); font-weight: 600; }
+  @media (pointer: coarse) {
+    #soft-app .ck-acts button { padding: 9px 15px; }
+    #soft-app .tr-b { padding: 8px 14px; }
+    #soft-app .cm-tick { width: 28px; height: 28px; }
+  }

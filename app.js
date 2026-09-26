@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-26.5';
+  const BUILD = '2026-09-26.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -226,7 +226,10 @@
     // Athena leans on estimates everywhere. This is how it finds out whether
     // they were ever any good.
     spent: {},
-    completions: {}   // { 'YYYY-MM-DD': { <itemId>: true | <number> } }
+    completions: {},  // { 'YYYY-MM-DD': { <itemId>: true | <number> } }
+    // The coach. tracks says which side of your life each category sits on;
+    // commitments are the things you said out loud that you would do.
+    coach: { tracks: {}, commitments: [] }
   });
 
   let S = blank();
@@ -3159,6 +3162,176 @@
     save(); render();
   }
 
+  /* ---------- the coach, part one: tracks and commitments ----------
+     A task is something to get done. A commitment is different: it is a thing
+     you said out loud that you would do, and the whole point is that it can be
+     broken. Nothing in Athena could be broken before this, which is exactly why
+     nothing in it held you to anything.
+
+     Two tracks, Work and Life, because being challenged about revenue and being
+     challenged about sleep are not the same conversation. Each of your
+     categories belongs to one of them.
+
+     One rule runs through all of it: skipping costs nothing. No streaks, no
+     count of missed days, no guilt for a quiet week. An app that tells you off
+     is an app you stop opening, and then it cannot help you at all. */
+  const TRACKS = [['work', 'Work'], ['life', 'Life']];
+  const trackName = t => (t === 'work' ? 'Work' : 'Life');
+
+  function coach(){
+    if (!S.coach) S.coach = {};
+    const c = S.coach;
+    if (!c.tracks) c.tracks = {};
+    if (!c.commitments) c.commitments = [];
+    return c;
+  }
+  // Until you say otherwise, anything that is not the work category is life.
+  // A guess you can see and change beats a question nobody wanted asked.
+  function trackOf(catId){
+    const t = coach().tracks[catId];
+    return (t === 'work' || t === 'life') ? t : (catId === 'work' ? 'work' : 'life');
+  }
+  const commitments = () => coach().commitments;
+  const liveCommits = () => commitments().filter(c => c.state === 'live');
+  const commitsOn = t => liveCommits().filter(c => c.track === t);
+  // Everything that has come due and is still open. A commitment with no date
+  // is a standing one and never falls due, so it never gets asked about.
+  const dueCommits = d => liveCommits().filter(c => c.by && c.by <= dayKey(d));
+  const askedToday = (c, d) => !!(c.asked && c.asked[dayKey(d)]);
+  const needAnswer = d => dueCommits(d).filter(c => !askedToday(c, d));
+  // How many times you have said not yet. Not shown as a scold, shown because
+  // the fifth time is information and the first time is not.
+  const notYets = c => Object.keys(c.asked || {}).filter(k => c.asked[k] === 'not yet').length;
+
+  function newCommit(text, by, track){
+    const c = { id: 'cm_' + uid8(), text: String(text).slice(0, 160), by: by || '',
+      track: (track === 'work' ? 'work' : 'life'), madeAt: dayKey(new Date()),
+      state: 'live', closedAt: null, reason: '', asked: {} };
+    commitments().push(c);
+    return c;
+  }
+  const findCommit = id => commitments().find(c => c.id === id);
+  function answerCommit(id, how){
+    const c = findCommit(id);
+    if (!c) return;
+    const today = dayKey(new Date());
+    c.asked = c.asked || {};
+    if (how === 'done'){ c.state = 'done'; c.closedAt = today; markJustDone(c.id); }
+    else if (how === 'let go'){ c.state = 'let go'; c.closedAt = today; }
+    else c.asked[today] = 'not yet';
+    save();
+  }
+
+  /* ---- the daily check ----
+     Thirty seconds. It shows what is live, and asks about anything that has
+     come due, once, with three answers. It never asks why: that belongs in the
+     weekly session where there is room for the answer. Daily is for
+     acknowledging, weekly is for understanding. */
+  function dailyCheckHTML(now){
+    const live = liveCommits();
+    if (!live.length) return '';
+    const ask = needAnswer(now);
+    const today = dayKey(now);
+
+    let h = '<div class="check"><div class="ck-h">Today’s check</div>';
+    if (!ask.length){
+      const soon = live.filter(c => c.by).sort((a, b) => a.by.localeCompare(b.by))[0];
+      // Saying "next one due" about something already two days late reads as
+      // though Athena has not noticed, which is the one thing it must not do.
+      const tail = !soon ? 'None of them has a date.'
+        : soon.by < today ? 'One is past its date, and answered for today.'
+        : 'Next one due ' + goalDate(soon.by) + '.';
+      h += '<p class="ck-quiet">' + live.length + ' commitment' + (live.length !== 1 ? 's' : '') + ' live. ' + tail + '</p>';
+      return h + '</div>';
+    }
+
+    ask.forEach(c => {
+      const late = c.by < today;
+      const n = notYets(c);
+      const bits = [trackName(c.track)];
+      bits.push(late ? dueLabel(c.by, now, 'by').text : 'Due today');
+      if (n) bits.push('not yet, ' + n + (n === 1 ? ' time' : ' times'));
+      h += '<div class="ck-row"><span class="ck-t"><b>' + esc(c.text) + '</b>' +
+        '<em>' + esc(bits.join(' · ')) + '</em></span>' +
+        '<span class="ck-acts">' +
+          '<button class="ck-yes" data-cmans="' + c.id + '|done">Did it</button>' +
+          '<button data-cmans="' + c.id + '|not yet">Not yet</button>' +
+          '<button data-cmans="' + c.id + '|let go">Letting it go</button>' +
+        '</span></div>';
+    });
+    h += '<p class="ck-note">No streaks and nothing counted. Skip it and nothing happens.</p>';
+    return h + '</div>';
+  }
+
+  /* ---- the commitments screen ---- */
+  let commitTrack = 'work';
+  function commitRow(c, closed){
+    const bits = [trackName(c.track)];
+    if (c.by) bits.push(closed ? '' : dueLabel(c.by, new Date(), 'by').text);
+    if (closed && c.closedAt) bits.push((c.state === 'done' ? 'Done ' : 'Let go ') + goalDate(c.closedAt));
+    const n = notYets(c);
+    if (!closed && n) bits.push('not yet, ' + n + (n === 1 ? ' time' : ' times'));
+    return '<div class="cmrow' + (closed ? ' closed' : '') + (justDone === c.id ? ' just' : '') + '">' +
+      (closed ? '<span class="cm-mark' + (c.state === 'done' ? ' did' : '') + '">' + (c.state === 'done' ? TICK : '×') + '</span>'
+              : '<button class="cm-tick" data-cmans="' + c.id + '|done" aria-label="Done">' + TICK + '</button>') +
+      '<span class="cm-t"><b>' + esc(c.text) + '</b><em>' + esc(bits.filter(Boolean).join(' · ')) + '</em></span>' +
+      (closed ? '' : '<button class="cm-go" data-cmans="' + c.id + '|let go">Let go</button>') +
+      '</div>';
+  }
+
+  function commitmentsView(now){
+    const c = coach();
+    let h = '<div class="tasknote"><b>A commitment is a thing you said you would do.</b>' +
+      '<span>Fewer than tasks and heavier than tasks. Athena asks about each one on the day it falls due, and keeps asking until you either do it or say out loud that you are letting it go. ' +
+      'Nothing here is counted or scored.</span></div>';
+
+    h += '<div class="gform">' +
+      '<input id="cm_text" type="text" placeholder="What are you committing to?" autocomplete="off">' +
+      '<div class="frow">' +
+        '<select id="cm_track">' + TRACKS.map(t =>
+          '<option value="' + t[0] + '"' + (commitTrack === t[0] ? ' selected' : '') + '>' + t[1] + '</option>').join('') + '</select>' +
+        '<input id="cm_by" type="date">' +
+      '</div>' +
+      '<button class="go" data-cmadd>Commit to it</button>' +
+      '<small class="gform-hint">A date is what makes it a commitment rather than a wish. Leave it off and it stays live without ever being asked about.</small></div>';
+
+    TRACKS.forEach(t => {
+      const list = commitsOn(t[0]).slice().sort((a, b) =>
+        String(a.by || '9999-99-99').localeCompare(String(b.by || '9999-99-99')));
+      if (!list.length) return;
+      h += '<h2>' + t[1] + ' <span class="tcount">' + list.length + '</span></h2>';
+      h += '<div class="cmlist">' + list.map(x => commitRow(x, false)).join('') + '</div>';
+    });
+    if (!liveCommits().length)
+      h += '<p class="park-empty">Nothing committed to yet. One or two is the right number, not ten.</p>';
+
+    const closed = commitments().filter(x => x.state !== 'live')
+      .sort((a, b) => String(b.closedAt || '').localeCompare(String(a.closedAt || ''))).slice(0, 20);
+    if (closed.length){
+      h += '<h2><button class="linkish" data-cmshow>' + (showClosedCommits ? 'Hide' : 'Show') +
+        ' what is finished (' + closed.length + ')</button></h2>';
+      if (showClosedCommits) h += '<div class="cmlist">' + closed.map(x => commitRow(x, true)).join('') + '</div>';
+    }
+    return h;
+  }
+  let showClosedCommits = false;
+
+  /* ---- which part of your life is which ---- */
+  function trackSettingsHTML(){
+    let h = '<div class="modal-h" style="margin-top:8px">Coaching</div>';
+    h += '<p class="setnote">Athena coaches two sides of your life separately, because being challenged about work and being challenged about the rest are not the same conversation. ' +
+      'Put each category on the side it belongs to.</p>';
+    h += '<div class="catlist">';
+    S.categories.forEach(c => {
+      h += '<div class="trackrow"><span class="cd" style="background:' + catColor(c.id) + '"></span>' +
+        '<span class="tr-l">' + esc(c.label) + '</span>' +
+        '<span class="tr-seg">' + TRACKS.map(t =>
+          '<button class="tr-b' + (trackOf(c.id) === t[0] ? ' on' : '') + '" data-settrack="' + c.id + '|' + t[0] + '">' +
+          t[1] + '</button>').join('') + '</span></div>';
+    });
+    return h + '</div>';
+  }
+
   /* ---------- parked thoughts ---------- */
   /* ---------- tasks view ---------- */
   let showDone = false;
@@ -4217,7 +4390,7 @@
           '<button data-daymode="'+m[0]+'"'+(dayMode===m[0]?' class="on"':'')+'>'+m[1]+'</button>').join('')+
         '</div>' : '')+
       (view==='grow' ? '<div class="seg sub">'+
-        [['habits','Habits'],['goals','Goals'],['routines','Routines']].map(m =>
+        [['habits','Habits'],['goals','Goals'],['routines','Routines'],['commitments','Commitments']].map(m =>
           '<button data-growmode="'+m[0]+'"'+(growMode===m[0]?' class="on"':'')+'>'+m[1]+'</button>').join('')+
         '</div>' : '')+
       (weekShown() && canGrid() ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
@@ -4229,6 +4402,9 @@
     // Above the ask box, above the day, above everything. A deadline that is
     // filed neatly among eleven other things is a deadline you will miss.
     if (view === 'day') h += hardBannerHTML(now);
+    // Only on today. A check-in about a Thursday you are merely looking at is
+    // not a check-in.
+    if (view === 'day' && !weekShown() && dayKey(vd) === dayKey(now)) h += dailyCheckHTML(now);
     // One line, above everything it can change. On any other view it would be
     // asking about a week you are not looking at.
     if (view === 'day') h += askBarHTML();
@@ -4238,6 +4414,7 @@
     else if (view === 'tasks')  h += tasksView(now);
     else if (view === 'grow')   h += growMode === 'goals' ? goalsView(now)
                                    : growMode === 'routines' ? routinesView(now)
+                                   : growMode === 'commitments' ? commitmentsView(now)
                                    : habitsView(now);
     else if (view === 'notes')  h += notesView(now);
 
@@ -5245,6 +5422,7 @@
     h += '<button class="ghost" data-obrerun>Walk me through setup again</button>';
     h += '<p class="setnote">The same questions as the first time, filled in with what you have now. '+
       'Change the hours, add a category, and Athena shows you exactly what it would move before anything happens.</p>';
+    h += trackSettingsHTML();
     h += nudgeSettingsHTML();
     h += '<div class="modal-h" style="margin-top:8px">Account</div>';
     if (cloud && session){
@@ -5888,6 +6066,26 @@
     if ((m = t('[data-delevent]'))){ markUndo('Event deleted'); S.events = S.events.filter(x => x.id !== m.dataset.delevent); editing = null; clearModalDrafts(); save(); render(); return; }
     if ((m = t('[data-wd]'))){ syncEditor(); const d = +m.dataset.wd; const i = editing.weekdays.indexOf(d); if (i===-1) editing.weekdays.push(d); else editing.weekdays.splice(i,1); render(); return; }
     if ((m = t('[data-settheme]'))){ commitSettings(); S.profile.theme = m.dataset.settheme; applyTheme(); save(); render(); return; }
+    if ((m = t('[data-cmans]'))){
+      const bits = m.dataset.cmans.split('|');
+      answerCommit(bits[0], bits[1]); render(); return;
+    }
+    if (t('[data-cmadd]')){
+      const txt = ((document.getElementById('cm_text') || {}).value || '').trim();
+      if (!txt){ const i = document.getElementById('cm_text'); if (i) i.focus(); return; }
+      commitTrack = (document.getElementById('cm_track') || {}).value || 'work';
+      newCommit(txt, (document.getElementById('cm_by') || {}).value || '', commitTrack);
+      clearDraft('cm_text'); clearDraft('cm_by');
+      save(); render();
+      const i = document.getElementById('cm_text'); if (i) i.focus();
+      return;
+    }
+    if (t('[data-cmshow]')){ showClosedCommits = !showClosedCommits; render(); return; }
+    if ((m = t('[data-settrack]'))){
+      const bits = m.dataset.settrack.split('|');
+      coach().tracks[bits[0]] = bits[1];
+      save(); render(); return;
+    }
     if (t('[data-askgo]')){ askAthena(); return; }
     if (t('[data-askclear]')){ askChanges = null; askPick = {}; askReply = ''; askErr = ''; askSaid = ''; render(); return; }
     if ((m = t('[data-askpick]'))){ askPick[m.dataset.askpick] = !!m.checked; return; }
@@ -6444,6 +6642,7 @@
       if (v){ S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
     }
     if (e.key === 'Enter' && e.target.id === 'ask_q'){ e.preventDefault(); askAthena(); return; }
+    if (e.key === 'Enter' && e.target.id === 'cm_text'){ e.preventDefault(); const b = app.querySelector('[data-cmadd]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'tk_title'){ e.preventDefault(); const b = app.querySelector('[data-addtask]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newitem'){ e.preventDefault(); const b = app.querySelector('[data-noteadditem]'); if (b) b.click(); return; }
