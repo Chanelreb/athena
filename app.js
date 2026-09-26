@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-26.4';
+  const BUILD = '2026-09-26.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1397,6 +1397,11 @@
      where you see and reshape the shape of your week. */
   function blocksManagerHTML(now){
     const today = dayKey(now);
+    // How much work is pointed at each category, so a block can say what it
+    // attracts rather than leaving you to hold it in your head. Appointments
+    // are left out: they have their own time and never queue anywhere.
+    const waiting = {};
+    openTasks(now).filter(tk => !tk.at).forEach(tk => { waiting[tk.cat] = (waiting[tk.cat] || 0) + 1; });
     const all = S.events || [];
     const byTime = (a,b) => mins(a.start || '00:00') - mins(b.start || '00:00');
     const repeating = all.filter(e => e.rrule).slice().sort(byTime);
@@ -1432,12 +1437,20 @@
           '<span class="bcard-len">'+(e.allDay ? 'All day' : dur(len))+'</span></span>'+
           '<span class="bcard-time">'+(e.allDay ? '' : clockOf(e.start)+' to '+clockOf(e.end))+'</span>'+
           when(e)+
+          // The category decides what flows into this block, which makes it the
+          // most important thing about it. It used to be a coloured stripe and
+          // nothing else, so you had to remember which colour meant what.
+          '<span class="bcard-cat"><b></b>'+esc(catOf(e.cat).label)+
+            (e.allDay ? '' : ' \u00b7 '+(waiting[e.cat] || 0)+' waiting')+'</span>'+
         '</button>'+
         '<button class="bcard-del" data-delevent="'+e.id+'" aria-label="Remove block">×</button>'+
       '</div>';
     };
 
-    let h = '<p class="slack">Everything that shapes your week. Tap one to change it, or add another.</p>';
+    let h = '<div class="tasknote"><b>A block is time set aside for one part of your life.</b>'+
+      '<span>Give it a category and every task of that category turns up inside it, ready to tick off, so you do them while you are already in that headspace. '+
+      'The number on each block is how many tasks of its category are waiting. Blocks are the shape of your week; tasks fill it in.</span></div>';
+    h += '<p class="slack">Everything that shapes your week. Tap one to change it, or add another.</p>';
     if (!all.length){
       h += '<p class="park-empty">No blocks yet. Add the things that give your day its shape, like a morning routine or a focus block.</p>';
     }
@@ -3161,6 +3174,23 @@
     return { text: (on ? 'On ' : 'By ') + x.getDate() + ' ' + SHORT[x.getMonth()] };
   }
 
+  /* A task is in one of three states and Athena has never named any of them.
+     Floating: it has a category and no place, so it is offered in every block
+     of that category. Placed: pinned to one block on one day. Held: kept out
+     on purpose, waiting in the list. Knowing which is the difference between
+     trusting the thing and checking up on it. */
+  function taskWhere(tk, d){
+    if (tk.at) return null;                    // an appointment already has its time
+    if (tk.hold) return { cls: 'held', text: 'Held back' };
+    if (pinLive(tk, d)){
+      const ev = findEvent(tk.pin.b);
+      const when = tk.pin.d === dayKey(d) ? '' : ', ' + goalDate(tk.pin.d);
+      return { cls: 'placed', text: 'In ' + (ev ? ev.title : 'a block') + when };
+    }
+    if (!autofillOn()) return { cls: 'loose', text: 'Needs a block' };
+    return { cls: 'loose', text: 'Any ' + catOf(tk.cat).label + ' block' };
+  }
+
   function taskRow(tk, d, compact){
     const done = taskDone(tk, d);
     const col = catColor(tk.cat);
@@ -3178,6 +3208,11 @@
     else if (spent) bits.push('<i class="tspent">'+dur(spent)+' spent</i>');
     else if (tk.mins) bits.push('<i class="tmins">'+dur(tk.mins)+'</i>');
     if (tk.repeat) bits.push('<i>'+repeatLabel(tk.repeat)+'</i>');
+    // Not inside a block, where the row is already sitting in the answer.
+    if (!compact && !done){
+      const w = taskWhere(tk, d);
+      if (w) bits.push('<i class="twhere '+w.cls+'">'+esc(w.text)+'</i>');
+    }
     // Inside a block a row can be dragged: to another block, or back to the
     // pile to unplace it. On the Tasks screen it is an ordinary row.
     return '<div class="trow'+(done?' done':'')+(justDone===tk.id?' just':'')+'"'+
@@ -3755,6 +3790,7 @@
     h += '<label class="fld"><span>What</span><input id="e_title" type="text" placeholder="Name it" value="'+esc(ed.title)+'" autocomplete="off"></label>';
     h += '<label class="fld"><span>Note</span><input id="e_note" type="text" placeholder="Optional detail" value="'+esc(ed.note)+'" autocomplete="off"></label>';
     h += '<label class="fld"><span>Category</span><select id="e_cat">'+CATOPTS+'</select></label>';
+    h += '<small class="gform-hint">This decides what turns up inside the block, not just its colour: tasks of the same category queue here, ready to tick off.</small>';
     h += '<label class="fld chk"><input id="e_allday" type="checkbox"'+(ed.allDay?' checked':'')+'><span>All day</span></label>';
     if (!ed.allDay){
       h += '<div class="fld two"><label><span>Start</span><input id="e_start" type="time" value="'+ed.start+'"></label>'+
@@ -5189,6 +5225,8 @@
         '<button class="themebtn'+(th===t[0]?' on':'')+'" data-settheme="'+t[0]+'">'+t[1]+'</button>').join('')+
       '</div></div>';
     h += '<div class="modal-h" style="margin-top:8px">Categories</div>';
+    h += '<p class="setnote">A category is a part of your life. Everything in Athena carries one: blocks, tasks, habits, goals and routines. '+
+      'It is also what does the matching, because a task has no time of its own and turns up in whichever blocks share its category.</p>';
     h += '<div class="catlist">';
     S.categories.forEach(c => {
       h += '<div class="catrow">'+

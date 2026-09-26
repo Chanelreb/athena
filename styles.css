@@ -1777,3 +1777,19 @@
   #soft-app .added .linkish { flex: 0 0 auto; }
   @keyframes athSlip { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
   @media (prefers-reduced-motion: reduce) { #soft-app .added { animation: none; } }
+
+  /* ---- saying which category, and what it attracts -------------------------
+     A block's category decides what flows into it, which makes it the most
+     important thing about the block. It used to be a coloured stripe and
+     nothing else, so you had to remember which colour meant what. */
+  #soft-app .bcard-cat {
+    display: flex; align-items: center; gap: 6px; margin-top: 5px;
+    font-size: 12px; color: var(--dim);
+  }
+  #soft-app .bcard-cat b { width: 8px; height: 8px; border-radius: 50%; background: var(--bc); flex: 0 0 auto; }
+
+  /* Where a task is going to happen, in three words. Held and placed are the
+     answers worth noticing, so they are the ones that are not grey. */
+  :is(#soft-app, .ath-side) .tmeta .twhere.loose { color: var(--ghost); }
+  :is(#soft-app, .ath-side) .tmeta .twhere.placed { color: var(--text); opacity: .85; }
+  :is(#soft-app, .ath-side) .tmeta .twhere.held { color: var(--warn); }
