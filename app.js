@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-22.4';
+  const BUILD = '2026-09-26.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3900,6 +3900,13 @@
   const clearModalDrafts = () => MODAL_IDS.forEach(clearDraft);
 
   function paint(h){
+    // A modal keeps its own scroll, and innerHTML throws it away. Every tap on
+    // a switch halfway down Settings used to fling you back to the top, which
+    // reads exactly like the tap did nothing. Only restored onto the same
+    // modal, so opening a different one still starts at the beginning.
+    const oldModal = app.querySelector('.modal');
+    const modKey = oldModal ? oldModal.className : '';
+    const modTop = oldModal ? oldModal.scrollTop : 0;
     const ae = document.activeElement;
     const focusId = (ae && ae.id) ? ae.id : null;
     let caret = null;
@@ -3917,6 +3924,10 @@
     if (focusId){
       const el = document.getElementById(focusId);
       if (el){ el.focus(); if (caret != null && el.setSelectionRange){ try { el.setSelectionRange(caret, caret); } catch(_){} } }
+    }
+    if (modTop){
+      const m2 = app.querySelector('.modal');
+      if (m2 && m2.className === modKey) m2.scrollTop = modTop;
     }
     if (typeof window !== 'undefined' && window.scrollTo && sy) window.scrollTo(0, sy);
     if (app.querySelector('img[data-imgpath]')) hydrateImages();

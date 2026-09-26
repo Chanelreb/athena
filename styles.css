@@ -1694,3 +1694,30 @@
   #soft-app .askreply .ddet-x { position: absolute; top: 6px; right: 8px; }
   #soft-app .askreply-in { font-size: 14px; color: var(--dim); line-height: 1.55; margin: 0 0 12px; }
   #soft-app .modal.ask { width: min(520px, calc(100vw - 28px)); }
+
+  /* ---- checkboxes you can actually see -------------------------------------
+     Every checkbox in Athena inherits appearance:none from the .fld input rule,
+     which strips the native tick and leaves a grey slab that looks identical
+     ticked or not. It was toggling all along, silently, which is worse than
+     being broken: you tap it, nothing appears to happen, so you tap it back.
+     Drawn here instead, so it looks the same on a phone, a Mac and a PC. */
+  #soft-app .fld.chk { cursor: pointer; padding: 3px 0; }
+  #soft-app .fld.chk input[type="checkbox"] {
+    width: 20px; height: 20px; flex: 0 0 auto; margin: 0; padding: 0;
+    border: 1.5px solid var(--ghost); border-radius: 6px;
+    background: transparent; position: relative; cursor: pointer;
+    transition: background .12s, border-color .12s;
+  }
+  #soft-app .fld.chk input[type="checkbox"]:hover { border-color: var(--live); }
+  #soft-app .fld.chk input[type="checkbox"]:checked { background: var(--live); border-color: var(--live); }
+  #soft-app .fld.chk input[type="checkbox"]:checked::after {
+    content: ''; position: absolute; left: 6px; top: 2px;
+    width: 5px; height: 10px; border: solid var(--on-live);
+    border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
+  #soft-app .fld.chk input[type="checkbox"]:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+  @media (pointer: coarse) {
+    #soft-app .fld.chk { padding: 6px 0; }
+    #soft-app .fld.chk input[type="checkbox"] { width: 24px; height: 24px; }
+    #soft-app .fld.chk input[type="checkbox"]:checked::after { left: 8px; top: 3px; width: 6px; height: 12px; }
+  }
