@@ -75,6 +75,8 @@ create table if not exists public.push_queue (
   body    text not null default '',
   tag     text not null default 'athena',
   url     text not null default './',
+  -- Louder, and stays on screen: the must-not-miss deadlines.
+  urgent  boolean not null default false,
   sent_at timestamptz
 );
 create index if not exists push_queue_due on public.push_queue (fire_at) where sent_at is null;
@@ -128,7 +130,7 @@ begin
      and fire_at <= now() - interval '15 minutes';
 
   with due as (
-    select q.id, s.endpoint, s.p256dh, s.auth, q.title, q.body, q.tag, q.url
+    select q.id, s.endpoint, s.p256dh, s.auth, q.title, q.body, q.tag, q.url, q.urgent
       from public.push_queue q
       join public.push_subs  s on s.user_id = q.user_id
      where q.sent_at is null

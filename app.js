@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-26.2';
+  const BUILD = '2026-09-26.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3169,6 +3169,7 @@
     if (!compact) bits.push('<i class="tcat"><b style="background:'+col+'"></b>'+esc(catOf(tk.cat).label)+'</i>');
     if (tk.due){ const dl = dueLabel(tk.due, d, tk.dateType); bits.push('<i class="'+(dl.late?'due-late':dl.soon?'due-soon':'')+'">'+esc(dl.text)+'</i>'); }
     if (tk.at) bits.push('<i class="tat">'+clockOf(tk.at)+'</i>');
+    if (tk.hard && hardOK(tk)) bits.push('<i class="thard">Closes '+clockOf(hardClose(tk))+'</i>');
     // Planned against actual, once there is an actual. This is the whole point
     // of tracking: the estimate stops being a guess nobody ever checks.
     const spent = spentEver('tk_' + tk.id);
@@ -3227,6 +3228,8 @@
         '<select id="tk_rep"><option value="once" selected>One-off</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>'+
         '<select id="tk_mins">'+MINOPTS.map(o => "<option value='"+o[0]+"'>"+o[1]+"</option>").join('')+'</select>'+
       '</div>'+
+      '<label class="fld chk taskhard"><input id="tk_hard" type="checkbox">'+
+        '<span>Must not miss</span></label>'+
       '<button class="go" data-addtask>Add task</button>'+
       '<small class="gform-hint">Only the name is required. "Due by" stays on your list until it is done; "Do on" only turns up that day. '+
       'Add a time and it stops queueing inside a block and takes its own place in the day, like an appointment.</small></div>';
@@ -3258,6 +3261,118 @@
     return h;
   }
 
+  /* ---------- must not miss ----------
+     A high priority task matters. This is for the other thing: the ones where
+     missing the moment is the end of it. A claim form, a lodgement, a form the
+     school wants back, tickets going on sale. There is no doing it late.
+
+     This exists because a claim form sat correctly listed in Athena all day and
+     Athena never said a word, and that cost real money. Everything here follows
+     from one rule: it must not need you to open the app. It needs a closing
+     time rather than a date, because a portal shuts at an hour and not at
+     midnight, and it needs to chase rather than mention. */
+  const HARD_BY = '17:00';
+  // A repeat has no single deadline to close, and a date is the whole point.
+  const hardOK = tk => !!(tk && tk.due && !tk.repeat);
+  const hardClose = tk => tk.by || HARD_BY;
+  const hardTasks = () => (S.tasks || []).filter(tk => tk.hard && hardOK(tk) && !tk.doneAt);
+
+  function hardCloseAt(tk){
+    const d = parseDay(tk.due);
+    d.setHours(+String(hardClose(tk)).slice(0, 2) || 0, +String(hardClose(tk)).slice(3, 5) || 0, 0, 0);
+    return d;
+  }
+  function leftText(ms){
+    const m = Math.floor(ms / 60000);
+    if (m < 1) return 'minutes';
+    if (m < 60) return m + ' min';
+    const h = Math.floor(m / 60), r = m % 60;
+    if (h < 24) return h + 'h' + (r ? ' ' + r + 'm' : '');
+    const d = Math.round(h / 24);
+    return d + (d === 1 ? ' day' : ' days');
+  }
+
+  /* The banner. Only what is closing now, closing tomorrow, or already gone.
+     A deadline five days out belongs in your list, not shouting at the top of
+     the screen, or the top of the screen stops meaning anything. */
+  function hardBannerHTML(now){
+    const all = hardTasks();
+    if (!all.length) return '';
+    const t = now.getTime(), today = dayKey(now);
+    const gone = [], live = [], next = [];
+    all.forEach(tk => {
+      const at = hardCloseAt(tk).getTime();
+      if (at <= t) gone.push(tk);
+      else if (tk.due === today) live.push(tk);
+      else if (daysBetween(today, tk.due) === 1) next.push(tk);
+    });
+    if (!gone.length && !live.length && !next.length) return '';
+    live.sort((a, b) => hardCloseAt(a) - hardCloseAt(b));
+    gone.sort((a, b) => hardCloseAt(b) - hardCloseAt(a));
+
+    const tick = tk => '<button class="hb-tick" data-tasktoggle="' + tk.id + '|' + today + '" ' +
+      'aria-label="Tick off ' + esc(tk.title) + '">' + TICK + '</button>';
+
+    let h = '<div class="hardbar"><div class="hb-h">Must not miss</div>';
+
+    gone.forEach(tk => {
+      const closed = hardCloseAt(tk);
+      h += '<div class="hb-row gone">' + tick(tk) +
+        '<span class="hb-t"><b>' + esc(tk.title) + '</b>' +
+        '<em>Closed ' + clockOf(hardClose(tk)) + ', ' + goalDate(tk.due) + '</em></span>' +
+        '<button class="hb-drop" data-hardstop="' + tk.id + '">Stop chasing</button></div>';
+    });
+    live.forEach(tk => {
+      const ms = hardCloseAt(tk) - t;
+      const urgent = ms <= 3600000;
+      h += '<div class="hb-row' + (urgent ? ' urgent' : '') + '">' + tick(tk) +
+        '<span class="hb-t"><b>' + esc(tk.title) + '</b>' +
+        '<em>Closes ' + clockOf(hardClose(tk)) + ' today, ' + leftText(ms) + ' left</em></span></div>';
+    });
+    next.forEach(tk => {
+      h += '<div class="hb-row soon">' + tick(tk) +
+        '<span class="hb-t"><b>' + esc(tk.title) + '</b>' +
+        '<em>Tomorrow, closes ' + clockOf(hardClose(tk)) + '</em></span></div>';
+    });
+    return h + '</div>';
+  }
+
+  /* When to say something. Five times, not one, and worked backwards from the
+     hour it shuts rather than forwards from when you happened to add it.
+     Anything landing before seven in the morning is dropped, and two that land
+     in the same minute collapse into the more urgent one. */
+  function hardMoments(tk){
+    const out = [];
+    const closeM = mins(hardClose(tk));
+    const clk = clockOf(hardClose(tk));
+    const day = parseDay(tk.due);
+    const at = (base, m) => { const x = new Date(base); x.setHours(0, 0, 0, 0); x.setMinutes(m); return x; };
+    const eve = new Date(day); eve.setDate(eve.getDate() - 1);
+
+    const byTime = {};
+    const put = (when, title, body) => { byTime[when.getTime()] = { at: when, title: title, body: body }; };
+
+    put(at(eve, 19 * 60), tk.title, 'Tomorrow, and it closes at ' + clk + '.');
+    // In order of rising urgency, because a later put replaces an earlier one
+    // that fell on the same minute, and the later ones are the ones that matter.
+    [[8 * 60, tk.title, 'Today. It closes at ' + clk + '.'],
+     [closeM - 240, tk.title, 'Closes at ' + clk + ', about four hours.'],
+     [closeM - 60, 'One hour: ' + tk.title, 'Closes at ' + clk + '.'],
+     [closeM - 15, 'Last call: ' + tk.title, 'Closes at ' + clk + '.']
+    ].forEach(row => {
+      const m = row[0];
+      if (m < 7 * 60 || m >= closeM) return;
+      put(at(day, m), row[1], row[2]);
+    });
+
+    Object.keys(byTime).forEach(k => {
+      const r = byTime[k];
+      out.push({ at: r.at, kind: 'deadline', tag: 'd:' + tk.id,
+        title: r.title, body: r.body, url: './', urgent: true });
+    });
+    return out;
+  }
+
   /* ---------- task editor ---------- */
   let taskEdit = null;
   function openTaskEditor(id){
@@ -3268,7 +3383,8 @@
     taskEdit = { id: tk.id, title: tk.title, note: tk.note || '', cat: tk.cat,
       priority: tk.priority || 'normal', due: tk.due || '',
       dateType: tk.dateType || 'by', mins: tk.mins || 0, at: tk.at || '',
-      repeat: tk.repeat ? tk.repeat.freq : 'once' };
+      repeat: tk.repeat ? tk.repeat.freq : 'once',
+      hard: !!tk.hard, by: tk.by || HARD_BY };
     render();
   }
   function taskEditorHTML(){
@@ -3289,6 +3405,12 @@
       '<label><span>At a set time</span><input id="te_at" type="time" value="'+esc(e.at || '')+'"></label>'+
       '<label><span>How long will it take?</span><select id="te_mins">'+MINOPTS.map(o=>"<option value='"+o[0]+"'"+(o[0]===e.mins?' selected':'')+">"+o[1]+"</option>").join('')+'</select></label></div>';
     h += '<small class="gform-hint">A time turns this into an appointment: it takes its own place in the day instead of waiting inside a block. Leave it blank and Athena decides when to offer it.</small>';
+    h += '<label class="fld chk" style="margin-top:10px"><input id="te_hard" data-hardedit type="checkbox"'+(e.hard ? ' checked' : '')+'>'+
+      '<span>Must not miss</span></label>';
+    if (e.hard)
+      h += '<label class="fld"><span>Closes at</span><select id="te_by">'+hourOpts(e.by)+'</select></label>';
+    h += '<small class="gform-hint">For the ones where missing the moment is the end of it. Athena chases these through the day rather than mentioning them once, '+
+      'and they sit at the top of your day until they are done. Needs a date, and cannot repeat.</small>';
     h += '<div class="modal-actions"><button class="del" data-deltask="'+e.id+'">Delete</button>'+
       '<span style="flex:1"></span><button class="ghost" data-closetask>Cancel</button>'+
       '<button class="go" data-savetask>Save</button></div></div>';
@@ -3310,6 +3432,10 @@
     const rep = (g('te_rep') || {}).value || 'once';
     tk.repeat = rep === 'once' ? null : { freq: rep, interval: 1 };
     tk.at = normaliseAt((g('te_at') || {}).value, tk);
+    // The flag only means anything with a date and without a repeat, so it
+    // comes off by itself rather than sitting there quietly doing nothing.
+    tk.hard = !!((g('te_hard') || {}).checked) && hardOK(tk);
+    if (tk.hard) tk.by = (g('te_by') || {}).value || HARD_BY; else delete tk.by;
     taskEdit = null; clearModalDrafts(); save(); render();
   }
 
@@ -4039,6 +4165,9 @@
     app.classList.toggle('wide', weekShown() && gridShown());
 
     h += dateNav(vd, now);
+    // Above the ask box, above the day, above everything. A deadline that is
+    // filed neatly among eleven other things is a deadline you will miss.
+    if (view === 'day') h += hardBannerHTML(now);
     // One line, above everything it can change. On any other view it would be
     // asking about a week you are not looking at.
     if (view === 'day') h += askBarHTML();
@@ -4543,7 +4672,7 @@
   let pushErr = '';
 
   const nudgeDefaults = () => ({
-    timer: true, blocks: true, lead: 5,
+    timer: true, blocks: true, lead: 5, deadlines: true,
     morning: true, morningAt: '07:00',
     evening: true, eveningAt: '20:00',
     quietFrom: '22:00', quietTo: '06:30'
@@ -4708,10 +4837,19 @@
           url: './?n=tomorrow' });
       }
     }
+    // Must not miss is chased rather than mentioned, and is the one kind that
+    // is worth saying five times. Outside the per-day loop because it belongs
+    // to a task and its closing hour, not to a day's shape.
+    if (n.deadlines) hardTasks().forEach(tk => {
+      out.push.apply(out, hardMoments(tk));
+    });
+
     // Quiet hours only silence the nudges Athena chose the time for. A morning
     // or evening time you picked yourself is a request, and dropping it because
     // it happens to fall inside your own quiet hours would just look broken.
-    return out.filter(m => m.at.getTime() > soon && !(m.kind === 'block' && inQuiet(n, m.at)));
+    const far = Date.now() + NUDGE_DAYS * 86400000;
+    return out.filter(m => m.at.getTime() > soon && m.at.getTime() < far &&
+      !(m.kind === 'block' && inQuiet(n, m.at)));
   }
 
   /* ---- keeping the queue honest ----
@@ -4735,7 +4873,8 @@
       title: String(m.title || 'Athena').slice(0, 120),
       body: String(m.body || '').slice(0, 300),
       tag: String(m.tag || 'athena').slice(0, 60),
-      url: m.url || './'
+      url: m.url || './',
+      urgent: !!m.urgent
     }));
     const h = JSON.stringify(rows.map(r => r.fire_at + '|' + r.tag + '|' + r.title + '|' + r.body));
     if (!force && h === qHash) return;
@@ -4746,7 +4885,16 @@
       await sb.from('push_queue').delete()
         .eq('user_id', session.user.id).is('sent_at', null)
         .neq('kind', 'timer').gt('fire_at', new Date().toISOString());
-      if (rows.length) await sb.from('push_queue').insert(rows);
+      if (rows.length){
+        let r = await sb.from('push_queue').insert(rows);
+        // The urgent column arrives with a later line of SQL. Until it has
+        // been run, send the rows without it rather than sending nothing at
+        // all, which is what one unknown column would otherwise cause.
+        if (r.error) r = await sb.from('push_queue').insert(rows.map(x => {
+          const c = Object.assign({}, x); delete c.urgent; return c;
+        }));
+        if (r.error) throw r.error;
+      }
       qHash = h;
     } catch(_){ qHash = ''; }
     finally { qBusy = false; }
@@ -4808,6 +4956,7 @@
       'whether this one buzzes is decided here.</p>';
     const chk = (k, label) => '<label class="fld chk"><input type="checkbox" data-nudge="'+k+'"'+(n[k] ? ' checked' : '')+'>'+
       '<span>'+label+'</span></label>';
+    h += chk('deadlines', 'Must not miss, chased through the day');
     h += chk('timer', 'Focus timer finished');
     h += chk('blocks', 'A block is about to start');
     if (n.blocks)
@@ -5663,8 +5812,11 @@
         at: null, createdAt: new Date().toISOString(), doneAt: null
       };
       nt.at = normaliseAt((document.getElementById('tk_at') || {}).value, nt);
+      // Flagged right where it is typed in. Making someone open the editor
+      // afterwards is exactly the friction that loses the thing.
+      if ((document.getElementById('tk_hard') || {}).checked && hardOK(nt)) nt.hard = true;
       S.tasks.push(nt);
-      clearDraft('tk_title'); clearDraft('tk_due'); clearDraft('tk_at');
+      clearDraft('tk_title'); clearDraft('tk_due'); clearDraft('tk_at'); clearDraft('tk_hard');
       save(); render();
       const i = document.getElementById('tk_title'); if (i) i.focus();   // keep dumping
       return;
@@ -6097,6 +6249,24 @@
       openEditor({ date: parts[1], title: 'Break', cat: (S.categories[0] || {}).id });
       if (editing){ editing.start = parts[0]; editing.end = fmtM(Math.min(DE, mins(parts[0]) + 15)); render(); }
       return;
+    }
+    if (t('[data-hardedit]')){
+      // Read the whole editor back before redrawing it, or everything typed
+      // since it opened is lost the moment this is ticked.
+      const g = id => document.getElementById(id);
+      ['title','note','cat','prio','rep','when','due','at','mins'].forEach(k => {
+        const el = g('te_' + k);
+        if (el) taskEdit[k === 'prio' ? 'priority' : k === 'rep' ? 'repeat' : k === 'when' ? 'dateType' : k] =
+          (k === 'mins' ? (+el.value || 0) : el.value);
+      });
+      taskEdit.hard = !!g('te_hard').checked;
+      const b = g('te_by'); if (b) taskEdit.by = b.value;
+      clearModalDrafts(); render(); return;
+    }
+    if ((m = t('[data-hardstop]'))){
+      const tk = findTask(m.dataset.hardstop);
+      if (tk){ markUndo('Stopped chasing ' + tk.title); tk.hard = false; save(); }
+      render(); return;
     }
     if (t('[data-pushon]')){ pushEnable(); return; }
     if (t('[data-pushoff]')){ pushDisable(); return; }

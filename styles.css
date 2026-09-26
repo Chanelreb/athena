@@ -1721,3 +1721,42 @@
     #soft-app .fld.chk input[type="checkbox"] { width: 24px; height: 24px; }
     #soft-app .fld.chk input[type="checkbox"]:checked::after { left: 8px; top: 3px; width: 6px; height: 12px; }
   }
+
+  /* ---- must not miss -------------------------------------------------------
+     The one thing in Athena allowed to sit above everything else, so it uses
+     --warn, which the palette reserves for "something is wrong" and nothing
+     else. If this ever looks like ordinary furniture it has stopped working. */
+  #soft-app .hardbar {
+    border: 1px solid var(--warn); border-radius: 14px;
+    background: var(--warn-soft); padding: 12px 14px; margin: 14px 0 4px;
+  }
+  #soft-app .hb-h {
+    font-family: var(--serif); font-size: 12.5px; color: var(--warn);
+    text-transform: uppercase; letter-spacing: .1em; margin-bottom: 8px;
+  }
+  #soft-app .hb-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+  #soft-app .hb-row + .hb-row { border-top: 1px solid var(--line); }
+  #soft-app .hb-tick {
+    flex: 0 0 auto; width: 26px; height: 26px; padding: 0; cursor: pointer;
+    background: none; border: 1.5px solid var(--warn); border-radius: 8px; color: var(--warn);
+  }
+  #soft-app .hb-tick svg { width: 16px; height: 16px; display: block; margin: 0 auto; }
+  #soft-app .hb-tick:hover { background: var(--warn); color: var(--on-live); }
+  #soft-app .hb-t { flex: 1; min-width: 0; }
+  #soft-app .hb-t b { display: block; font-weight: 600; font-size: 15px; }
+  #soft-app .hb-t em { display: block; font-style: normal; font-size: 12.5px; color: var(--dim); margin-top: 1px; }
+  #soft-app .hb-row.urgent .hb-t em { color: var(--warn); font-weight: 600; }
+  #soft-app .hb-row.soon .hb-t b, #soft-app .hb-row.gone .hb-t b { font-weight: 400; }
+  #soft-app .hb-row.gone { opacity: .72; }
+  #soft-app .hb-drop {
+    flex: 0 0 auto; background: none; border: 1px solid var(--line); color: var(--dim);
+    border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  #soft-app .hb-drop:hover { color: var(--text); border-color: var(--ghost); }
+  :is(#soft-app, .ath-side) .tmeta .thard { color: var(--warn); font-weight: 600; }
+  #soft-app .fld.chk.taskhard { margin: 4px 0 10px; }
+  @media (pointer: coarse) {
+    #soft-app .hb-row { padding: 8px 0; }
+    #soft-app .hb-tick { width: 30px; height: 30px; }
+    #soft-app .hb-drop { padding: 8px 13px; }
+  }
