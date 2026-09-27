@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-27.2';
+  const BUILD = '2026-09-27.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3870,6 +3870,57 @@
   }
 
   /* ---------- parked thoughts ---------- */
+  /* ---- turning a parked thought into a task, with a guess ----
+     "Ring the insurer about the excess" is a Life admin job, about ten
+     minutes, and not urgent. Athena can work all of that out from the
+     sentence, and used to file it under whichever category happened to be
+     first and leave the rest blank.
+
+     So it guesses, and then shows you the guess. The thought stays in the
+     park until you save, so cancelling loses nothing, and a failed guess is
+     not an error: you get the editor with the plain title, which is exactly
+     what you used to get anyway. */
+  let parkBusy = null;
+  async function parkToTask(i, dk){
+    const item = (S.parked || [])[i];
+    if (!item) return;
+    parkOpen = null;
+    const tk = {
+      id: 'tk_' + uid8(), title: item.t.slice(0, 140), note: '',
+      cat: (S.categories[0] || {}).id, priority: 'normal',
+      due: null, dateType: 'by', mins: null, repeat: null, at: null,
+      createdAt: new Date().toISOString(), doneAt: null
+    };
+    let guessed = false;
+    if (cloud && session){
+      parkBusy = i; render();
+      try {
+        const out = await coachCall({ ask: item.t });
+        const spec = (out.tasks || [])[0];
+        if (spec){
+          // The category is the one guess worth refusing. Athena answering
+          // "Admin" to someone whose category is "Life admin" used to file it
+          // silently under the first one in the list.
+          const ci = matchCatInfo(spec.category);
+          if (!ci.guessed) tk.cat = ci.id;
+          if (['high','normal','low'].indexOf(spec.priority) >= 0) tk.priority = spec.priority;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(String(spec.due || ''))) tk.due = spec.due;
+          if (spec.dateType === 'on') tk.dateType = 'on';
+          if (+spec.minutes > 0) tk.mins = Math.min(600, Math.round(+spec.minutes));
+          if (spec.note) tk.note = String(spec.note).slice(0, 200);
+          if (['daily','weekly','monthly'].indexOf(spec.repeat) >= 0) tk.repeat = { freq: spec.repeat, interval: 1 };
+          tk.at = normaliseAt(typeof spec.at === 'string' ? spec.at : '', tk);
+          guessed = true;
+        }
+      } catch(_){ /* a guess that cannot be made is not worth an error screen */ }
+      parkBusy = null;
+    }
+    S.tasks = (S.tasks || []).concat([tk]);
+    save();
+    openTaskEditor(tk.id);
+    if (taskEdit){ taskEdit.fromPark = i; taskEdit.guessed = guessed; render(); }
+  }
+
   /* ---------- tasks view ---------- */
   let showDone = false;
 
@@ -4161,7 +4212,10 @@
     const e = taskEdit;
     const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'"+(c.id===e.cat?' selected':'')+">"+esc(c.label)+"</option>").join('');
     const REPS = [['once','One-off'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly']];
-    let h = '<div class="modal-back" data-closetask></div><div class="modal"><div class="modal-h">Edit task</div>';
+    let h = '<div class="modal-back" data-closetask></div><div class="modal"><div class="modal-h">'+
+      (e.fromPark != null ? 'From your thought' : 'Edit task')+'</div>';
+    if (e.guessed) h += '<p class="ai-intro">Athena has filled this in from what you wrote. Change anything it got wrong, then save.</p>';
+    else if (e.fromPark != null) h += '<p class="ai-intro">Fill in whatever matters, then save. Cancelling puts the thought back.</p>';
     h += '<label class="fld"><span>Task</span><input id="te_title" type="text" value="'+esc(e.title)+'" autocomplete="off"></label>';
     h += '<label class="fld"><span>Note</span><input id="te_note" type="text" placeholder="Optional" value="'+esc(e.note)+'" autocomplete="off"></label>';
     h += '<label class="fld"><span>Category</span><select id="te_cat">'+CATOPTS+'</select></label>';
@@ -4206,6 +4260,9 @@
     // comes off by itself rather than sitting there quietly doing nothing.
     tk.hard = !!((g('te_hard') || {}).checked) && hardOK(tk);
     if (tk.hard) tk.by = (g('te_by') || {}).value || HARD_BY; else delete tk.by;
+    // The thought stays parked until the task it became is actually saved.
+    const fp = taskEdit.fromPark;
+    if (fp != null && S.parked && S.parked[fp]) S.parked.splice(fp, 1);
     taskEdit = null; clearModalDrafts(); save(); render();
   }
 
@@ -4444,6 +4501,7 @@
       ? '<ul class="parked">'+S.parked.map((p,i) => {
           const open = parkOpen === i;
           return '<li'+(open ? ' class="open"' : '')+'><span>'+esc(p.t)+'</span>'+
+          (parkBusy === i ? '<em class="parkwait">reading it\u2026</em>' : '')+
           '<button class="parkdo'+(open ? ' on' : '')+'" data-parkopen="'+i+'" aria-label="Turn this into something" title="Turn this into something">'+(open ? '×' : '→')+'</button>'+
           '<button data-unpark="'+i+'" aria-label="Remove">×</button>'+
           (open ? '<div class="parkinto">'+
@@ -6563,7 +6621,15 @@
     if (t('[data-undo]')){ doUndo(); return; }
 
     // tasks
-    if (t('[data-closetask]')){ taskEdit = null; clearModalDrafts(); render(); return; }
+    if (t('[data-closetask]')){
+      // Cancelling a task that came from a thought throws away the task, not
+      // the thought. It is still sitting in the park where it was.
+      if (taskEdit && taskEdit.fromPark != null){
+        S.tasks = (S.tasks || []).filter(x => x.id !== taskEdit.id);
+        save();
+      }
+      taskEdit = null; clearModalDrafts(); render(); return;
+    }
     if (t('[data-savetask]')){ commitTask(); return; }
     if ((m = t('[data-taskedit]'))){ openTaskEditor(m.dataset.taskedit); return; }
     if ((m = t('[data-tasktoggle]'))){
@@ -7163,6 +7229,7 @@
         view = 'notes'; noteEdit = n;
         save(); render(); return;
       }
+      if (kind === 'task'){ parkToTask(i, dk); return; }
       const stamp = new Date().toISOString();
       const tk = {
         id: 'tk_' + uid8(), title: item.t.slice(0, 140), note: '',
