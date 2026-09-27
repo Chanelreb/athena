@@ -1863,3 +1863,22 @@
     #soft-app .tr-b { padding: 8px 14px; }
     #soft-app .cm-tick { width: 28px; height: 28px; }
   }
+
+  /* ---- the weekly sitting --------------------------------------------------
+     A prompt, not an alarm: it appears on the day it is due and waits. */
+  #soft-app .sitprompt { margin: 14px 0 4px; }
+  #soft-app .sp-row {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    border: 1px solid var(--line); border-left: 3px solid var(--live);
+    border-radius: 14px; background: var(--raise); padding: 12px 14px;
+  }
+  #soft-app .sp-row + .sp-row { margin-top: 8px; }
+  #soft-app .sp-row span { flex: 1; min-width: 180px; font-size: 14px; line-height: 1.5; }
+  #soft-app .sp-row .go {
+    flex: 0 0 auto; background: var(--live); color: var(--on-live); border: 0;
+    border-radius: 10px; padding: 9px 15px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  #soft-app .modal.sit { width: min(540px, calc(100vw - 28px)); }
+  #soft-app .modal.sit .rvgrid { display: flex; flex-direction: column; gap: 2px; margin: 12px 0 14px; }
+  #soft-app .modal.sit .ck-row:first-of-type { border-top: 1px solid var(--line); }
+  #soft-app .modal.sit .gform { margin-top: 8px; }

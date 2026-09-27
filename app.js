@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-26.6';
+  const BUILD = '2026-09-27.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3295,6 +3295,11 @@
       '<button class="go" data-cmadd>Commit to it</button>' +
       '<small class="gform-hint">A date is what makes it a commitment rather than a wish. Leave it off and it stays live without ever being asked about.</small></div>';
 
+    h += '<div class="dayadd" style="margin-bottom:6px">' + TRACKS.map(t =>
+      '<button data-sitopen="' + t[0] + '">' +
+        (sessionDone(t[0], now) ? t[1] + ' session, done this week' : 'Sit down with ' + t[1]) +
+      '</button>').join('') + '</div>';
+
     TRACKS.forEach(t => {
       const list = commitsOn(t[0]).slice().sort((a, b) =>
         String(a.by || '9999-99-99').localeCompare(String(b.by || '9999-99-99')));
@@ -3329,7 +3334,284 @@
           '<button class="tr-b' + (trackOf(c.id) === t[0] ? ' on' : '') + '" data-settrack="' + c.id + '|' + t[0] + '">' +
           t[1] + '</button>').join('') + '</span></div>';
     });
+    h += '</div>';
+    h += '<p class="setnote" style="margin-top:10px">When you sit down with each side. Work points forwards, so it suits the start of the week; Life looks back, so it suits the end of one.</p>';
+    TRACKS.forEach(t => {
+      const w = sessionWhen(t[0]);
+      h += '<div class="fld two"><label><span>' + t[1] + ' session</span>' +
+        '<select data-sitday="' + t[0] + '">' + SESSION_DAYS.map(d =>
+          '<option value="' + d[0] + '"' + (+d[0] === w.day ? ' selected' : '') + '>' + d[1] + '</option>').join('') +
+        '</select></label>' +
+        '<label><span>At</span><select data-nudgeval="sit_' + t[0] + '">' + hourOpts(w.time) + '</select></label></div>';
+    });
+    return h;
+  }
+
+  /* ---------- the coach, part two: the weekly sitting ----------
+     The daily check acknowledges. This is where things are understood.
+
+     Two of them, one per track, on days you choose, because being challenged
+     about revenue and being challenged about sleep are not the same
+     conversation. Work defaults to Monday morning, which is worth more pointing
+     forwards, and Life to Sunday evening, which is worth more looking back.
+
+     Everything in the review is counted rather than written. Not one word of it
+     comes from a model, which means it is true, it is instant, and it works on
+     a train. The voice arrives in part three and will sit on top of exactly
+     these numbers.
+
+     The window is the last seven days rolling, not the calendar week, so the
+     review is the same shape whichever day you happen to sit down. */
+  const SESSION_DAYS = [['0','Sunday'],['1','Monday'],['2','Tuesday'],['3','Wednesday'],
+    ['4','Thursday'],['5','Friday'],['6','Saturday']];
+  const sessionDefaults = () => ({ work: { day: 1, time: '09:00' }, life: { day: 0, time: '19:00' } });
+  function sessionWhen(track){
+    const w = (coach().when || {})[track] || {};
+    const d = sessionDefaults()[track];
+    return { day: (w.day == null ? d.day : +w.day), time: w.time || d.time };
+  }
+  function setSessionWhen(track, k, v){
+    const c = coach();
+    if (!c.when) c.when = {};
+    if (!c.when[track]) c.when[track] = Object.assign({}, sessionDefaults()[track]);
+    c.when[track][k] = (k === 'day' ? +v : v);
+    save();
+  }
+  const sessions = () => (coach().sessions || (coach().sessions = []));
+  const sessionDone = (track, now) => sessions().some(s => s.track === track && s.week === weekKey(now));
+  // Due once its day has come round and the hour has passed, and only if this
+  // week's has not happened. Never nags: it is a line on the day, not an alarm.
+  function sessionDue(track, now){
+    if (sessionDone(track, now)) return false;
+    const w = sessionWhen(track);
+    if (now.getDay() !== w.day) return false;
+    return (now.getHours() * 60 + now.getMinutes()) >= mins(w.time);
+  }
+  const catsOn = track => (S.categories || []).filter(c => trackOf(c.id) === track);
+
+  /* Everything the last seven days actually did, for one side of your life. */
+  function weekReview(track, now){
+    const catIds = catsOn(track).map(c => c.id);
+    const mine = id => catIds.indexOf(id) !== -1;
+    const days = [], prev = [];
+    for (let i = 6; i >= 0; i--){ const d = new Date(now); d.setHours(0,0,0,0); d.setDate(d.getDate() - i); days.push(d); }
+    for (let i = 13; i >= 7; i--){ const d = new Date(now); d.setHours(0,0,0,0); d.setDate(d.getDate() - i); prev.push(d); }
+    const from = dayKey(days[0]), today = dayKey(now);
+    const nowM = now.getHours() * 60 + now.getMinutes();
+
+    // Blocks that have been and gone, and whether they were ticked.
+    let kept = 0, missed = 0;
+    days.forEach(d => {
+      const dk = dayKey(d), isToday = dk === today;
+      blocksForDate(d).forEach(b => {
+        if (b.allDay || b.step || b.task || b.routine || !mine(b.c)) return;
+        if (isToday && mins(b.e) > nowM) return;          // not missed yet
+        if (isDone(b.id, dk)) kept++; else missed++;
+      });
+    });
+
+    // Minutes actually tracked, this seven against the seven before it.
+    const tally = list => {
+      let n = 0;
+      list.forEach(d => {
+        const day = spentDay(dayKey(d));
+        Object.keys(day).forEach(ref => {
+          let c = null;
+          if (ref.indexOf('tk_') === 0){ const t = findTask(ref.slice(3)); c = t && t.cat; }
+          else if (ref.indexOf('ro_') === 0){ const r = routinesAll().find(x => x.id === ref.slice(3)); c = r && r.cat; }
+          else { const ev = findEvent(ref); c = ev && ev.cat; }
+          if (mine(c)) n += day[ref];
+        });
+      });
+      return n;
+    };
+    const spent = tally(days), spentBefore = tally(prev);
+
+    // Commitments: what closed in the window, and what is still standing.
+    const closed = commitments().filter(c => c.track === track && c.state !== 'live' &&
+      c.closedAt && c.closedAt >= from);
+    const live = commitsOn(track).slice().sort((a, b) =>
+      String(a.by || '9999-99-99').localeCompare(String(b.by || '9999-99-99')));
+
+    const goals = (S.goals || []).filter(g => mine(g.cat)).map(g => ({
+      g: g, pct: goalPct(g, now), late: goalLate(g, today, now), next: goalNext(g, now)
+    }));
+
+    const habits = activeHabits(now).filter(hb => mine(hb.c)).map(hb => ({
+      l: hb.l, hit: days.filter(d => isDone(hb.id, dayKey(d), hb.target)).length
+    }));
+
+    const tasksDone = (S.tasks || []).filter(tk => mine(tk.cat) && tk.doneAt && tk.doneAt >= from).length;
+
+    return { kept, missed, spent, spentBefore, closed, live, goals, habits, tasksDone, from, catIds };
+  }
+
+  /* ---- the sitting itself ---- */
+  let sitting = null;   // { track, step, pick:{}, carry:{} }
+
+  function openSession(track){
+    sitting = { track: track, step: 'review', pick: {}, carry: {} };
+    commitsOn(track).forEach(c => { sitting.carry[c.id] = 'keep'; });
+    render();
+  }
+
+  function sessionSuggestions(track, now){
+    const catIds = catsOn(track).map(c => c.id);
+    const mine = id => catIds.indexOf(id) !== -1;
+    const out = [];
+    // A goal that has slipped is the first thing worth promising about.
+    (S.goals || []).forEach(g => {
+      if (!mine(g.cat) || !goalLate(g, dayKey(now), now)) return;
+      const nx = goalNext(g, now);
+      if (nx) out.push({ key: 'g:' + g.id, text: nx.split(' · ')[0], why: 'behind on ' + g.title });
+    });
+    // Then whatever is most overdue and still open.
+    openTasks(now).filter(tk => mine(tk.cat) && tk.due && tk.due < dayKey(now))
+      .sort(taskSorter(now)).slice(0, 3)
+      .forEach(tk => out.push({ key: 't:' + tk.id, text: tk.title, why: dueLabel(tk.due, now, tk.dateType).text }));
+    return out.slice(0, 5);
+  }
+
+  function reviewHTML(r, track, now){
+    const label = trackName(track);
+    let h = '<p class="ai-intro">The last seven days on the ' + label.toLowerCase() + ' side, counted rather than guessed.</p>';
+
+    const rows = [];
+    if (r.kept + r.missed) rows.push([r.kept, 'of ' + (r.kept + r.missed) + ' block' + (r.kept + r.missed !== 1 ? 's' : '') + ' kept']);
+    if (r.closed.length) rows.push([r.closed.filter(c => c.state === 'done').length,
+      'of ' + r.closed.length + ' commitment' + (r.closed.length !== 1 ? 's' : '') + ' done']);
+    if (r.tasksDone) rows.push([r.tasksDone, 'task' + (r.tasksDone !== 1 ? 's' : '') + ' finished']);
+    if (rows.length)
+      h += '<div class="rvgrid">' + rows.map(x =>
+        '<div class="rvrow"><span class="rvn">' + x[0] + '</span><span class="rvl">' + esc(x[1]) + '</span></div>').join('') + '</div>';
+
+    if (r.spent || r.spentBefore){
+      const d = r.spent - r.spentBefore;
+      const move = !r.spentBefore ? 'nothing tracked the week before'
+        : d === 0 ? 'the same as the week before'
+        : (d > 0 ? dur(d) + ' more' : dur(-d) + ' less') + ' than the week before';
+      h += '<p class="tfit">' + dur(r.spent) + ' tracked, ' + move + '.</p>';
+    } else {
+      h += '<p class="tfit quiet">No time tracked. Aim the focus timer at a block and this fills itself in.</p>';
+    }
+
+    if (r.habits.length){
+      h += '<div class="rvbar-h">Habits</div><ul class="rvlist">' +
+        r.habits.map(x => '<li>' + esc(x.l) + '<em>' + x.hit + ' of 7</em></li>').join('') + '</ul>';
+    }
+
+    if (r.goals.length){
+      h += '<div class="rvbar-h">Goals</div><ul class="rvlist">' +
+        r.goals.map(x => '<li>' + esc(x.g.title) +
+          '<em>' + Math.round(x.pct * 100) + '%' + (x.late ? ', behind' : '') + '</em></li>').join('') + '</ul>';
+    }
+
+    if (r.live.length){
+      h += '<div class="rvbar-h">Still standing</div><ul class="rvlist">' +
+        r.live.map(c => {
+          const n = notYets(c);
+          const bits = [];
+          if (c.by) bits.push(dueLabel(c.by, now, 'by').text);
+          if (n) bits.push('not yet, ' + n + (n === 1 ? ' time' : ' times'));
+          return '<li>' + esc(c.text) + '<em>' + esc(bits.join(' · ')) + '</em></li>';
+        }).join('') + '</ul>';
+    }
+
+    if (r.closed.length){
+      h += '<div class="rvbar-h">Closed off</div><ul class="rvlist">' +
+        r.closed.map(c => '<li>' + esc(c.text) + '<em>' + (c.state === 'done' ? 'done' : 'let go') + '</em></li>').join('') + '</ul>';
+    }
+
+    if (!rows.length && !r.live.length && !r.goals.length && !r.habits.length)
+      h += '<p class="park-empty">Nothing on this side of your life has anything to report yet. That is a fine place to start from.</p>';
+    return h;
+  }
+
+  function commitStepHTML(track, now){
+    const live = commitsOn(track);
+    const sug = sessionSuggestions(track, now);
+    let h = '<p class="ai-intro">What are you committing to on the ' + trackName(track).toLowerCase() +
+      ' side this week? One or two is the right number.</p>';
+
+    if (live.length){
+      h += '<div class="rvbar-h">Already standing</div>';
+      live.forEach(c => {
+        const on = sitting.carry[c.id] !== 'drop';
+        h += '<div class="ck-row"><span class="ck-t"><b>' + esc(c.text) + '</b>' +
+          '<em>' + esc(c.by ? dueLabel(c.by, now, 'by').text : 'no date') + '</em></span>' +
+          '<span class="ck-acts">' +
+            '<button class="' + (on ? 'ck-yes' : '') + '" data-sitcarry="' + c.id + '|keep">Carry on</button>' +
+            '<button class="' + (!on ? 'ck-yes' : '') + '" data-sitcarry="' + c.id + '|drop">Let it go</button>' +
+          '</span></div>';
+      });
+    }
+
+    if (sug.length){
+      h += '<div class="rvbar-h">Athena would suggest</div>';
+      sug.forEach(s => {
+        h += '<label class="gpick"><input type="checkbox" data-sitpick="' + esc(s.key) + '"' +
+          (sitting.pick[s.key] ? ' checked' : '') + '>' +
+          '<span class="gpk"><b>' + esc(s.text) + '</b><em>' + esc(s.why) + '</em></span></label>';
+      });
+      h += '<p class="ai-howto">Picked from what is actually overdue or behind. Tick what you mean, ignore the rest.</p>';
+    }
+
+    h += '<div class="rvbar-h">In your own words</div>';
+    h += '<div class="gform"><input id="sit_text" type="text" placeholder="Anything else you are committing to" autocomplete="off">' +
+      '<div class="frow"><input id="sit_by" type="date"></div>' +
+      '<button class="ghost" data-sitadd>Add it</button></div>';
+    return h;
+  }
+
+  function sessionHTML(now){
+    const r = weekReview(sitting.track, now);
+    let h = '<div class="modal-back" data-sitclose></div>';
+    h += '<div class="modal sit"><div class="modal-h">' + trackName(sitting.track) + ', the week just gone</div>';
+    h += sitting.step === 'review' ? reviewHTML(r, sitting.track, now) : commitStepHTML(sitting.track, now);
+    h += '<div class="modal-actions">' +
+      (sitting.step === 'review'
+        ? '<button class="ghost" data-sitclose>Not now</button><span style="flex:1"></span>' +
+          '<button class="go" data-sitnext>Next</button>'
+        : '<button class="ghost" data-sitback>Back</button><span style="flex:1"></span>' +
+          '<button class="go" data-sitdone>That is the session done</button>') +
+      '</div>';
     return h + '</div>';
+  }
+
+  /* Everything decided, written down in one go. The session itself is recorded
+     so next week can say what changed, and so the nag knows to stop. */
+  function sessionFinish(now){
+    if (!sitting) return;
+    const track = sitting.track;
+    markUndo('Session recorded');
+    const made = [];
+    // Anything let go is let go, with the date it happened.
+    Object.keys(sitting.carry).forEach(id => {
+      if (sitting.carry[id] !== 'drop') return;
+      const c = findCommit(id);
+      if (c && c.state === 'live'){ c.state = 'let go'; c.closedAt = dayKey(now); }
+    });
+    // Suggestions ticked become real commitments, due by the end of the week.
+    const end = new Date(now); end.setHours(0,0,0,0);
+    end.setDate(end.getDate() + ((7 - end.getDay()) % 7 || 7));
+    sessionSuggestions(track, now).forEach(s => {
+      if (!sitting.pick[s.key]) return;
+      made.push(newCommit(s.text, dayKey(end), track).id);
+    });
+    const r = weekReview(track, now);
+    sessions().push({ id: 'ss_' + uid8(), track: track, week: weekKey(now), at: new Date().toISOString(),
+      kept: r.kept, missed: r.missed, spent: r.spent, made: made });
+    announce('Session done' + (made.length ? ', ' + made.length + ' new commitment' + (made.length !== 1 ? 's' : '') : ''));
+    sitting = null;
+    save(); render();
+  }
+
+  function sessionPromptHTML(now){
+    const due = TRACKS.filter(t => sessionDue(t[0], now));
+    if (!due.length) return '';
+    return '<div class="sitprompt">' + due.map(t =>
+      '<div class="sp-row"><span>Your <b>' + t[1] + '</b> session is due. Twenty minutes, and you leave with the week decided.</span>' +
+      '<button class="go" data-sitopen="' + t[0] + '">Sit down with it</button></div>').join('') + '</div>';
   }
 
   /* ---------- parked thoughts ---------- */
@@ -4232,8 +4514,14 @@
     // to be read when Settings closes would mean a nudge quietly kept its old
     // time for anyone who navigated away instead of tapping Done.
     shell.addEventListener('change', e => {
+      // The session day is a select like the times beside it, so it belongs
+      // here rather than in the click handler, where it would only ever have
+      // reported the value it had before you picked one.
+      const sd = e.target && e.target.dataset && e.target.dataset.sitday;
+      if (sd){ setSessionWhen(sd, 'day', e.target.value); render(); return; }
       const k = e.target && e.target.dataset && e.target.dataset.nudgeval;
       if (!k) return;
+      if (k.indexOf('sit_') === 0){ setSessionWhen(k.slice(4), 'time', e.target.value); render(); return; }
       setNudge(k, k === 'lead' ? +e.target.value : e.target.value);
     });
     shell.addEventListener('input', e => {
@@ -4404,7 +4692,10 @@
     if (view === 'day') h += hardBannerHTML(now);
     // Only on today. A check-in about a Thursday you are merely looking at is
     // not a check-in.
-    if (view === 'day' && !weekShown() && dayKey(vd) === dayKey(now)) h += dailyCheckHTML(now);
+    if (view === 'day' && !weekShown() && dayKey(vd) === dayKey(now)){
+      h += sessionPromptHTML(now);
+      h += dailyCheckHTML(now);
+    }
     // One line, above everything it can change. On any other view it would be
     // asking about a week you are not looking at.
     if (view === 'day') h += askBarHTML();
@@ -4444,6 +4735,7 @@
     if (editing) h += editorHTML();
     if (taskEdit) h += taskEditorHTML();
     if (noteEdit) h += noteEditorHTML();
+    if (sitting) h += sessionHTML(now);
     if (askChanges) h += askChangesHTML();
     if (tomorrowOpen) h += tomorrowHTML();
     if (searchOpen) h += searchHTML();
@@ -6066,6 +6358,25 @@
     if ((m = t('[data-delevent]'))){ markUndo('Event deleted'); S.events = S.events.filter(x => x.id !== m.dataset.delevent); editing = null; clearModalDrafts(); save(); render(); return; }
     if ((m = t('[data-wd]'))){ syncEditor(); const d = +m.dataset.wd; const i = editing.weekdays.indexOf(d); if (i===-1) editing.weekdays.push(d); else editing.weekdays.splice(i,1); render(); return; }
     if ((m = t('[data-settheme]'))){ commitSettings(); S.profile.theme = m.dataset.settheme; applyTheme(); save(); render(); return; }
+    if ((m = t('[data-sitopen]'))){ openSession(m.dataset.sitopen); return; }
+    if (t('[data-sitclose]')){ sitting = null; clearDraft('sit_text'); clearDraft('sit_by'); render(); return; }
+    if (t('[data-sitnext]')){ sitting.step = 'commit'; render(); return; }
+    if (t('[data-sitback]')){ sitting.step = 'review'; render(); return; }
+    if ((m = t('[data-sitcarry]'))){
+      const bits = m.dataset.sitcarry.split('|');
+      sitting.carry[bits[0]] = bits[1]; render(); return;
+    }
+    if ((m = t('[data-sitpick]'))){ sitting.pick[m.dataset.sitpick] = !!m.checked; return; }
+    if (t('[data-sitadd]')){
+      const txt = ((document.getElementById('sit_text') || {}).value || '').trim();
+      if (!txt){ const i = document.getElementById('sit_text'); if (i) i.focus(); return; }
+      newCommit(txt, (document.getElementById('sit_by') || {}).value || '', sitting.track);
+      clearDraft('sit_text'); clearDraft('sit_by');
+      save(); render();
+      const i = document.getElementById('sit_text'); if (i) i.focus();
+      return;
+    }
+    if (t('[data-sitdone]')){ sessionFinish(new Date()); return; }
     if ((m = t('[data-cmans]'))){
       const bits = m.dataset.cmans.split('|');
       answerCommit(bits[0], bits[1]); render(); return;
@@ -6648,6 +6959,7 @@
     if (e.key === 'Enter' && e.target.id === 'ne_newitem'){ e.preventDefault(); const b = app.querySelector('[data-noteadditem]'); if (b) b.click(); return; }
     if (e.key === 'Escape' && searchOpen){ searchOpen = false; clearDraft('gs_q'); render(); return; }
     if (e.key === 'Escape' && tomorrowOpen){ tomorrowOpen = false; tmrw = {}; render(); return; }
+    if (e.key === 'Escape' && sitting){ sitting = null; clearDraft('sit_text'); clearDraft('sit_by'); render(); return; }
     if (e.key === 'Escape' && askChanges){ askChanges = null; askPick = {}; askReply = ''; askSaid = ''; render(); return; }
     if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit || noteEdit || goalAI)){
       if (noteEdit){ const b = app.querySelector('[data-notecancel]'); if (b){ b.click(); return; } }
@@ -6821,7 +7133,7 @@
 
   function userBusy(){
     const ae = document.activeElement;
-    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || searchOpen || tomorrowOpen || !!askChanges ||
+    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || searchOpen || tomorrowOpen || !!askChanges || !!sitting ||
       (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
   }
   function applyUpdate(){
