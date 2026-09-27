@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-27.7';
+  const BUILD = '2026-09-27.8';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2688,13 +2688,17 @@
       });
     }
 
+    // Ten, because ten glasses of water is a real thing someone counts. Past
+    // that the pips stop reading as a glance and start needing counting, which
+    // is the one thing a chip is for.
+    const HABN = [1,2,3,4,5,6,7,8,9,10];
     const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'>"+esc(c.label)+"</option>").join('');
     h += '<h2>Add a habit</h2><div class="gform">'+
       '<input id="hl" type="text" placeholder="Something you want to do regularly" autocomplete="off">'+
       '<div class="frow">'+
         '<select id="hc">'+CATOPTS+'</select>'+
         '<select id="hf"><option value="daily" selected>Every day</option><option value="weekly">Every week</option></select>'+
-        '<select id="hn"><option value="1" selected>Once</option><option value="2">Twice</option><option value="3">3 times</option><option value="4">4 times</option><option value="5">5 times</option><option value="6">6 times</option></select>'+
+        '<select id="hn">'+HABN.map(n=>'<option value="'+n+'"'+(n===1?' selected':'')+'>'+(n===1?'Once':n===2?'Twice':n+' times')+'</option>').join('')+'</select>'+
       '</div>'+
       '<button class="go" data-addhabit>Add habit</button>'+
       '<small class="gform-hint">A weekly one is the same tick all week, so swimming twice a week is two ticks whenever they happen. Daily ones build the run you can see above.</small></div>';
