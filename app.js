@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-27.6';
+  const BUILD = '2026-09-27.7';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1038,7 +1038,9 @@
       total++;
       if (b.step ? isDone('w:' + b.step.sid, weekKey(now)) : isDone(b.id, dk)) done++;
     });
-    activeHabits(now).forEach(hb => { total++; if (isDone(hb.id, dk, hb.target)) done++; });
+    // A weekly habit counts once toward today, against its week. Counting it
+    // against the day would mark the day short on the six days it is not due.
+    activeHabits(now).forEach(hb => { total++; if (isDone(hb.id, habKey(hb.w, now), hb.target)) done++; });
     return { done, total };
   }
   // The ring lives on the Day view with its number beside it, not crammed inside
@@ -1826,7 +1828,11 @@
       // Habits sit with the ring they count toward. Only today's: a tick here
       // always lands on today, so offering them on another day would mislead.
       // A habit inside a routine is ticked in its routine's block instead.
-      if (looseHabits().length) h += '<h2 class="dayhab-h">Every day</h2>' + chipsHTML(now);
+      if (looseHabits().some(x => !x.w)) h += '<h2 class="dayhab-h">Every day</h2>' + chipsHTML(now, false);
+      // Beneath them, and only on the day you are actually on. A weekly chip
+      // is the same tick all week, so it belongs with today rather than with
+      // a Thursday you are merely looking at.
+      if (looseHabits().some(x => x.w)) h += '<h2 class="dayhab-h">This week</h2>' + chipsHTML(now, true);
     }
     if (booked){
       h += '<p class="slack">Today asks for <b>'+dur(booked)+'</b>, and leaves <b>'+dur(openTotal)+'</b> open in between. There is room.</p>';
@@ -2087,8 +2093,19 @@
   }
 
   /* ---------- habits ---------- */
+  /* Some things are not daily. Swimming twice a week or ringing your mum is
+     a real habit and a terrible daily one: shown every day it is wrong six
+     days out of seven, and a streak built on it means nothing.
+
+     A weekly habit is counted against the week instead of the day, so its
+     target is times per week and ticking it on Tuesday is the same tick as
+     ticking it on Friday. A habit with no freq is daily, which is every habit
+     that existed before this. */
+  const habWeekly = h => !!h && h.freq === 'weekly';
+  const habKey = (w, d) => w ? weekKey(d) : dayKey(d);
   function habitList(){
-    const out = (S.habits || []).map(x => ({ id:x.id, l:x.label, c:x.cat||'health', target:(x.target&&x.target>1)?x.target:0, own:true }));
+    const out = (S.habits || []).map(x => ({ id:x.id, l:x.label, c:x.cat||'health',
+      target:(x.target&&x.target>1)?x.target:0, w:habWeekly(x), own:true }));
     (S.goals || []).forEach(g => (g.steps||[]).forEach(st => {
       if (st.freq === 'daily') out.push({ id:st.id, l:st.label, c:g.cat||'work', target:0, goal:true });
     }));
@@ -2131,19 +2148,20 @@
       routine: r
     }));
   }
-  function chipsHTML(now){
-    const dk = dayKey(now);
+  function chipsHTML(now, weekly){
+    const want = !!weekly;
     let h = '<div class="chips">';
-    looseHabits().forEach(d => {
+    looseHabits().filter(d => !!d.w === want).forEach(d => {
+      const dk = habKey(d.w, now);
       const col = catColor(d.c);
       const tint = 'background:'+col+'22;border-color:'+col+'55';
       if (d.target){
         const v = compVal(d.id, dk) || 0;
         let p=''; for (let i=0;i<d.target;i++) p += '<span class="pip'+(i<v?' on':'')+'" style="'+(i<v?'background:'+col+';border-color:'+col:'')+'"></span>';
-        h += '<button class="chip'+(v>=d.target?' on':'')+(justDone===d.id?' just':'')+'" style="'+(v>=d.target?tint:'')+'" data-pip="'+d.id+':'+d.target+'"><span class="cl">'+esc(d.l)+'</span><span class="pips">'+p+'</span></button>';
+        h += '<button class="chip'+(v>=d.target?' on':'')+(justDone===d.id?' just':'')+'" style="'+(v>=d.target?tint:'')+'" data-pip="'+d.id+':'+d.target+':'+dk+'"><span class="cl">'+esc(d.l)+'</span><span class="pips">'+p+'</span></button>';
       } else {
         const on = isDone(d.id, dk);
-        h += '<button class="chip'+(on?' on':'')+(justDone===d.id?' just':'')+'" style="'+(on?tint:'')+'" data-done="'+d.id+'"><span class="cl">'+esc(d.l)+'</span>'+
+        h += '<button class="chip'+(on?' on':'')+(justDone===d.id?' just':'')+'" style="'+(on?tint:'')+'" data-done="'+d.id+'|'+dk+'"><span class="cl">'+esc(d.l)+'</span>'+
           '<span class="mark" style="'+(on?'background:'+col+';border-color:'+col:'')+'"></span></button>';
       }
     });
@@ -2553,7 +2571,10 @@
 
   function routinesView(now){
     const rs = routinesAll();
-    const spare = habitList().filter(h => h.own && !routineOf(h.id));
+    // Weekly habits are left out on purpose: a routine happens at a time on
+    // given days, and a habit that belongs to the whole week cannot sensibly
+    // be ticked inside one.
+    const spare = habitList().filter(h => h.own && !h.w && !routineOf(h.id));
     let h = '<p class="slack">A routine is a handful of habits you do together, at a time. '+
       'Its habits turn up in your day inside the routine, and nowhere else, so you are not deciding twice when to take your vitamins.</p>';
 
@@ -2605,13 +2626,14 @@
     const monday = parseDay(weekKey(now));
     const start = new Date(monday); start.setDate(monday.getDate() - 21);
 
-    let h = '<h2>Every day</h2>' + chipsHTML(now);
+    let h = '<h2>Every day</h2>' + chipsHTML(now, false);
+    if (looseHabits().some(x => x.w)) h += '<h2>This week</h2>' + chipsHTML(now, true);
     h += '<h2>The last four weeks</h2>';
     h += '<div class="habhead"><div class="hdow">' + ['M','T','W','T','F','S','S'].map(x=>'<span>'+x+'</span>').join('') + '</div></div>';
 
     // The history shows every habit, routine members included: their streaks are
     // the thing worth looking at, even though they are ticked inside a routine.
-    habitList().forEach(d => {
+    habitList().filter(d => !d.w).forEach(d => {
       const col = catColor(d.c);
       const inR = routineOf(d.id);
       let cells = '', count = 0, elapsed = 0;
@@ -2637,14 +2659,45 @@
         '</div>';
     });
 
+    // A weekly habit gets a history in weeks, because a row of days would be
+    // six blanks and a tick, which reads like failure and is not.
+    const weeklies = habitList().filter(d => d.w);
+    if (weeklies.length){
+      h += '<h2>The last twelve weeks</h2>';
+      weeklies.forEach(d => {
+        const col = catColor(d.c);
+        let cells = '', hit = 0, gone = 0, run = 0, broke = false;
+        for (let i = 11; i >= 0; i--){
+          const ww = new Date(monday); ww.setDate(monday.getDate() - i * 7);
+          const wk = weekKey(ww), isNow = i === 0;
+          const on = isDone(d.id, wk, d.target);
+          gone++; if (on) hit++;
+          cells += '<i class="'+(isNow?'td':'')+'" style="'+(on?'background:'+col+';border-color:'+col:'')+'"></i>';
+        }
+        for (let i = 0; i < 200; i++){
+          const ww = new Date(monday); ww.setDate(monday.getDate() - i * 7);
+          if (isDone(d.id, weekKey(ww), d.target)) run++;
+          else if (i > 0) break;
+        }
+        h += '<div class="hab"><div class="hl"><b>'+esc(d.l)+'</b>'+
+          '<small>'+hit+' of '+gone+' weeks'+(run>1?' · <em>'+run+' week run</em>':'')+
+          (d.target?' · '+d.target+' times a week':'')+'</small></div>'+
+          '<div class="hgrid wk">'+cells+'</div>'+
+          (d.own ? '<button class="del" data-delhabit="'+d.id+'" aria-label="Remove habit">×</button>' : '')+
+          '</div>';
+      });
+    }
+
     const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'>"+esc(c.label)+"</option>").join('');
     h += '<h2>Add a habit</h2><div class="gform">'+
-      '<input id="hl" type="text" placeholder="Something you want to do every day" autocomplete="off">'+
+      '<input id="hl" type="text" placeholder="Something you want to do regularly" autocomplete="off">'+
       '<div class="frow">'+
         '<select id="hc">'+CATOPTS+'</select>'+
-        '<select id="hn"><option value="1" selected>Once a day</option><option value="2">Twice a day</option><option value="3">3 times</option><option value="4">4 times</option><option value="5">5 times</option><option value="6">6 times</option></select>'+
+        '<select id="hf"><option value="daily" selected>Every day</option><option value="weekly">Every week</option></select>'+
+        '<select id="hn"><option value="1" selected>Once</option><option value="2">Twice</option><option value="3">3 times</option><option value="4">4 times</option><option value="5">5 times</option><option value="6">6 times</option></select>'+
       '</div>'+
-      '<button class="go" data-addhabit>Add habit</button></div>';
+      '<button class="go" data-addhabit>Add habit</button>'+
+      '<small class="gform-hint">A weekly one is the same tick all week, so swimming twice a week is two ticks whenever they happen. Daily ones build the run you can see above.</small></div>';
     h += '<p class="slack" style="padding-top:14px">History starts from the first day you tick something here. Days you did not open Athena stay blank.</p>';
     return h;
   }
@@ -3476,9 +3529,12 @@
       g: g, pct: goalPct(g, now), late: goalLate(g, today, now), next: goalNext(g, now)
     }));
 
-    const habits = activeHabits(now).filter(hb => mine(hb.c)).map(hb => ({
-      l: hb.l, hit: days.filter(d => isDone(hb.id, dayKey(d), hb.target)).length
-    }));
+    // Out of seven for a daily one. A weekly one is out of its own target,
+    // because "1 of 7" for something meant to happen twice a week is a lie.
+    const habits = activeHabits(now).filter(hb => mine(hb.c)).map(hb => hb.w
+      ? { l: hb.l, of: (hb.target || 1),
+          hit: Math.min(hb.target || 1, compVal(hb.id, weekKey(now)) || (isDone(hb.id, weekKey(now)) ? 1 : 0)) }
+      : { l: hb.l, of: 7, hit: days.filter(d => isDone(hb.id, dayKey(d), hb.target)).length });
 
     const tasksDone = (S.tasks || []).filter(tk => mine(tk.cat) && tk.doneAt && tk.doneAt >= from).length;
 
@@ -3538,7 +3594,7 @@
 
     if (r.habits.length){
       h += '<div class="rvbar-h">Habits</div><ul class="rvlist">' +
-        r.habits.map(x => '<li>' + esc(x.l) + '<em>' + x.hit + ' of 7</em></li>').join('') + '</ul>';
+        r.habits.map(x => '<li>' + esc(x.l) + '<em>' + x.hit + ' of ' + x.of + '</em></li>').join('') + '</ul>';
     }
 
     if (r.goals.length){
@@ -3740,7 +3796,8 @@
       r.goals.forEach(x => L.push('    - ' + x.g.title + ', ' + Math.round(x.pct * 100) + '%' +
         (x.late ? ', behind' : '') + (x.next ? ', next: ' + x.next : '')));
     }
-    if (r.habits.length) L.push('  Habits: ' + r.habits.map(x => x.l + ' ' + x.hit + ' of 7').join(', ') + '.');
+    if (r.habits.length) L.push('  Habits: ' + r.habits.map(x =>
+      x.l + ' ' + x.hit + ' of ' + x.of + (x.of === 7 ? ' days' : ' this week')).join(', ') + '.');
 
     const past = sessions().filter(s => s.track === track).slice(-5);
     if (past.length){
@@ -7202,9 +7259,10 @@
       save(); maybeCelebrate(); render(); return;
     }
     if ((m = t('[data-pip]'))){
-      const [id, tg] = m.dataset.pip.split(':');
-      bumpCount(id, today, +tg); buzz(10);
-      if (isDone(id, today, +tg)) markJustDone(id);
+      const [id, tg, per] = m.dataset.pip.split(':');
+      const on = per || today;
+      bumpCount(id, on, +tg); buzz(10);
+      if (isDone(id, on, +tg)) markJustDone(id);
       save(); maybeCelebrate(); render(); return;
     }
     if ((m = t('[data-step]'))){
@@ -7228,8 +7286,10 @@
       const lab = (document.getElementById('hl')||{}).value || '';
       if (!lab.trim()) return;
       clearDraft('hl');
+      const hf = ((document.getElementById('hf')||{}).value === 'weekly') ? 'weekly' : 'daily';
       S.habits.push({ id:'hb_'+uid8(), label:lab.trim().slice(0,80),
         cat:(document.getElementById('hc')||{}).value || (S.categories[0]||{}).id,
+        freq: hf,
         target:+((document.getElementById('hn')||{}).value || 1) });
       save(); render(); return;
     }
