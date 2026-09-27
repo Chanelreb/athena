@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-27.5';
+  const BUILD = '2026-09-27.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1087,8 +1087,20 @@
   // tick all three off the moment you went once.
   // Whichever way a weekly task arrives from Athena, its days come back as
   // numbers, and anything that is not one of the seven is dropped.
+  const specMonthday = spec => {
+    const n = Math.round(+spec.monthday || 0);
+    return (n >= 1 && n <= 31) ? n : 0;
+  };
   const specDays = spec => (Array.isArray(spec.weekdays) ? spec.weekdays : [])
     .map(Number).filter(n => n >= 0 && n <= 6).filter((n, i, all) => all.indexOf(n) === i);
+  const ord = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th'
+    : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th');
+  // The 31st of a thirty day month is its last day, not nothing. Clamped
+  // rather than skipped, or a task set for the end of the month would quietly
+  // miss February every year.
+  const monthDayOn = (n, d) => Math.min(n, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate());
+  const repMonthday = tk => (tk.repeat && tk.repeat.freq === 'monthly' && +tk.repeat.monthday >= 1)
+    ? +tk.repeat.monthday : null;
   const repDays = tk => (tk.repeat && tk.repeat.freq === 'weekly' && (tk.repeat.days || []).length)
     ? tk.repeat.days : null;
   const taskPeriod = (tk, d) => repDays(tk) ? dayKey(d) : periodKeyFor(tk.repeat.freq, d);
@@ -1110,6 +1122,11 @@
     // A weekly task that named its days belongs to those days and no others.
     const days = repDays(tk);
     if (days && days.indexOf(d.getDay()) === -1) return false;
+    // A monthly one is more forgiving, because missing its day costs a whole
+    // month rather than a few days. It shows from that date to the end of the
+    // month, and ticking it anywhere in there finishes the month.
+    const md = repMonthday(tk);
+    if (md && d.getDate() < monthDayOn(md, d)) return false;
     if (!tk.due) return true;
     // A "do on" task used to appear on its day and nowhere else, so missing it
     // made it disappear, which is the opposite of what a deadline is for. It
@@ -3942,7 +3959,8 @@
           if (spec.note) tk.note = String(spec.note).slice(0, 200);
           if (['daily','weekly','monthly'].indexOf(spec.repeat) >= 0)
             tk.repeat = { freq: spec.repeat, interval: 1,
-              days: (spec.repeat === 'weekly' ? specDays(spec) : []) };
+              days: (spec.repeat === 'weekly' ? specDays(spec) : []),
+              monthday: (spec.repeat === 'monthly' ? specMonthday(spec) : 0) };
           tk.at = normaliseAt(typeof spec.at === 'string' ? spec.at : '', tk);
           guessed = true;
         }
@@ -3971,7 +3989,7 @@
   function repeatLabel(rep){
     if (!rep) return '';
     if (rep.freq === 'daily') return 'Daily';
-    if (rep.freq === 'monthly') return 'Monthly';
+    if (rep.freq === 'monthly') return +rep.monthday >= 1 ? 'Monthly, ' + ord(+rep.monthday) : 'Monthly';
     const d = (rep.days || []).slice().sort();
     if (!d.length) return 'Weekly';
     if (d.length === 7) return 'Every day';
@@ -4261,6 +4279,7 @@
       dateType: tk.dateType || 'by', mins: tk.mins || 0, at: tk.at || '',
       repeat: tk.repeat ? tk.repeat.freq : 'once',
       days: (tk.repeat && tk.repeat.days) ? tk.repeat.days.slice() : [],
+      monthday: (tk.repeat && +tk.repeat.monthday >= 1) ? +tk.repeat.monthday : 0,
       hard: !!tk.hard, by: tk.by || HARD_BY };
     render();
   }
@@ -4296,6 +4315,13 @@
         ? 'It will only turn up on those days, and each one is its own tick.'
         : 'Pick none and it means once a week, on whichever day you get to it.')+'</small>';
     }
+    if (e.repeat === 'monthly'){
+      h += '<label class="fld"><span>Day of the month</span>'+
+        '<input id="te_monthday" type="number" min="0" max="31" placeholder="Any day" value="'+(e.monthday || '')+'"></label>';
+      h += '<small class="gform-hint">'+(e.monthday
+        ? 'It turns up on the '+ord(e.monthday)+' and stays until the month is out, so missing the day does not cost you the month. A month that is too short uses its last day.'
+        : 'Leave it empty and it means once a month, whenever you get to it.')+'</small>';
+    }
     h += '<div class="fld two">'+
       '<label><span>Date means</span><select id="te_when">'+DATEKINDS.map(k=>"<option value='"+k[0]+"'"+(k[0]===e.dateType?' selected':'')+">"+k[1]+"</option>").join('')+'</select></label>'+
       '<label><span>Date (optional)</span><input id="te_due" type="date" value="'+esc(e.due)+'"></label></div>';
@@ -4323,6 +4349,7 @@
      ['te_rep','repeat'],['te_when','dateType'],['te_due','due'],['te_at','at'],['te_by','by']
     ].forEach(p => { const el = g(p[0]); if (el) taskEdit[p[1]] = el.value; });
     const mn = g('te_mins'); if (mn) taskEdit.mins = +mn.value || 0;
+    const md = g('te_monthday'); if (md) taskEdit.monthday = Math.max(0, Math.min(31, Math.round(+md.value || 0)));
     if (!taskEdit.days) taskEdit.days = [];
   }
 
@@ -4340,8 +4367,11 @@
     tk.dateType = (g('te_when') || {}).value || 'by';
     tk.mins = +((g('te_mins') || {}).value || 0) || null;
     const rep = (g('te_rep') || {}).value || 'once';
+    const mdv = Math.max(0, Math.min(31, Math.round(+((g('te_monthday') || {}).value) || 0)));
     tk.repeat = rep === 'once' ? null
-      : { freq: rep, interval: 1, days: (rep === 'weekly' ? (taskEdit.days || []).slice() : []) };
+      : { freq: rep, interval: 1,
+          days: (rep === 'weekly' ? (taskEdit.days || []).slice() : []),
+          monthday: (rep === 'monthly' ? mdv : 0) };
     tk.at = normaliseAt((g('te_at') || {}).value, tk);
     // The flag only means anything with a date and without a repeat, so it
     // comes off by itself rather than sitting there quietly doing nothing.
@@ -4943,7 +4973,7 @@
   }
   const clearDraft = id => { delete drafts[id]; };
   const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
-    'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','te_at','tk_when','tk_mins',
+    'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','te_at','te_monthday','tk_when','tk_mins',
     'ne_title','ne_body','ne_cat','ne_newitem'];
   const clearModalDrafts = () => MODAL_IDS.forEach(clearDraft);
 
@@ -6232,7 +6262,8 @@
         dateType: (x.dateType === 'on' ? 'on' : 'by'),
         mins: (typeof x.minutes === 'number' && x.minutes > 0) ? Math.min(600, Math.round(x.minutes)) : null,
         repeat: (['daily','weekly','monthly'].indexOf(rep) >= 0)
-          ? { freq: rep, interval: 1, days: (rep === 'weekly' ? specDays(x) : []) } : null,
+          ? { freq: rep, interval: 1, days: (rep === 'weekly' ? specDays(x) : []),
+              monthday: (rep === 'monthly' ? specMonthday(x) : 0) } : null,
         at: null, createdAt: new Date().toISOString(), doneAt: null
       };
       out.at = normaliseAt(typeof x.at === 'string' ? x.at : '', out);

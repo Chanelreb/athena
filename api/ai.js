@@ -81,6 +81,9 @@ export function planSchema(cats){
     // Which days a weekly task belongs to. Empty means once a week on
     // whichever day they get to it, which is what it always used to mean.
     weekdays: z.array(z.number()),
+    // Which day of the month a monthly task falls on. 0 means once a month,
+    // whenever they get to it.
+    monthday: z.number(),
     note: z.string()
   });
   const Habit = z.object({
@@ -132,7 +135,7 @@ export function anythingSchema(cats){
       title: z.string(), category: Cat(), priority: z.enum(['high', 'normal', 'low']),
       due: z.string(), dateType: z.enum(['by', 'on']), minutes: z.number(),
       at: z.string(), repeat: z.enum(['once', 'daily', 'weekly', 'monthly']),
-      weekdays: z.array(z.number()), note: z.string()
+      weekdays: z.array(z.number()), monthday: z.number(), note: z.string()
     })),
     habits: z.array(z.object({ label: z.string(), category: Cat(), timesPerDay: z.number() })),
     goals: z.array(z.object({
@@ -286,6 +289,7 @@ export default async function handler(req, res){
     'minutes is a rough estimate of how long a task takes, so it can be fitted into a block. Estimate it when you reasonably can.',
     'at is an "HH:MM" time, and only for a task that must happen at a set time, like an appointment. Leave it empty otherwise: most tasks have no time and Athena places them itself.',
     'On a weekly task, weekdays says which days it belongs to, 0 for Sunday through 6 for Saturday: "bins out every Sunday" is [0], "gym Monday Wednesday Friday" is [1,3,5]. Leave it empty when they only meant once a week, on whichever day suits.',
+    'On a monthly task, monthday is the date it falls on, 1 to 31: "pay the rates on the 15th" is 15. Use 0 when they only meant once a month, whenever suits.',
     'Habits are small daily things worth a streak. Goals are bigger, with a target date and repeatable steps.',
     'Their categories are: ' + (categories || 'Personal, Work, Health') + '. Use exactly these names.',
     'Today is ' + today + '. Resolve relative dates like "Friday" against it.',
