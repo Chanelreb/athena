@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-27.4';
+  const BUILD = '2026-09-27.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1080,14 +1080,26 @@
     [45,'45 min'], [60,'1h'], [90,'1h 30m'], [120,'2h'], [180,'3h']];
   const prioRank = p => (p === 'high' ? 0 : p === 'low' ? 2 : 1);
   const periodKeyFor = (freq, d) => freq === 'daily' ? dayKey(d) : freq === 'monthly' ? monKey(d) : weekKey(d);
+  // "Weekly" used to mean once this week, on whichever day you got to it, and
+  // there was no way to say which day it belonged to. Naming days changes what
+  // finishing it means: bins out every Sunday is one job a week, but gym on
+  // Monday, Wednesday and Friday is three, and counting those as one would
+  // tick all three off the moment you went once.
+  // Whichever way a weekly task arrives from Athena, its days come back as
+  // numbers, and anything that is not one of the seven is dropped.
+  const specDays = spec => (Array.isArray(spec.weekdays) ? spec.weekdays : [])
+    .map(Number).filter(n => n >= 0 && n <= 6).filter((n, i, all) => all.indexOf(n) === i);
+  const repDays = tk => (tk.repeat && tk.repeat.freq === 'weekly' && (tk.repeat.days || []).length)
+    ? tk.repeat.days : null;
+  const taskPeriod = (tk, d) => repDays(tk) ? dayKey(d) : periodKeyFor(tk.repeat.freq, d);
 
   function taskDone(tk, d){
     if (!tk.repeat) return !!tk.doneAt;
-    return isDone('t:' + tk.id, periodKeyFor(tk.repeat.freq, d));
+    return isDone('t:' + tk.id, taskPeriod(tk, d));
   }
   function toggleTask(tk, d){
     if (!tk.repeat) tk.doneAt = tk.doneAt ? null : dayKey(d);
-    else toggleDone('t:' + tk.id, periodKeyFor(tk.repeat.freq, d));
+    else toggleDone('t:' + tk.id, taskPeriod(tk, d));
   }
   const findTask = id => (S.tasks || []).find(x => x.id === id);
 
@@ -1095,6 +1107,9 @@
   //   'on'  this has to happen that day, so it only surfaces that day
   //   'by'  this has to be finished by then, so it surfaces until it is done
   function taskAvailableOn(tk, d){
+    // A weekly task that named its days belongs to those days and no others.
+    const days = repDays(tk);
+    if (days && days.indexOf(d.getDay()) === -1) return false;
     if (!tk.due) return true;
     // A "do on" task used to appear on its day and nowhere else, so missing it
     // made it disappear, which is the opposite of what a deadline is for. It
@@ -3925,7 +3940,9 @@
           if (spec.dateType === 'on') tk.dateType = 'on';
           if (+spec.minutes > 0) tk.mins = Math.min(600, Math.round(+spec.minutes));
           if (spec.note) tk.note = String(spec.note).slice(0, 200);
-          if (['daily','weekly','monthly'].indexOf(spec.repeat) >= 0) tk.repeat = { freq: spec.repeat, interval: 1 };
+          if (['daily','weekly','monthly'].indexOf(spec.repeat) >= 0)
+            tk.repeat = { freq: spec.repeat, interval: 1,
+              days: (spec.repeat === 'weekly' ? specDays(spec) : []) };
           tk.at = normaliseAt(typeof spec.at === 'string' ? spec.at : '', tk);
           guessed = true;
         }
@@ -3951,7 +3968,18 @@
   /* ---------- tasks view ---------- */
   let showDone = false;
 
-  function repeatLabel(rep){ return rep ? (rep.freq === 'daily' ? 'Daily' : rep.freq === 'monthly' ? 'Monthly' : 'Weekly') : ''; }
+  function repeatLabel(rep){
+    if (!rep) return '';
+    if (rep.freq === 'daily') return 'Daily';
+    if (rep.freq === 'monthly') return 'Monthly';
+    const d = (rep.days || []).slice().sort();
+    if (!d.length) return 'Weekly';
+    if (d.length === 7) return 'Every day';
+    if (d.length === 5 && d.indexOf(0) === -1 && d.indexOf(6) === -1) return 'Weekdays';
+    if (d.length === 2 && d.indexOf(0) !== -1 && d.indexOf(6) !== -1) return 'Weekends';
+    if (d.length === 1) return 'Every ' + DAYS[d[0]];
+    return d.map(x => SD[x]).join(', ');
+  }
   function dueLabel(due, d, type){
     const on = type === 'on';
     const diff = daysBetween(dayKey(d), due);
@@ -4232,6 +4260,7 @@
       priority: tk.priority || 'normal', due: tk.due || '',
       dateType: tk.dateType || 'by', mins: tk.mins || 0, at: tk.at || '',
       repeat: tk.repeat ? tk.repeat.freq : 'once',
+      days: (tk.repeat && tk.repeat.days) ? tk.repeat.days.slice() : [],
       hard: !!tk.hard, by: tk.by || HARD_BY };
     render();
   }
@@ -4239,6 +4268,12 @@
     const e = taskEdit;
     const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'"+(c.id===e.cat?' selected':'')+">"+esc(c.label)+"</option>").join('');
     const REPS = [['once','One-off'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly']];
+    // Athena can estimate five minutes, and the dropdown only offers ten
+    // presets. Without this the estimate is silently thrown away the moment
+    // the editor is saved, because the select has no option to hold it.
+    const MOPTS = (e.mins > 0 && !MINOPTS.some(o => o[0] === e.mins))
+      ? MINOPTS.concat([[e.mins, dur(e.mins)]]).sort((a, b) => a[0] - b[0])
+      : MINOPTS;
     let h = '<div class="modal-back" data-closetask></div><div class="modal"><div class="modal-h">'+
       (e.fromPark != null ? 'From your thought' : 'Edit task')+'</div>';
     if (e.guessed) h += '<p class="ai-intro">Athena has filled this in from what you wrote. '+
@@ -4252,12 +4287,21 @@
     h += '<div class="fld two">'+
       '<label><span>Priority</span><select id="te_prio">'+PRIOS.map(p=>"<option value='"+p[0]+"'"+(p[0]===e.priority?' selected':'')+">"+p[1]+"</option>").join('')+'</select></label>'+
       '<label><span>Repeat</span><select id="te_rep">'+REPS.map(r=>"<option value='"+r[0]+"'"+(r[0]===e.repeat?' selected':'')+">"+r[1]+"</option>").join('')+'</select></label></div>';
+    if (e.repeat === 'weekly'){
+      const TWD = [[1,'M'],[2,'T'],[3,'W'],[4,'T'],[5,'F'],[6,'S'],[0,'S']];
+      h += '<div class="fld"><span>Which days</span><div class="wdrow">'+
+        TWD.map(w=>'<button type="button" class="wdbtn'+(e.days.indexOf(w[0])!==-1?' on':'')+'" data-twd="'+w[0]+'">'+w[1]+'</button>').join('')+
+        '</div></div>';
+      h += '<small class="gform-hint">'+(e.days.length
+        ? 'It will only turn up on those days, and each one is its own tick.'
+        : 'Pick none and it means once a week, on whichever day you get to it.')+'</small>';
+    }
     h += '<div class="fld two">'+
       '<label><span>Date means</span><select id="te_when">'+DATEKINDS.map(k=>"<option value='"+k[0]+"'"+(k[0]===e.dateType?' selected':'')+">"+k[1]+"</option>").join('')+'</select></label>'+
       '<label><span>Date (optional)</span><input id="te_due" type="date" value="'+esc(e.due)+'"></label></div>';
     h += '<div class="fld two">'+
       '<label><span>At a set time</span><input id="te_at" type="time" value="'+esc(e.at || '')+'"></label>'+
-      '<label><span>How long will it take?</span><select id="te_mins">'+MINOPTS.map(o=>"<option value='"+o[0]+"'"+(o[0]===e.mins?' selected':'')+">"+o[1]+"</option>").join('')+'</select></label></div>';
+      '<label><span>How long will it take?</span><select id="te_mins">'+MOPTS.map(o=>"<option value='"+o[0]+"'"+(o[0]===e.mins?' selected':'')+">"+o[1]+"</option>").join('')+'</select></label></div>';
     h += '<small class="gform-hint">A time turns this into an appointment: it takes its own place in the day instead of waiting inside a block. Leave it blank and Athena decides when to offer it.</small>';
     h += '<label class="fld chk" style="margin-top:10px"><input id="te_hard" data-hardedit type="checkbox"'+(e.hard ? ' checked' : '')+'>'+
       '<span>Must not miss</span></label>';
@@ -4270,6 +4314,18 @@
       '<button class="go" data-savetask>Save</button></div></div>';
     return h;
   }
+  // Read the whole editor back into state before redrawing it, or everything
+  // typed since it opened is lost the moment a control that redraws is used.
+  function syncTaskEditor(){
+    if (!taskEdit) return;
+    const g = id => document.getElementById(id);
+    [['te_title','title'],['te_note','note'],['te_cat','cat'],['te_prio','priority'],
+     ['te_rep','repeat'],['te_when','dateType'],['te_due','due'],['te_at','at'],['te_by','by']
+    ].forEach(p => { const el = g(p[0]); if (el) taskEdit[p[1]] = el.value; });
+    const mn = g('te_mins'); if (mn) taskEdit.mins = +mn.value || 0;
+    if (!taskEdit.days) taskEdit.days = [];
+  }
+
   function commitTask(){
     const g = id => document.getElementById(id);
     const tk = findTask(taskEdit.id);
@@ -4284,7 +4340,8 @@
     tk.dateType = (g('te_when') || {}).value || 'by';
     tk.mins = +((g('te_mins') || {}).value || 0) || null;
     const rep = (g('te_rep') || {}).value || 'once';
-    tk.repeat = rep === 'once' ? null : { freq: rep, interval: 1 };
+    tk.repeat = rep === 'once' ? null
+      : { freq: rep, interval: 1, days: (rep === 'weekly' ? (taskEdit.days || []).slice() : []) };
     tk.at = normaliseAt((g('te_at') || {}).value, tk);
     // The flag only means anything with a date and without a repeat, so it
     // comes off by itself rather than sitting there quietly doing nothing.
@@ -6174,7 +6231,8 @@
         due: (typeof x.due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.due)) ? x.due : null,
         dateType: (x.dateType === 'on' ? 'on' : 'by'),
         mins: (typeof x.minutes === 'number' && x.minutes > 0) ? Math.min(600, Math.round(x.minutes)) : null,
-        repeat: (['daily','weekly','monthly'].indexOf(rep) >= 0) ? { freq: rep, interval: 1 } : null,
+        repeat: (['daily','weekly','monthly'].indexOf(rep) >= 0)
+          ? { freq: rep, interval: 1, days: (rep === 'weekly' ? specDays(x) : []) } : null,
         at: null, createdAt: new Date().toISOString(), doneAt: null
       };
       out.at = normaliseAt(typeof x.at === 'string' ? x.at : '', out);
@@ -7200,16 +7258,15 @@
       return;
     }
     if (t('[data-hardedit]')){
-      // Read the whole editor back before redrawing it, or everything typed
-      // since it opened is lost the moment this is ticked.
-      const g = id => document.getElementById(id);
-      ['title','note','cat','prio','rep','when','due','at','mins'].forEach(k => {
-        const el = g('te_' + k);
-        if (el) taskEdit[k === 'prio' ? 'priority' : k === 'rep' ? 'repeat' : k === 'when' ? 'dateType' : k] =
-          (k === 'mins' ? (+el.value || 0) : el.value);
-      });
-      taskEdit.hard = !!g('te_hard').checked;
-      const b = g('te_by'); if (b) taskEdit.by = b.value;
+      const hb = document.getElementById('te_hard');
+      syncTaskEditor();
+      if (hb) taskEdit.hard = !!hb.checked;
+      clearModalDrafts(); render(); return;
+    }
+    if ((m = t('[data-twd]'))){
+      syncTaskEditor();
+      const d = +m.dataset.twd, at = taskEdit.days.indexOf(d);
+      if (at === -1) taskEdit.days.push(d); else taskEdit.days.splice(at, 1);
       clearModalDrafts(); render(); return;
     }
     if ((m = t('[data-undoadd]'))){
@@ -7269,8 +7326,10 @@
 
   // Re-render the editor when repeat type or all-day toggles (to swap fields).
   shell.addEventListener('change', e => {
-    if (!editing) return;
-    if (e.target.id === 'e_repeat' || e.target.id === 'e_allday'){ syncEditor(); render(); }
+    if (editing && (e.target.id === 'e_repeat' || e.target.id === 'e_allday')){ syncEditor(); render(); return; }
+    // The days only exist for a weekly task, so choosing weekly has to redraw
+    // or the picker never turns up.
+    if (taskEdit && e.target.id === 'te_rep'){ syncTaskEditor(); clearModalDrafts(); render(); }
   });
 
   function toggleStep(gid, sid, now){
