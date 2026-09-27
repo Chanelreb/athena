@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-27.3';
+  const BUILD = '2026-09-27.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3881,9 +3881,10 @@
      not an error: you get the editor with the plain title, which is exactly
      what you used to get anyway. */
   let parkBusy = null;
-  async function parkToTask(i, dk){
+  async function parkToTask(i, dk, kind){
     const item = (S.parked || [])[i];
     if (!item) return;
+    const appt = kind === 'appt';
     parkOpen = null;
     const tk = {
       id: 'tk_' + uid8(), title: item.t.slice(0, 140), note: '',
@@ -3896,8 +3897,24 @@
       parkBusy = i; render();
       try {
         const out = await coachCall({ ask: item.t });
+        // "Dentist Tuesday 2pm" comes back as an event, because that is what
+        // a thing with a time is. Athena's appointments are tasks that carry
+        // one, so the event is read for its time and its day and poured into
+        // the same shape.
+        const ev = (out.events || [])[0];
+        if (appt && ev && /^\d{2}:\d{2}$/.test(String(ev.start || ''))){
+          const ci = matchCatInfo(ev.category);
+          if (!ci.guessed) tk.cat = ci.id;
+          tk.at = ev.start;
+          tk.dateType = 'on';
+          tk.due = /^\d{4}-\d{2}-\d{2}$/.test(String(ev.date || '')) ? ev.date : dk;
+          const len = /^\d{2}:\d{2}$/.test(String(ev.end || '')) ? mins(ev.end) - mins(ev.start) : 0;
+          tk.mins = (len > 0 && len <= 600) ? len : 30;
+          if (ev.note) tk.note = String(ev.note).slice(0, 200);
+          guessed = true;
+        }
         const spec = (out.tasks || [])[0];
-        if (spec){
+        if (spec && !guessed){
           // The category is the one guess worth refusing. Athena answering
           // "Admin" to someone whose category is "Life admin" used to file it
           // silently under the first one in the list.
@@ -3915,10 +3932,20 @@
       } catch(_){ /* a guess that cannot be made is not worth an error screen */ }
       parkBusy = null;
     }
+    // An appointment without a time is not an appointment. Whatever was or
+    // was not worked out, it leaves here with a day and an hour on it, and
+    // the next round hour is as good a guess as any when nothing was said.
+    if (appt){
+      tk.dateType = 'on';
+      if (!tk.due) tk.due = dk;
+      if (!tk.at){ const n = new Date(); tk.at = pad(Math.min(23, n.getHours() + 1)) + ':00'; }
+      if (!tk.mins) tk.mins = 30;
+      tk.at = normaliseAt(tk.at, tk);
+    }
     S.tasks = (S.tasks || []).concat([tk]);
     save();
     openTaskEditor(tk.id);
-    if (taskEdit){ taskEdit.fromPark = i; taskEdit.guessed = guessed; render(); }
+    if (taskEdit){ taskEdit.fromPark = i; taskEdit.guessed = guessed; taskEdit.appt = appt; render(); }
   }
 
   /* ---------- tasks view ---------- */
@@ -4214,8 +4241,11 @@
     const REPS = [['once','One-off'],['daily','Daily'],['weekly','Weekly'],['monthly','Monthly']];
     let h = '<div class="modal-back" data-closetask></div><div class="modal"><div class="modal-h">'+
       (e.fromPark != null ? 'From your thought' : 'Edit task')+'</div>';
-    if (e.guessed) h += '<p class="ai-intro">Athena has filled this in from what you wrote. Change anything it got wrong, then save.</p>';
-    else if (e.fromPark != null) h += '<p class="ai-intro">Fill in whatever matters, then save. Cancelling puts the thought back.</p>';
+    if (e.guessed) h += '<p class="ai-intro">Athena has filled this in from what you wrote. '+
+      (e.appt ? 'Check the day and the time first.' : 'Change anything it got wrong.')+' Then save.</p>';
+    else if (e.fromPark != null) h += '<p class="ai-intro">'+
+      (e.appt ? 'Athena could not find a time in that, so it has guessed one. Set the day and the time, then save.'
+              : 'Fill in whatever matters, then save.')+' Cancelling puts the thought back.</p>';
     h += '<label class="fld"><span>Task</span><input id="te_title" type="text" value="'+esc(e.title)+'" autocomplete="off"></label>';
     h += '<label class="fld"><span>Note</span><input id="te_note" type="text" placeholder="Optional" value="'+esc(e.note)+'" autocomplete="off"></label>';
     h += '<label class="fld"><span>Category</span><select id="te_cat">'+CATOPTS+'</select></label>';
@@ -7229,27 +7259,9 @@
         view = 'notes'; noteEdit = n;
         save(); render(); return;
       }
-      if (kind === 'task'){ parkToTask(i, dk); return; }
-      const stamp = new Date().toISOString();
-      const tk = {
-        id: 'tk_' + uid8(), title: item.t.slice(0, 140), note: '',
-        cat: (S.categories[0] || {}).id, priority: 'normal',
-        due: null, dateType: 'by', mins: null, repeat: null, at: null,
-        createdAt: stamp, doneAt: null
-      };
-      if (kind === 'appt'){
-        // An appointment is a task with a time. Start it at the next round hour
-        // on the day being looked at, then open it so the time can be set.
-        const now = new Date();
-        const hr = Math.min(23, now.getHours() + 1);
-        tk.due = dk; tk.dateType = 'on'; tk.at = pad(hr) + ':00'; tk.mins = 30;
-      }
-      S.tasks = (S.tasks || []).concat([tk]);
-      S.parked.splice(i, 1);
-      save();
-      // An appointment opens for its time to be set. A plain task does not need
-      // anything else said about it, so it just lands.
-      if (kind === 'appt') openTaskEditor(tk.id); else render();
+      // Both go the same way now: read the thought, fill in what can be
+      // worked out, and show it before anything is consumed.
+      parkToTask(i, dk, kind);
       return;
     }
     if ((m = t('[data-unpark]'))){ markUndo('Thought cleared'); S.parked.splice(+m.dataset.unpark, 1); save(); render(); return; }
