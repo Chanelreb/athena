@@ -6,6 +6,8 @@
 //              the week, or proposes changes to what is already there
 //   goalAsk    the questions nobody can guess about a goal
 //   goalPlan   that goal written SMART and broken into a plan
+//   coach      what it notices in a week, and what it wants to ask
+//   coachNotes what it learned about you from the answers
 //
 // Each returns JSON the browser's existing preview and apply path understands.
 // Structured outputs guarantee the shape, so there is no prose-or-JSON guessing
@@ -160,6 +162,31 @@ export function askSchema(){
   });
 }
 
+/* The weekly sitting.
+
+   Two calls rather than one, for the same reason the goal coach has two: it
+   cannot learn anything from answers it has not been given yet. The first
+   call notices and asks. The second reads what you said and writes down what
+   it now knows, which is the only reason the twentieth sitting is better than
+   the first. */
+export function coachSchema(){
+  return z.object({
+    notice: z.string(),
+    questions: z.array(z.object({
+      label: z.string(),
+      placeholder: z.string(),
+      options: z.array(z.string())
+    }))
+  });
+}
+
+export function coachNotesSchema(){
+  return z.object({
+    reply: z.string(),
+    notes: z.array(z.string())
+  });
+}
+
 /* The plan itself. Flat rather than nested: the measure and the routine are
    spelled out field by field, which keeps every property plainly typed and the
    union count at zero, for the same reason the schema above uses sentinels. */
@@ -231,6 +258,9 @@ export default async function handler(req, res){
   // questions about it and point at the exact thing to change. Much longer
   // than a goal brief, and there is no way round that.
   const week = String((body && body.week) || '').slice(0, 14000);
+  // The coaching brief is the biggest thing Athena sends anywhere: a whole
+  // week counted, the weeks before it, and everything it has learned so far.
+  const track = (body && body.track) === 'work' ? 'work' : 'life';
   const categories = String((body && body.categories) || '').slice(0, 400);
   const catNames = Array.from(new Set(categories.split(',').map(s => s.trim()).filter(Boolean))).slice(0, 30);
   const today = String((body && body.today) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
@@ -309,8 +339,51 @@ export default async function handler(req, res){
     'Warm, plain and short. Never a form, never a lecture.'
   ].join(' ');
 
+  // The one real difference between the two sides. Being challenged about
+  // revenue and being challenged about sleep are not the same conversation,
+  // and a coach who cannot tell them apart is no use for either.
+  const voice = track === 'work' ? [
+    'This is the work side. Be direct. Have a point of view and say it: "you have moved this three weeks running, so either it matters or it does not".',
+    'Challenge the decision, never the person. Being blunt about a slipping deadline is the job; being contemptuous about them is not, ever.',
+    'Short sentences. No hedging, no management language, no praise they have not earned.'
+  ] : [
+    'This is the life side. Be gentle and unhurried. Lead with what is actually working before anything else.',
+    'Gentle still has to say the true thing. Name what is not happening, without a verdict attached to it.',
+    'Assume they are doing their best with a week that was probably harder than it looks from the numbers.'
+  ];
+
+  const coachSystem = voice.concat([
+    'You are Athena, coaching one person through their week. You are given that week counted exactly, the weeks before it, and everything you have written down about them from past sittings.',
+    'Put two to four sentences in "notice". This is the part only you can do, because only you can see across weeks. Say the thing they cannot see from inside it: what keeps happening, what has changed since last week, where the numbers and their intentions disagree.',
+    'Name real things from the brief. A number, a commitment, a block, by name. Never a general observation that would fit anybody.',
+    'If something is genuinely going well, say that first and mean it. A coach who is only ever right about what is going badly gets ignored.',
+    'Then ask three to five questions. Ask what you cannot work out from the data: why, what is really in the way, what they actually want. Never ask something the brief already answers.',
+    'Each question must be answerable in a sentence. Warm and plain, like a person who is genuinely interested, never a form field.',
+    'When the sensible answers are a short list, put two to six of them in options and leave placeholder empty: on a phone, choosing beats typing. Otherwise leave options empty and put a short example answer in placeholder.',
+    'Today is ' + today + '.'
+  ]).join(' ');
+
+  const coachNotesSystem = voice.concat([
+    'You are Athena, closing a weekly sitting. You are given the week counted, what you asked, what they said, and what you already knew about them.',
+    'Put one short paragraph in "reply": what you take from this week and what you will be watching next week. Three sentences at most.',
+    'Then write nought to three lines in "notes". These are what you now know about this person that you did not know before, and they are the only thing you carry into the next sitting.',
+    'A note is one sentence, specific, and about them rather than about this week. "Says yes to things on Monday and resents them by Thursday" is a note. "Had a busy week" is not.',
+    'Write nothing rather than padding. Most weeks teach you nothing new, and an empty notes list is the honest answer then.',
+    'Never write a note that repeats one you were already given. If something you already knew was confirmed again, that is not new.',
+    'They can read and delete every note, so write nothing you would not say to their face.',
+    'Today is ' + today + '.'
+  ]).join(' ');
+
   let system = listSystem, schema = planSchema(catNames), prompt = ask;
-  if (mode === 'ask'){
+  if (mode === 'coach'){
+    system = coachSystem;
+    schema = coachSchema();
+    prompt = week || ask;
+  } else if (mode === 'coachNotes'){
+    system = coachNotesSystem;
+    schema = coachNotesSchema();
+    prompt = week || ask;
+  } else if (mode === 'ask'){
     system = anythingSystem;
     schema = anythingSchema(catNames);
     prompt = week ? (week + '\n\nThey typed: ' + ask) : ask;

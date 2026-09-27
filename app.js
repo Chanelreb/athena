@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-27.1';
+  const BUILD = '2026-09-27.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3310,6 +3310,13 @@
     if (!liveCommits().length)
       h += '<p class="park-empty">Nothing committed to yet. One or two is the right number, not ten.</p>';
 
+    h += notesSectionHTML();
+    h += '<div class="gform"><input id="nt_own" type="text" placeholder="Tell Athena something about yourself" autocomplete="off">' +
+      '<div class="frow"><select id="nt_track">' + TRACKS.map(t =>
+        '<option value="' + t[0] + '">' + t[1] + '</option>').join('') + '</select></div>' +
+      '<button class="ghost" data-noteadd>Write it down</button>' +
+      '<small class="gform-hint">Anything it should know and could not work out on its own. It reads these every time it sits down with you.</small></div>';
+
     const closed = commitments().filter(x => x.state !== 'live')
       .sort((a, b) => String(b.closedAt || '').localeCompare(String(a.closedAt || ''))).slice(0, 20);
     if (closed.length){
@@ -3450,7 +3457,9 @@
   let sitting = null;   // { track, step, pick:{}, carry:{} }
 
   function openSession(track){
-    sitting = { track: track, step: 'review', pick: {}, carry: {} };
+    sitting = { track: track, step: 'review', pick: {}, carry: {},
+      notice: '', questions: [], answers: [], extra: '', closing: '', newNotes: [], keepNote: {},
+      busy: false, error: '' };
     commitsOn(track).forEach(c => { sitting.carry[c.id] = 'keep'; });
     render();
   }
@@ -3567,14 +3576,26 @@
     const r = weekReview(sitting.track, now);
     let h = '<div class="modal-back" data-sitclose></div>';
     h += '<div class="modal sit"><div class="modal-h">' + trackName(sitting.track) + ', the week just gone</div>';
-    h += sitting.step === 'review' ? reviewHTML(r, sitting.track, now) : commitStepHTML(sitting.track, now);
-    h += '<div class="modal-actions">' +
-      (sitting.step === 'review'
-        ? '<button class="ghost" data-sitclose>Not now</button><span style="flex:1"></span>' +
-          '<button class="go" data-sitnext>Next</button>'
-        : '<button class="ghost" data-sitback>Back</button><span style="flex:1"></span>' +
-          '<button class="go" data-sitdone>That is the session done</button>') +
-      '</div>';
+    h += sitting.step === 'review' ? reviewHTML(r, sitting.track, now)
+      : sitting.step === 'talk' ? sittingTalkHTML()
+      : sitting.step === 'closed' ? sittingClosedHTML()
+      : commitStepHTML(sitting.track, now);
+    const busy = !!sitting.busy;
+    h += '<div class="modal-actions">';
+    if (sitting.step === 'review'){
+      h += '<button class="ghost" data-sitclose>Not now</button><span style="flex:1"></span>' +
+        '<button class="go" data-sittalk>Next</button>';
+    } else if (sitting.step === 'talk'){
+      h += '<button class="ghost" data-sitback>Back</button><span style="flex:1"></span>' +
+        '<button class="go" data-sitcommit'+(busy ? ' disabled' : '')+'>Next</button>';
+    } else if (sitting.step === 'closed'){
+      h += '<span style="flex:1"></span><button class="go" data-sitsave>Save and finish</button>';
+    } else {
+      h += '<button class="ghost" data-sitback2>Back</button><span style="flex:1"></span>' +
+        '<button class="go" data-sitdone'+(busy ? ' disabled' : '')+'>'+
+        (sitting.busy === 'close' ? 'Writing it up\u2026' : 'That is the session done')+'</button>';
+    }
+    h += '</div>';
     return h + '</div>';
   }
 
@@ -3612,6 +3633,240 @@
     return '<div class="sitprompt">' + due.map(t =>
       '<div class="sp-row"><span>Your <b>' + t[1] + '</b> session is due. Twenty minutes, and you leave with the week decided.</span>' +
       '<button class="go" data-sitopen="' + t[0] + '">Sit down with it</button></div>').join('') + '</div>';
+  }
+
+  /* ---------- the coach, part three: the voice and the memory ----------
+     Parts one and two count things. This is the part that has a point of view
+     about them, and the part that remembers you.
+
+     The memory is the whole trick. A session that only reads this week is a
+     form you fill in weekly. A session that read the last twenty is a coach.
+     So after every sitting Athena writes down what it now knows about you, in
+     one sentence at a time, and hands that back to itself next time. You can
+     read and delete every line, which is the only reason it is safe to let it
+     write them at all. */
+  const NOTE_CAP = 40;
+  const notesOn = track => {
+    const c = coach();
+    if (!c.notes) c.notes = {};
+    if (!c.notes[track]) c.notes[track] = [];
+    return c.notes[track];
+  };
+  function addNote(track, text, by){
+    const list = notesOn(track);
+    const t = String(text).trim().slice(0, 200);
+    if (!t) return null;
+    // Never twice. A model told the same thing two weeks running will write it
+    // down twice unless something stops it.
+    if (list.some(n => n.text.toLowerCase() === t.toLowerCase())) return null;
+    const n = { id: 'nt_' + uid8(), text: t, at: dayKey(new Date()), by: by === 'you' ? 'you' : 'athena' };
+    list.push(n);
+    // Forty sharp observations are a coach. Four hundred are noise, and they
+    // would crowd out the brief they are meant to sharpen.
+    while (list.length > NOTE_CAP) list.shift();
+    return n;
+  }
+  const dropNote = (track, id) => { coach().notes[track] = notesOn(track).filter(n => n.id !== id); };
+
+  /* Everything the coach is given: what it knows about you, the week counted,
+     and the weeks before it. */
+  function coachBrief(track, now, extra){
+    const r = weekReview(track, now);
+    const L = [];
+    L.push('You are coaching the ' + trackName(track) + ' side of their life.');
+    L.push('Today is ' + dayKey(now) + ', a ' + DAYS[now.getDay()] + '.');
+
+    const known = notesOn(track);
+    L.push('');
+    if (known.length){
+      L.push('What you already know about them, from past sittings:');
+      known.forEach(n => L.push('  - ' + n.text + (n.by === 'you' ? ' (they wrote this one themselves)' : '')));
+    } else {
+      L.push('You have never sat down with them before. You know nothing about them yet beyond this week.');
+    }
+
+    L.push('');
+    L.push('The last seven days, counted exactly:');
+    L.push('  Blocks: ' + r.kept + ' of ' + (r.kept + r.missed) + ' kept.');
+    L.push('  Time tracked: ' + (r.spent ? dur(r.spent) : 'none') +
+      ', against ' + (r.spentBefore ? dur(r.spentBefore) : 'none') + ' the seven days before.');
+    L.push('  Tasks finished: ' + r.tasksDone + '.');
+    if (r.closed.length){
+      L.push('  Commitments closed: ' + r.closed.map(c =>
+        c.text + ' (' + (c.state === 'done' ? 'done' : 'let go') + ')').join('; ') + '.');
+    }
+    if (r.live.length){
+      L.push('  Commitments still standing:');
+      r.live.forEach(c => {
+        const n = notYets(c);
+        L.push('    - ' + c.text + (c.by ? ', due ' + c.by : ', no date') +
+          (n ? ', said not yet ' + n + ' times' : ''));
+      });
+    }
+    if (r.goals.length){
+      L.push('  Goals:');
+      r.goals.forEach(x => L.push('    - ' + x.g.title + ', ' + Math.round(x.pct * 100) + '%' +
+        (x.late ? ', behind' : '') + (x.next ? ', next: ' + x.next : '')));
+    }
+    if (r.habits.length) L.push('  Habits: ' + r.habits.map(x => x.l + ' ' + x.hit + ' of 7').join(', ') + '.');
+
+    const past = sessions().filter(s => s.track === track).slice(-5);
+    if (past.length){
+      L.push('');
+      L.push('Earlier sittings on this side, oldest first:');
+      past.forEach(s => L.push('  ' + String(s.at).slice(0, 10) + ': ' + s.kept + ' of ' +
+        (s.kept + s.missed) + ' blocks kept, ' + (s.spent ? dur(s.spent) : 'no time') + ' tracked'));
+    }
+
+    if (extra) L.push('', extra);
+    return L.join('\n');
+  }
+
+  async function coachCall(body){
+    if (!cloud || !session) throw new Error('Sign in first, so Athena can do the talking part.');
+    const { data } = await sb.auth.getSession();
+    const token = data && data.session ? data.session.access_token : '';
+    const r = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify(Object.assign({
+        categories: S.categories.map(c => c.label).join(', '),
+        today: dayKey(new Date())
+      }, body))
+    });
+    let j = {};
+    try { j = await r.json(); } catch(_){}
+    if (!r.ok) throw new Error((j && j.error) || 'Athena could not be reached just now.');
+    try { return JSON.parse(j.text); }
+    catch(_){ throw new Error('Athena replied in a shape Athena did not understand.'); }
+  }
+
+  // What is typed goes into state before any redraw, same as the goal coach.
+  function sittingCapture(){
+    if (!sitting) return;
+    sitting.answers = (sitting.questions || []).map((q, i) => {
+      const el = document.getElementById('sit_a' + i);
+      return el ? (el.value || '').trim() : (sitting.answers[i] || '');
+    });
+    const ex = document.getElementById('sit_extra');
+    if (ex) sitting.extra = (ex.value || '').trim();
+  }
+
+  async function sittingTalk(){
+    if (!sitting || sitting.questions.length) return;
+    sitting.busy = 'talk'; sitting.error = ''; render();
+    try {
+      const out = await coachCall({ mode: 'coach', track: sitting.track, ask: 'weekly sitting',
+        week: coachBrief(sitting.track, new Date()) });
+      sitting.notice = String(out.notice || '');
+      sitting.questions = (out.questions || []).slice(0, 5);
+      sitting.answers = sitting.questions.map(() => '');
+      sitting.busy = false; render();
+    } catch(e){ sitting.busy = false; sitting.error = e.message; render(); }
+  }
+
+  async function sittingClose(now){
+    if (!sitting) return;
+    sittingCapture();
+    sitting.busy = 'close'; sitting.error = ''; render();
+    const said = [];
+    (sitting.questions || []).forEach((q, i) => {
+      said.push('Asked: ' + q.label + ' They said: ' + (sitting.answers[i] || '(nothing, so they chose not to)'));
+    });
+    if (sitting.extra) said.push('They added, unprompted: ' + sitting.extra);
+    const committed = sittingCommitTexts(now);
+    if (committed.length) said.push('', 'What they have just committed to for the coming week: ' + committed.join('; ') + '.');
+    try {
+      const out = await coachCall({ mode: 'coachNotes', track: sitting.track, ask: 'closing the sitting',
+        week: coachBrief(sitting.track, now,
+          'What you asked and what they said:\n' + said.join('\n')) });
+      sitting.closing = String(out.reply || '');
+      sitting.newNotes = (out.notes || []).map(String).filter(Boolean).slice(0, 3);
+      sitting.keepNote = {};
+      sitting.newNotes.forEach((_, i) => { sitting.keepNote[i] = true; });
+      sitting.step = 'closed'; sitting.busy = false; render();
+    } catch(e){
+      // The sitting is worth more than its last paragraph. If Athena cannot be
+      // reached, the week still gets recorded.
+      sitting.busy = false; sitting.error = e.message;
+      sessionFinish(now); return;
+    }
+  }
+
+  // What the commit step is about to create, in words, so the closing call can
+  // see what was actually promised rather than guessing from tick boxes.
+  function sittingCommitTexts(now){
+    const out = [];
+    sessionSuggestions(sitting.track, now).forEach(s => { if (sitting.pick[s.key]) out.push(s.text); });
+    return out;
+  }
+
+  function sittingTalkHTML(){
+    const a = sitting;
+    let h = '';
+    if (a.busy === 'talk') return '<p class="ai-intro">Athena is reading your week…</p>';
+    if (a.error){
+      h += '<div class="savewarn">' + esc(a.error) + '</div>';
+      h += '<p class="ai-howto">The counted half of this sitting is done and still yours. Carry on without the talking part.</p>';
+      return h;
+    }
+    if (a.notice) h += '<div class="notice"><p>' + esc(a.notice) + '</p></div>';
+    a.questions.forEach((q, i) => {
+      const val = a.answers[i] || '';
+      const opts = (q.options || []).filter(Boolean).slice(0, 6);
+      if (opts.length)
+        h += '<label class="fld"><span>' + esc(q.label) + '</span>' +
+          '<select id="sit_a' + i + '"><option value="">Choose one</option>' +
+          opts.map(o => '<option value="' + esc(o) + '"' + (o === val ? ' selected' : '') + '>' + esc(o) + '</option>').join('') +
+          '<option value="' + esc(val) + '"' + (val && opts.indexOf(val) === -1 ? ' selected' : '') + ' hidden></option>' +
+          '</select></label>';
+      else
+        h += '<label class="fld"><span>' + esc(q.label) + '</span>' +
+          '<input id="sit_a' + i + '" type="text" value="' + esc(val) + '" placeholder="' + esc(q.placeholder || '') + '" autocomplete="off"></label>';
+    });
+    h += '<label class="fld"><span>Anything else about this week?</span>' +
+      '<textarea id="sit_extra" rows="2" placeholder="Whatever it did not think to ask">' + esc(a.extra || '') + '</textarea></label>';
+    h += '<p class="ai-howto">Skip anything you would rather not answer. Nothing here is stored as an answer, only as what Athena learns from it, and you can read and delete every line of that.</p>';
+    return h;
+  }
+
+  function sittingClosedHTML(){
+    const a = sitting;
+    let h = '';
+    if (a.closing) h += '<div class="notice"><p>' + esc(a.closing) + '</p></div>';
+    if (a.newNotes.length){
+      h += '<div class="rvbar-h">Athena would write this down</div>';
+      a.newNotes.forEach((n, i) => {
+        h += '<label class="gpick"><input type="checkbox" data-sitnote="' + i + '"' +
+          (a.keepNote[i] ? ' checked' : '') + '>' +
+          '<span class="gpk"><b>' + esc(n) + '</b></span></label>';
+      });
+      h += '<p class="ai-howto">Untick anything that is not true. This is what it carries into next week, and nothing else.</p>';
+    } else {
+      h += '<p class="ai-howto">Nothing new learned this week, which is the honest answer most weeks.</p>';
+    }
+    return h;
+  }
+
+  /* What it has noticed about you, in plain sight rather than buried. */
+  function notesSectionHTML(){
+    let h = '<h2>What Athena has noticed</h2>';
+    const any = TRACKS.some(t => notesOn(t[0]).length);
+    if (!any){
+      h += '<p class="park-empty">Nothing yet. Athena writes a line here after a sitting when it has learned something about you, and every line is yours to delete.</p>';
+      return h;
+    }
+    TRACKS.forEach(t => {
+      const list = notesOn(t[0]);
+      if (!list.length) return;
+      h += '<div class="rvbar-h">' + t[1] + '</div><div class="notelist">' +
+        list.slice().reverse().map(n =>
+          '<div class="noterow"><span class="nt-t">' + esc(n.text) +
+          '<em>' + (n.by === 'you' ? 'you wrote this' : 'Athena, ' + goalDate(n.at)) + '</em></span>' +
+          '<button class="del" data-delnote="' + t[0] + '|' + n.id + '" aria-label="Delete">×</button></div>').join('') +
+        '</div>';
+    });
+    return h;
   }
 
   /* ---------- parked thoughts ---------- */
@@ -6360,8 +6615,27 @@
     if ((m = t('[data-settheme]'))){ commitSettings(); S.profile.theme = m.dataset.settheme; applyTheme(); save(); render(); return; }
     if ((m = t('[data-sitopen]'))){ openSession(m.dataset.sitopen); return; }
     if (t('[data-sitclose]')){ sitting = null; clearDraft('sit_text'); clearDraft('sit_by'); render(); return; }
-    if (t('[data-sitnext]')){ sitting.step = 'commit'; render(); return; }
+    if (t('[data-sittalk]')){ sitting.step = 'talk'; render(); sittingTalk(); return; }
+    if (t('[data-sitcommit]')){ sittingCapture(); sitting.step = 'commit'; render(); return; }
     if (t('[data-sitback]')){ sitting.step = 'review'; render(); return; }
+    if (t('[data-sitback2]')){ sittingCapture(); sitting.step = 'talk'; render(); return; }
+    if ((m = t('[data-sitnote]'))){ sitting.keepNote[m.dataset.sitnote] = !!m.checked; return; }
+    if (t('[data-sitsave]')){
+      (sitting.newNotes || []).forEach((n, i) => { if (sitting.keepNote[i]) addNote(sitting.track, n, 'athena'); });
+      sessionFinish(new Date()); return;
+    }
+    if ((m = t('[data-delnote]'))){
+      const bits = m.dataset.delnote.split('|');
+      markUndo('Note deleted'); dropNote(bits[0], bits[1]); save(); render(); return;
+    }
+    if (t('[data-noteadd]')){
+      const el = document.getElementById('nt_own');
+      const sel = document.getElementById('nt_track');
+      const v = ((el || {}).value || '').trim();
+      if (!v){ if (el) el.focus(); return; }
+      addNote((sel || {}).value || 'work', v, 'you');
+      clearDraft('nt_own'); save(); render(); return;
+    }
     if ((m = t('[data-sitcarry]'))){
       const bits = m.dataset.sitcarry.split('|');
       sitting.carry[bits[0]] = bits[1]; render(); return;
@@ -6376,7 +6650,13 @@
       const i = document.getElementById('sit_text'); if (i) i.focus();
       return;
     }
-    if (t('[data-sitdone]')){ sessionFinish(new Date()); return; }
+    // The talking half is worth having, and never worth blocking on. If the
+    // model cannot be reached, sittingClose records the week anyway.
+    if (t('[data-sitdone]')){
+      if (sitting.questions.length || sitting.notice) sittingClose(new Date());
+      else sessionFinish(new Date());
+      return;
+    }
     if ((m = t('[data-cmans]'))){
       const bits = m.dataset.cmans.split('|');
       answerCommit(bits[0], bits[1]); render(); return;

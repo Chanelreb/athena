@@ -1882,3 +1882,17 @@
   #soft-app .modal.sit .rvgrid { display: flex; flex-direction: column; gap: 2px; margin: 12px 0 14px; }
   #soft-app .modal.sit .ck-row:first-of-type { border-top: 1px solid var(--line); }
   #soft-app .modal.sit .gform { margin-top: 8px; }
+
+  /* ---- the coach's own voice ----------------------------------------------
+     Set apart from the counted half, because it is the one part of the sitting
+     that is an opinion rather than a fact. */
+  #soft-app .notice {
+    border-left: 3px solid var(--live); background: var(--raise);
+    border-radius: 0 12px 12px 0; padding: 12px 14px; margin: 4px 0 16px;
+  }
+  #soft-app .notice p { margin: 0; font-size: 14.5px; line-height: 1.6; }
+  #soft-app .notelist { display: flex; flex-direction: column; }
+  #soft-app .noterow { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  #soft-app .nt-t { flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; }
+  #soft-app .nt-t em { display: block; font-style: normal; font-size: 12px; color: var(--ghost); margin-top: 2px; }
+  #soft-app .noterow .del { flex: 0 0 auto; }
