@@ -1976,6 +1976,17 @@
   }
   #soft-app .modal.sit { width: min(540px, calc(100vw - 28px)); }
   #soft-app .modal.sit .rvgrid { display: flex; flex-direction: column; gap: 2px; margin: 12px 0 14px; }
+
+  /* The line that is meant to be uncomfortable. It gets the weight of a
+     warning without the colour of an error, because nothing has gone wrong:
+     the week simply does not fit, and that is a thing to decide about rather
+     than a thing to fix. */
+  #soft-app .ahead-hard {
+    margin: 2px 0 14px; padding: 12px 14px; border-radius: 11px;
+    font-size: 13.5px; line-height: 1.5; color: var(--text);
+    background: var(--live-soft); border: 1px solid var(--live);
+  }
+  #soft-app .ahead-hard b { font-weight: 600; font-variant-numeric: tabular-nums; }
   #soft-app .modal.sit .ck-row:first-of-type { border-top: 1px solid var(--line); }
   #soft-app .modal.sit .gform { margin-top: 8px; }
 

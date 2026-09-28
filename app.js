@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.15';
+  const BUILD = '2026-09-28.16';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3660,6 +3660,76 @@
     return { kept, missed, spent, spentBefore, closed, live, goals, habits, tasksDone, from, catIds };
   }
 
+  /* The week in front of you, which is the one you are about to make promises
+     about. The week just gone gets its own read; this is the other half.
+
+     Every number here is one that can be counted. There is deliberately no
+     "hours free", because free depends on when you are willing to work and
+     Athena does not know that, and a made up denominator would make the whole
+     thing easy to dismiss. What it counts instead is: what is booked, what you
+     have set aside, how much of what you set aside is already booked over, and
+     what the tasks you have due actually add up to. */
+  function weekAhead(track, now){
+    const catIds = catsOn(track).map(c => c.id);
+    const mine = id => catIds.indexOf(id) !== -1;
+    const today = dayKey(now);
+    let meetMins = 0, blockMins = 0, clashMins = 0, meetCount = 0;
+    const days = [];
+    for (let i = 0; i < 7; i++){
+      const d = new Date(now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i);
+      days.push(d);
+      meetingsOn(d).filter(m => !isBanner(m)).forEach(m => { meetMins += m.em - m.sm; meetCount++; });
+      blocksForDate(d).forEach(b => {
+        if (b.allDay || b.step || b.task || b.routine || !mine(b.c)) return;
+        const s = mins(b.s), e = mins(b.e);
+        if (e <= s) return;
+        blockMins += e - s;
+        clashMins += bookedWithin(d, s, e);
+      });
+    }
+    const last = dayKey(days[6]);
+    const due = (S.tasks || []).filter(tk =>
+      !tk.doneAt && !tk.repeat && mine(tk.cat) && tk.due && tk.due >= today && tk.due <= last);
+    const taskMins = due.reduce((n, tk) => n + (+tk.mins || 0), 0);
+    const noEstimate = due.filter(tk => !tk.mins).length;
+    // What you set aside that has not already been taken off you.
+    const usable = Math.max(0, blockMins - clashMins);
+    return { meetMins, meetCount, blockMins, clashMins, usable,
+             taskMins, taskCount: due.length, noEstimate,
+             over: taskMins > usable, short: taskMins - usable };
+  }
+
+  function weekAheadHTML(track, now){
+    const w = weekAhead(track, now);
+    if (!w.meetCount && !w.blockMins && !w.taskCount) return '';
+    let h = '<div class="rvbar-h">The week in front of you</div>';
+    const rows = [];
+    if (w.meetCount) rows.push([dur(w.meetMins), 'already booked, ' + w.meetCount +
+      ' meeting' + (w.meetCount !== 1 ? 's' : '')]);
+    if (w.blockMins) rows.push([dur(w.blockMins), 'you have set aside']);
+    if (w.clashMins) rows.push([dur(w.clashMins), 'of that is booked over']);
+    if (w.taskCount) rows.push([dur(w.taskMins), w.taskCount + ' task' +
+      (w.taskCount !== 1 ? 's' : '') + ' due' + (w.noEstimate ? ', ' + w.noEstimate + ' unestimated' : '')]);
+    h += '<div class="rvgrid">' + rows.map(x =>
+      '<div><b>' + esc(x[0]) + '</b><span>' + esc(x[1]) + '</span></div>').join('') + '</div>';
+
+    // The part that is supposed to be uncomfortable. It only speaks when the
+    // numbers actually say something, because a warning that is always there
+    // is one you stop reading.
+    if (w.over && w.taskMins && w.usable >= 0){
+      h += '<p class="ahead-hard">You have <b>' + esc(dur(w.usable)) + '</b> of your own time left this week ' +
+        'and <b>' + esc(dur(w.taskMins)) + '</b> of work due in it. That is <b>' + esc(dur(w.short)) +
+        '</b> more than there is room for. Something here is not going to happen, so it may as well be ' +
+        'you that decides which.</p>';
+      if (w.noEstimate) h += '<p class="ai-howto">And ' + w.noEstimate + ' of those have no estimate on them, ' +
+        'so the real number is worse than this one.</p>';
+    } else if (w.clashMins >= 60){
+      h += '<p class="ahead-hard">' + esc(dur(w.clashMins)) + ' of the time you set aside already has a meeting ' +
+        'sitting on it. Those blocks are not going to happen where they are.</p>';
+    }
+    return h;
+  }
+
   /* ---- the sitting itself ---- */
   let sitting = null;   // { track, step, pick:{}, carry:{} }
 
@@ -3748,6 +3818,9 @@
     const sug = sessionSuggestions(track, now);
     let h = '<p class="ai-intro">What are you committing to on the ' + trackName(track).toLowerCase() +
       ' side this week? One or two is the right number.</p>';
+    // Before the promises, the arithmetic. Committing in ignorance of the week
+    // is how a commitment becomes something to feel bad about on Friday.
+    h += weekAheadHTML(track, now);
 
     if (live.length){
       h += '<div class="rvbar-h">Already standing</div>';
@@ -3890,6 +3963,26 @@
       known.forEach(n => L.push('  - ' + n.text + (n.by === 'you' ? ' (they wrote this one themselves)' : '')));
     } else {
       L.push('You have never sat down with them before. You know nothing about them yet beyond this week.');
+    }
+
+    // The week ahead, as numbers. The coach is asked to push back on a week
+    // that does not fit, so it has to be able to see that it does not fit.
+    // Hours only here too, for the same reason as everywhere else: what the
+    // meetings are about is none of this conversation's business.
+    const w = weekAhead(track, now);
+    if (w.meetCount || w.blockMins || w.taskCount){
+      L.push('');
+      L.push('The seven days ahead, counted exactly:');
+      L.push('  Already booked in their calendar: ' + (w.meetMins ? dur(w.meetMins) : 'nothing') +
+        ' across ' + w.meetCount + ' meeting' + (w.meetCount === 1 ? '' : 's') + '.');
+      L.push('  Time they have set aside themselves: ' + (w.blockMins ? dur(w.blockMins) : 'none') + '.');
+      if (w.clashMins) L.push('  Of that, ' + dur(w.clashMins) + ' already has a meeting sitting on it.');
+      L.push('  Their own time actually left: ' + dur(w.usable) + '.');
+      L.push('  Work due in that window: ' + dur(w.taskMins) + ' across ' + w.taskCount +
+        ' task' + (w.taskCount === 1 ? '' : 's') +
+        (w.noEstimate ? ', of which ' + w.noEstimate + ' carry no estimate so the real figure is higher' : '') + '.');
+      if (w.over) L.push('  That is ' + dur(w.short) + ' more work than there is room for. Say so, plainly, ' +
+        'and make them choose what goes. Do not soften it and do not let them commit to more on top.');
     }
 
     L.push('');
@@ -4195,6 +4288,9 @@
       // the server reports them separately and so does this.
       cal.err = (j.trouble || []).map(t => t.account + ': ' + t.why).join(' · ');
       calStash();
+      // A meeting that turned up since the last save can silence a nudge that
+      // is already queued. The hash means this costs nothing when nothing moved.
+      try { pushQueueSync(false); } catch(_){}
     } catch(e){ cal.err = (e && e.message) || 'Could not read your calendar.'; }
     cal.busy = false; render();
   }
@@ -4328,6 +4424,33 @@
      enough to be worth offering. Only on a day that actually has meetings:
      a gap between your own blocks is just your day, and pointing at it would
      be Athena talking for the sake of it. */
+  // Whether a given minute of a given day already belongs to somebody else.
+  // Banners are excluded on purpose: a public holiday does not mean you are
+  // in a meeting, and silencing a whole day of nudges because of one is not
+  // what anybody asked for.
+  function busyAt(d, minute){
+    return meetingsOn(d).some(m => !isBanner(m) && minute >= m.sm && minute < m.em);
+  }
+
+  // How much of a span is already booked over. Used to tell you that the
+  // three hours you set aside are three hours somebody else has taken.
+  function bookedWithin(d, s, e){
+    // Merged before it is counted. Two meetings that overlap each other are
+    // still only one hour gone, and summing them separately would report an
+    // hour and a half of a one hour clash.
+    const spans = meetingsOn(d).filter(m => !isBanner(m))
+      .map(m => [Math.max(s, m.sm), Math.min(e, m.em)])
+      .filter(x => x[1] > x[0])
+      .sort((x, y) => x[0] - y[0]);
+    let n = 0, at = -1, end = -1;
+    spans.forEach(sp => {
+      if (sp[0] > end){ if (end > at) n += end - at; at = sp[0]; end = sp[1]; }
+      else end = Math.max(end, sp[1]);
+    });
+    if (end > at) n += end - at;
+    return n;
+  }
+
   const GAP_MIN = 45;
   function calGaps(now, from){
     const ms = meetingsOn(now).filter(m => !isBanner(m));
@@ -6100,6 +6223,23 @@
       }).join('; '));
     }
 
+    if (cal.events.length){
+      L.push('');
+      L.push('Hours already taken by their calendar. Times only: the subjects and the people');
+      L.push('are deliberately not sent, so do not guess at them or ask what a meeting is.');
+      L.push('Treat these as immovable, and plan around them.');
+      for (let i = 0; i < 7; i++){
+        const d = new Date(now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i);
+        const ms = meetingsOn(d);
+        const timed = ms.filter(m => !isBanner(m));
+        const allday = ms.length - timed.length;
+        if (!ms.length) continue;
+        const bits = timed.map(m => clockOf(fmtM(m.sm)) + ' to ' + clockOf(fmtM(Math.min(m.em, DE))));
+        if (allday) bits.push(allday + ' thing' + (allday !== 1 ? 's' : '') + ' on all day');
+        L.push('  ' + DAYS[d.getDay()] + ' ' + dayKey(d) + ': ' + bits.join(', '));
+      }
+    }
+
     const open = (S.tasks || []).filter(tk => !tk.doneAt).slice(0, 40);
     L.push('');
     L.push(open.length ? 'Tasks not done yet:' : 'No open tasks.');
@@ -6608,6 +6748,11 @@
         if (b.step || b.task) return;
         const when = at(d, b.s);
         when.setMinutes(when.getMinutes() - (+n.lead || 5));
+        // Not while you are in a meeting. A buzz mid client review is worse
+        // than no buzz, and this one is only ever telling you about a block
+        // that is still going to be there afterwards. Must-not-miss deadlines
+        // are a different matter and are never silenced.
+        if (busyAt(d, when.getHours() * 60 + when.getMinutes())) return;
         let waiting = 0;
         try { waiting = tasksForBlock(b, d).length; } catch(_){ waiting = 0; }
         out.push({ at: when, kind: 'block', tag: 'b:' + (b.uid || b.id),
