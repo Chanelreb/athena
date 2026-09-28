@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.10';
+  const BUILD = '2026-09-28.11';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -5144,14 +5144,19 @@
       if (e.target.id !== 'auth_code' || authBusy) return;
       // Whatever arrives, keep the digits and nothing else. Pasting a code out
       // of an email brings spaces with it often enough to matter.
-      const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+      const digits = e.target.value.replace(/\D/g, '').slice(0, CODE_MAX);
       if (digits !== e.target.value){
         const end = e.target.selectionStart >= e.target.value.length;
         e.target.value = digits;
         if (end) try { e.target.setSelectionRange(digits.length, digits.length); } catch(_){}
       }
       drafts['auth_code'] = digits;
-      if (digits.length === 6) verifyCode();
+      // Since the length is not ours to know, send it once you have stopped
+      // typing rather than the instant it looks long enough. A pasted code
+      // goes straight away; a typed one waits for the pause at the end.
+      clearTimeout(codeTimer);
+      if (digits.length >= CODE_MIN)
+        codeTimer = setTimeout(() => { if (!authBusy) verifyCode(); }, 700);
     });
     /* ---- placing a task by dragging it ----
        Desktop only, and honestly so: HTML5 drag has no touch equivalent, so a
@@ -8123,13 +8128,20 @@
   // leaves the app. The email still carries a link as well, for laptops.
   let authStep = 'email';        // 'email' | 'code'
   let authEmail = '';
+  // Supabase decides how many digits a code has, and it is a setting that can
+  // change without the app being told. Hard coding six meant an eight digit
+  // code filled the box and then had nowhere to put the last two, which looks
+  // exactly like the app being broken. Accept anything in the range Supabase
+  // can issue and let the server be the judge of whether it is right.
+  const CODE_MIN = 6, CODE_MAX = 10;
+  let codeTimer = null;
 
   function loginHTML(){
     let h = '<div class="login">';
     h += '<div class="login-mark">' + MOON + '</div>';
     if (authStep === 'code'){
       h += '<h1>Check your email</h1>';
-      h += '<p class="login-sub">We sent a six digit code to <b>'+esc(authEmail)+'</b>. Enter it below to finish signing in.</p>';
+      h += '<p class="login-sub">We sent a code to <b>'+esc(authEmail)+'</b>. Enter it below to finish signing in.</p>';
       h += '<div class="login-box">'+
         // maxlength counts characters, not digits. At six it meant a code that
         // arrived with a space in it, which is what tapping the suggestion
@@ -8137,7 +8149,7 @@
         // and then refused the sixth. Room to hold the spaces, and the input
         // handler takes them straight back out.
         '<input id="auth_code" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" '+
-          'maxlength="24" placeholder="123456" class="codebox">'+
+          'maxlength="24" placeholder="Code from the email" class="codebox">'+
         '<button class="go" data-verifycode'+(authBusy?' disabled':'')+'>'+(authBusy?'Checking…':'Sign in')+'</button>'+
         '</div>';
       if (authMsg) h += '<p class="login-msg">' + esc(authMsg) + '</p>';
@@ -8152,12 +8164,13 @@
         '<button class="go" data-sendcode'+(authBusy?' disabled':'')+'>'+(authBusy?'Sending…':'Email me a sign-in code')+'</button>'+
         '</div>';
       if (authMsg) h += '<p class="login-msg">' + esc(authMsg) + '</p>';
-      h += '<p class="login-fine">No passwords. We email you a six digit code.</p>';
+      h += '<p class="login-fine">No passwords. We email you a code.</p>';
     }
     h += '</div>';
     return h;
   }
   function renderAuth(){
+    clearTimeout(codeTimer);
     app.classList.remove('wide');
     app.innerHTML = loginHTML();
     const i = document.getElementById('auth_email');
@@ -8196,7 +8209,7 @@
   async function verifyCode(){
     const c = document.getElementById('auth_code');
     const token = ((c && c.value) || '').replace(/\D/g, '');
-    if (token.length < 6){ authMsg = 'Enter the six digit code from the email.'; renderAuth(); return; }
+    if (token.length < CODE_MIN){ authMsg = 'Enter the whole code from the email.'; renderAuth(); return; }
     authBusy = true; authMsg = ''; renderAuth();
     try {
       const { error } = await sb.auth.verifyOtp({ email: authEmail, token, type: 'email' });
