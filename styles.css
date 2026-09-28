@@ -1917,7 +1917,8 @@
   }
   #soft-app .rk-main { flex: 1; min-width: 0; }
   /* The jar. Stones fill from the bottom as they are ticked. */
-  #soft-app .jar { flex: 0 0 auto; width: 50px; height: 68px; display: block; }
+  /* Width and height come from the markup, sized to the number of rocks. */
+  #soft-app .jar { flex: 0 0 auto; display: block; }
   #soft-app .jar .jrim { fill: none; stroke: var(--ghost); stroke-width: 1.7; }
   #soft-app .jar .jbody { fill: var(--bg); fill-opacity: .5; stroke: var(--ghost); stroke-width: 1.7; }
   /* An empty stone is a ghosted stone, not a dotted outline. It has to read as

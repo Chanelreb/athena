@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.3';
+  const BUILD = '2026-09-28.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -4178,7 +4178,11 @@
     const stones = STONES.map((s, i) =>
       '<ellipse class="jst' + (i < done ? ' on' : '') + '" cx="' + s.cx + '" cy="' + s.cy +
       '" rx="' + s.rx + '" ry="' + s.ry + '" transform="rotate(' + s.rot + ' ' + s.cx + ' ' + s.cy + ')"/>').join('');
-    return '<svg class="jar" viewBox="0 0 44 60" aria-hidden="true">' +
+    // Sized to how many rocks there are. A full height jar holding one stone
+    // is mostly empty glass, and it doubles the height of a box with one row
+    // in it.
+    const W = [46, 56, 64][STONES.length - 1], H = [63, 77, 88][STONES.length - 1];
+    return '<svg class="jar" viewBox="0 0 44 60" width="'+W+'" height="'+H+'" aria-hidden="true">' +
       '<path class="jrim" d="M13.5 4 h17 a2 2 0 0 1 2 2 v3.5 h-21 V6 a2 2 0 0 1 2 -2 z"/>' +
       '<path class="jbody" d="M9 14 q0 -4 4.5 -4.5 h17 Q35 10 35 14 v35 q0 6.5 -6.5 6.5 h-13 Q9 55.5 9 49 z"/>' +
       stones +
