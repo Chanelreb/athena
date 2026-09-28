@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.8';
+  const BUILD = '2026-09-28.9';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -5278,6 +5278,15 @@
 
     // The category is a select, so it reports on change rather than on input.
     shell.addEventListener('change', e => {
+      if (e.target.id === 'rs_file'){
+        const f = e.target.files && e.target.files[0];
+        e.target.value = '';           // so picking the same file twice still fires
+        restoreFromFile(f);
+        return;
+      }
+    });
+
+    shell.addEventListener('change', e => {
       const rc = e.target.dataset && e.target.dataset.rcat;
       if (!rc) return;
       const r = routinesAll().find(x => x.id === rc);
@@ -5577,6 +5586,11 @@
     if (settingsOpen) h += settingsHTML();
     if (aiOpen) h += aiHTML();
     if (goalAI) h += goalAIHTML();
+    // Last of the overlays on purpose. It is always opened from Settings, and
+    // every modal shares one z-index, so whichever is written last is the one
+    // on top. Drawn any earlier and the confirmation sits behind the panel
+    // that opened it, invisible.
+    if (restoring) h += restoreHTML();
 
     paint(h);
   }
@@ -6549,6 +6563,163 @@
     render();
   }
 
+  /* ---------- getting it back ----------
+     Athena could hand you a backup and never read one. A file you can download
+     and never restore is not a backup, it is a souvenir.
+
+     Two ways back. A file you saved yourself, and a week of daily snapshots
+     taken automatically on the first time you open Athena each day, which means
+     they hold the state as it was before you touched anything that day. So
+     "put it back to how it was yesterday" is a real answer rather than a wish.
+
+     Nothing is replaced without showing you what is in it first, side by side
+     with what you have now, and the whole restore goes under one undo. */
+  const SNAP_KEY = 'athena:snapped';
+  let restoring = null;     // { from, when, data, error }
+  let snaps = null;         // the list, once fetched
+  let snapBusy = false, snapErr = '';
+
+  // What is in a copy of the planner, in the terms you would recognise.
+  function countOf(d){
+    const c = (d && d.coach) || {};
+    const notes = ((c.notes || {}).work || []).length + ((c.notes || {}).life || []).length;
+    return [
+      ['blocks', (d.events || []).length],
+      ['tasks', (d.tasks || []).length],
+      ['goals', (d.goals || []).length],
+      ['habits', (d.habits || []).length],
+      ['routines', (d.routines || []).length],
+      ['notes', (d.notes || []).length],
+      ['commitments', (c.commitments || []).length],
+      ['things Athena noticed', notes],
+      ['days of history', Object.keys(d.completions || {}).length]
+    ];
+  }
+  // The least a file has to have before Athena will treat it as one of its own.
+  const looksLikeAthena = d => !!(d && typeof d === 'object' && !Array.isArray(d) &&
+    Array.isArray(d.categories) && (Array.isArray(d.events) || Array.isArray(d.tasks)));
+
+  /* ---- the daily snapshot ----
+     Written once a day, on the way in, which is why it holds the morning's
+     state rather than whatever happened afterwards. */
+  async function snapToday(){
+    if (!cloud || !session || !cloudLoaded) return;
+    const today = dayKey(new Date());
+    if (lsGet(SNAP_KEY) === today) return;
+    if (!(S.categories || []).length) return;       // never snapshot an empty start
+    try {
+      const r = await sb.from('snapshots').upsert({
+        user_id: session.user.id, taken_on: today, data: JSON.parse(JSON.stringify(S))
+      });
+      if (r.error) return;                          // no table yet: quietly do nothing
+      lsSet(SNAP_KEY, today);
+      const cut = new Date(); cut.setDate(cut.getDate() - 7);
+      await sb.from('snapshots').delete().eq('user_id', session.user.id).lt('taken_on', dayKey(cut));
+    } catch(_){}
+  }
+
+  async function snapFetchList(){
+    if (!cloud || !session){ snapErr = 'Snapshots need an account. A file still works.'; render(); return; }
+    snapBusy = true; snapErr = ''; render();
+    try {
+      const { data, error } = await sb.from('snapshots')
+        .select('taken_on, created_at').eq('user_id', session.user.id)
+        .order('taken_on', { ascending: false }).limit(10);
+      if (error) throw error;
+      snaps = data || [];
+      if (!snaps.length) snapErr = 'No snapshots yet. The first one is taken next time you open Athena on a new day.';
+    } catch(e){
+      snaps = [];
+      snapErr = 'Could not read your snapshots. If this is the first time, the snapshots table may not have been created yet.';
+    }
+    snapBusy = false; render();
+  }
+
+  async function snapOpen(takenOn){
+    snapBusy = true; snapErr = ''; render();
+    try {
+      const { data, error } = await sb.from('snapshots')
+        .select('data').eq('user_id', session.user.id).eq('taken_on', takenOn).maybeSingle();
+      if (error || !data) throw error || new Error('gone');
+      restoring = { from: 'snapshot', when: takenOn, data: data.data };
+    } catch(e){ snapErr = 'Could not open that snapshot.'; }
+    snapBusy = false; render();
+  }
+
+  /* ---- a file you saved yourself ---- */
+  function restoreFromFile(file){
+    if (!file) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      let d = null;
+      try { d = JSON.parse(String(rd.result)); } catch(_){ d = null; }
+      if (!looksLikeAthena(d)){
+        snapErr = 'That does not look like an Athena backup. It should be the file the Download button gives you, ending in .json.';
+        render(); return;
+      }
+      snapErr = '';
+      restoring = { from: 'file', when: file.name, data: d };
+      render();
+    };
+    rd.onerror = () => { snapErr = 'Could not read that file.'; render(); };
+    rd.readAsText(file);
+  }
+
+  /* ---- the bit where you look before you leap ---- */
+  function restoreHTML(){
+    const r = restoring;
+    const now = countOf(S), then = countOf(r.data);
+    let h = '<div class="modal-back" data-rsclose></div>';
+    h += '<div class="modal sit"><div class="modal-h">Put this back?</div>';
+    h += '<p class="ai-intro">' + (r.from === 'file'
+      ? 'From the file <b>' + esc(r.when) + '</b>.'
+      : 'How things were on the morning of <b>' + esc(goalDate(r.when)) + '</b>.') +
+      ' Everything you have now is replaced by this. It goes under one undo, so it is not the end of the world either way.</p>';
+    h += '<div class="rstab"><div class="rsrow rshead"><span></span><span>Now</span><span>This copy</span></div>';
+    then.forEach((row, i) => {
+      const a = now[i] ? now[i][1] : 0, b = row[1];
+      h += '<div class="rsrow' + (a !== b ? ' diff' : '') + '"><span>' + esc(row[0]) + '</span>' +
+        '<span>' + a + '</span><span>' + b + '</span></div>';
+    });
+    h += '</div>';
+    const gone = then.reduce((acc, row, i) => acc + Math.max(0, (now[i] ? now[i][1] : 0) - row[1]), 0);
+    if (gone) h += '<p class="ai-howto">That is ' + gone + ' thing' + (gone !== 1 ? 's' : '') +
+      ' you have now which this copy does not. They go.</p>';
+    h += '<div class="modal-actions"><button class="ghost" data-rsclose>Leave it alone</button>' +
+      '<span style="flex:1"></span><button class="go" data-rsgo>Put it back</button></div>';
+    return h + '</div>';
+  }
+
+  function applyRestore(){
+    if (!restoring) return;
+    const d = restoring.data;
+    markUndo('Restored from ' + (restoring.from === 'file' ? 'a file' : goalDate(restoring.when)));
+    S = Object.assign(blank(), d);
+    if (!S.profile) S.profile = blank().profile;
+    if (!S.categories || !S.categories.length) S.categories = DEFAULT_CATS.map(c => Object.assign({}, c));
+    restoring = null; snaps = null;
+    applyTheme();
+    announce('Put back. Undo is there if that was wrong.');
+    save(); render();
+  }
+
+  function restoreSettingsHTML(){
+    let h = '<button class="ghost" data-export>Download a backup</button>';
+    h += '<label class="ghost filebtn">Restore from a file' +
+      '<input id="rs_file" type="file" accept="application/json,.json"></label>';
+    h += '<button class="ghost" data-snaplist'+(snapBusy ? ' disabled' : '')+'>'+
+      (snapBusy ? 'Looking…' : 'Restore to an earlier day')+'</button>';
+    if (snapErr) h += '<p class="setnote">'+esc(snapErr)+'</p>';
+    if (snaps && snaps.length){
+      h += '<div class="snaplist">' + snaps.map(s =>
+        '<button class="snaprow" data-snapopen="'+esc(s.taken_on)+'">'+
+        '<span>'+esc(goalDate(s.taken_on))+'</span>'+
+        '<em>'+(s.taken_on === dayKey(new Date()) ? 'this morning' : 'that morning')+'</em></button>').join('') + '</div>';
+    }
+    h += '<p class="setnote">A snapshot is taken the first time you open Athena each day, so it holds things as they were before that day started. The last seven are kept. Nothing is replaced without showing you what is in it first.</p>';
+    return h;
+  }
+
   /* ---------- settings (name + categories) ---------- */
   let settingsOpen = false;
   function settingsHTML(){
@@ -6596,7 +6767,7 @@
       h += '<button class="ghost" data-forceupdate>Get the latest version</button>';
     }
     h += '<div class="modal-h" style="margin-top:8px">Your data</div>';
-    h += '<button class="ghost" data-export>Download a backup</button>';
+    h += restoreSettingsHTML();
     h += '<div class="buildline">Version '+BUILD+'</div>';
     h += '<div class="modal-actions"><span style="flex:1"></span><button class="go" data-closesettings>Done</button></div>';
     h += '</div>';
@@ -7100,6 +7271,10 @@
     if (t('[data-authback]')){ authStep = 'email'; authMsg = ''; renderAuth(); return; }
     if (t('[data-signout]')){ if (sb) sb.auth.signOut().catch(()=>{}); settingsOpen = false; return; }
     if (t('[data-export]')){ exportBackup(); return; }
+    if (t('[data-snaplist]')){ snapFetchList(); return; }
+    if ((m = t('[data-snapopen]'))){ snapOpen(m.dataset.snapopen); return; }
+    if (t('[data-rsclose]')){ restoring = null; render(); return; }
+    if (t('[data-rsgo]')){ applyRestore(); return; }
     if (t('[data-forceupdate]')){ forceUpdate(); return; }
 
     // onboarding
@@ -7899,6 +8074,7 @@
     if (e.key === 'Escape' && sitting){ sitting = null; clearDraft('sit_text'); clearDraft('sit_by'); render(); return; }
     if (e.key === 'Escape' && askChanges){ askChanges = null; askPick = {}; askSaid = ''; render(); return; }
     if (e.key === 'Enter' && e.target.id === 'pk_edit'){ e.preventDefault(); const b = app.querySelector('[data-parksave]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && restoring){ restoring = null; render(); return; }
     if (e.key === 'Escape' && habEdit){ habEdit = null; clearModalDrafts(); render(); return; }
     if (e.key === 'Escape' && parkEdit !== null){ parkEdit = null; clearDraft('pk_edit'); render(); return; }
     if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit || noteEdit || goalAI)){
@@ -8028,6 +8204,7 @@
       applyTheme();
       render();
       consumeShare();      // anything Android handed us on the way in
+      snapToday();         // a copy of this morning, before the day touches it
       consumeNudge();      // and anything a notification sent us here to do
       pushCheck();         // is this device set up to be nudged at all
       setInterval(() => {
@@ -8073,7 +8250,7 @@
 
   function userBusy(){
     const ae = document.activeElement;
-    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || habEdit || searchOpen || tomorrowOpen || !!askChanges || !!sitting || !!morning ||
+    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || habEdit || restoring || searchOpen || tomorrowOpen || !!askChanges || !!sitting || !!morning ||
       (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
   }
   function applyUpdate(){
