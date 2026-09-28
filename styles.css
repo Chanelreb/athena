@@ -2012,3 +2012,22 @@
     border-radius: 9px; padding: 7px 9px; font: inherit; font-size: 13px;
     -webkit-appearance: none; appearance: none; max-width: 140px;
   }
+
+  /* ---- the ask box as a conversation ---------------------------------------
+     Yours on the right, Athena's on the left, so a thread reads as a thread
+     rather than a stack of identical cards. */
+  #soft-app .askthread { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; }
+  #soft-app .asay { max-width: 86%; }
+  #soft-app .asay p {
+    margin: 0; padding: 10px 13px; font-size: 14.5px; line-height: 1.55;
+    border: 1px solid var(--line); border-radius: 14px; background: var(--raise);
+  }
+  #soft-app .asay.me { align-self: flex-end; }
+  #soft-app .asay.me p {
+    background: var(--live); color: var(--on-live); border-color: var(--live);
+    border-bottom-right-radius: 5px;
+  }
+  #soft-app .asay.her { align-self: flex-start; }
+  #soft-app .asay.her p { border-bottom-left-radius: 5px; }
+  #soft-app .asay.thinking p { color: var(--ghost); font-style: italic; }
+  #soft-app .askclear { align-self: flex-start; font-size: 12.5px; padding-top: 2px; }

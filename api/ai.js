@@ -268,6 +268,9 @@ export default async function handler(req, res){
   // The coaching brief is the biggest thing Athena sends anywhere: a whole
   // week counted, the weeks before it, and everything it has learned so far.
   const track = (body && body.track) === 'work' ? 'work' : 'life';
+  // The conversation so far, so that "move it to Thursday instead" has
+  // something for "it" to mean.
+  const chat = String((body && body.chat) || '').slice(0, 4000);
   const categories = String((body && body.categories) || '').slice(0, 400);
   const catNames = Array.from(new Set(categories.split(',').map(s => s.trim()).filter(Boolean))).slice(0, 30);
   const today = String((body && body.today) || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
@@ -345,6 +348,8 @@ export default async function handler(req, res){
     'Their categories are: ' + (categories || 'Personal, Work, Health') + '. Use exactly these names.',
     'Today is ' + today + '. Dates are "YYYY-MM-DD" and times are "HH:MM" on a 24 hour clock. Resolve "Friday" and "next week" against today.',
     'Every field must be present. Where something does not apply, use an empty value: "" for text, 0 for numbers, [] for lists.',
+    'You may be given the conversation so far. Read it before anything else: "it", "that one" and "move it to Thursday instead" refer to what was already said, and a line beginning "Made those changes" is something that has already happened rather than something still being proposed.',
+    'Do not repeat yourself. If you have already said where they are free, answer the follow-up rather than saying it again.',
     'Warm, plain and short. Never a form, never a lecture.'
   ].join(' ');
 
@@ -395,7 +400,9 @@ export default async function handler(req, res){
   } else if (mode === 'ask'){
     system = anythingSystem;
     schema = anythingSchema(catNames);
-    prompt = week ? (week + '\n\nThey typed: ' + ask) : ask;
+    prompt = (week ? week + '\n\n' : '') +
+      (chat ? 'The conversation so far:\n' + chat + '\n\n' : '') +
+      'They just typed: ' + ask;
   } else if (mode === 'goalAsk'){
     system = askSystem;
     schema = askSchema();

@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.6';
+  const BUILD = '2026-09-28.7';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -5670,7 +5670,20 @@
      changes to what is already there, which arrive as tick boxes and land only
      when you say so. Nothing the model sends is trusted: every change is
      matched to a real id and dropped if Athena cannot actually carry it out. */
-  let askBusy = false, askReply = '', askErr = '', askChanges = null, askPick = {}, askSaid = '';
+  // The box answered once and then the conversation was over, so "move it to
+  // Thursday instead" had nothing to refer to. It keeps the thread now, and
+  // sends it, which is the only way "it" and "that one" can mean anything.
+  // Capped, because the week brief is already the long part of the request.
+  const ASK_TURNS = 12;
+  let askBusy = false, askErr = '', askChanges = null, askPick = {}, askSaid = '';
+  let askThread = [];
+  function askSay(who, text){
+    if (!text) return;
+    askThread.push({ who: who, text: String(text) });
+    while (askThread.length > ASK_TURNS) askThread.shift();
+  }
+  const askHistory = () => askThread.map(t =>
+    (t.who === 'you' ? 'They said: ' : 'You replied: ') + t.text).join('\n');
 
   /* The week, with ids, so a question can be answered about the real thing and
      a change can point at exactly one of them. This is the biggest thing Athena
@@ -5884,7 +5897,12 @@
     const q = ((document.getElementById('ask_q') || {}).value || '').trim();
     if (!q){ const i = document.getElementById('ask_q'); if (i) i.focus(); return; }
     if (!cloud || !session){ askErr = 'Sign in first to ask Athena anything.'; render(); return; }
-    askBusy = true; askErr = ''; askReply = ''; askChanges = null; askSaid = q; render();
+    askBusy = true; askErr = ''; askChanges = null; askSaid = q;
+    const history = askHistory();
+    askSay('you', q);
+    clearDraft('ask_q');
+    const box = document.getElementById('ask_q'); if (box) box.value = '';
+    render();
     try {
       const { data } = await sb.auth.getSession();
       const token = data && data.session ? data.session.access_token : '';
@@ -5892,7 +5910,7 @@
         method: 'POST',
         headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({
-          mode: 'ask', ask: q, week: weekBrief(),
+          mode: 'ask', ask: q, week: weekBrief(), chat: history,
           categories: S.categories.map(c => c.label).join(', '),
           today: dayKey(new Date())
         })
@@ -5909,23 +5927,22 @@
         if (list.length){
           askChanges = list; askPick = {};
           list.forEach((_, i) => { askPick[i] = true; });
-          askReply = out.reply || '';
+          askSay('athena', out.reply || 'Here is what I would change.');
         } else {
           // Everything it proposed was for something that is not there, or was
           // something Athena has no way to do. Saying so beats a blank screen.
-          askReply = (out.reply ? out.reply + ' ' : '') +
-            'Athena could not turn that into a change it is sure about, so nothing has been touched.';
+          askSay('athena', (out.reply ? out.reply + ' ' : '') +
+            'Athena could not turn that into a change it is sure about, so nothing has been touched.');
         }
       } else if (out.intent === 'answer'){
-        askReply = out.reply || 'Athena had nothing to say to that.';
+        askSay('athena', out.reply || 'Athena had nothing to say to that.');
       } else {
-        clearDraft('ask_q');
+        askSay('athena', out.reply || 'Here is what I understood.');
         askSaid = '';
         aiOpen = true; aiManual = false;
         aiBuildPreview(j.text);
         return;
       }
-      clearDraft('ask_q');
       render();
     } catch(e){
       askBusy = false;
@@ -5937,7 +5954,7 @@
   function askApply(){
     if (!askChanges) return;
     const chosen = askChanges.filter((_, i) => askPick[i]);
-    if (!chosen.length){ askChanges = null; askReply = ''; render(); return; }
+    if (!chosen.length){ askChanges = null; askSay('you', 'Left everything as it was.'); render(); return; }
     markUndo('Athena made ' + chosen.length + ' change' + (chosen.length !== 1 ? 's' : ''));
     const tmk = c => c.date;
     chosen.forEach(c => {
@@ -5986,7 +6003,10 @@
       }
     });
     announce(chosen.length + ' change' + (chosen.length !== 1 ? 's' : '') + ' made');
-    askChanges = null; askPick = {}; askReply = ''; askSaid = '';
+    // Said out loud in the thread, so a follow-up knows it actually happened
+    // rather than only that it was offered.
+    askSay('you', 'Made those changes: ' + chosen.map(c => c.line).join('; ') + '.');
+    askChanges = null; askPick = {}; askSaid = '';
     save(); render();
   }
 
@@ -5999,9 +6019,15 @@
     h += '<p class="askhint">Add something, ask how your week looks, or tell it to move things around. '+
       'Nothing changes until you say so.</p>';
     if (askErr) h += '<div class="savewarn">'+esc(askErr)+'</div>';
-    if (askReply && !askChanges)
-      h += '<div class="askreply"><p>'+esc(askReply)+'</p>'+
-        '<button class="ddet-x" data-askclear aria-label="Close">×</button></div>';
+    if (askThread.length && !askChanges){
+      h += '<div class="askthread">';
+      askThread.forEach(t => {
+        h += '<div class="asay '+(t.who === 'you' ? 'me' : 'her')+'"><p>'+esc(t.text)+'</p></div>';
+      });
+      if (askBusy) h += '<div class="asay her thinking"><p>Thinking…</p></div>';
+      h += '<button class="linkish askclear" data-askclear>Start again</button>';
+      h += '</div>';
+    }
     return h;
   }
 
@@ -6009,7 +6035,8 @@
     let h = '<div class="modal-back" data-askclear></div>';
     h += '<div class="modal ask"><div class="modal-h">Athena would change this</div>';
     if (askSaid) h += '<p class="ai-intro">You said: <b>'+esc(askSaid)+'</b></p>';
-    if (askReply) h += '<p class="askreply-in">'+esc(askReply)+'</p>';
+    const last = askThread[askThread.length - 1];
+    if (last && last.who === 'athena') h += '<p class="askreply-in">'+esc(last.text)+'</p>';
     h += askChanges.map((c, i) =>
       '<label class="gpick"><input type="checkbox" data-askpick="'+i+'"'+(askPick[i] ? ' checked' : '')+'>'+
       '<span class="gpk"><b>'+esc(c.line)+'</b>'+(c.why ? '<em>'+esc(c.why)+'</em>' : '')+'</span></label>').join('');
@@ -7307,7 +7334,7 @@
       save(); render(); return;
     }
     if (t('[data-askgo]')){ askAthena(); return; }
-    if (t('[data-askclear]')){ askChanges = null; askPick = {}; askReply = ''; askErr = ''; askSaid = ''; render(); return; }
+    if (t('[data-askclear]')){ askChanges = null; askPick = {}; askThread = []; askErr = ''; askSaid = ''; render(); return; }
     if ((m = t('[data-askpick]'))){ askPick[m.dataset.askpick] = !!m.checked; return; }
     if (t('[data-askapply]')){ askApply(); return; }
     if (t('[data-tomorrow]')){ tomorrowOpen = true; tmrw = {}; render(); return; }
@@ -7870,7 +7897,7 @@
     if (e.key === 'Escape' && tomorrowOpen){ tomorrowOpen = false; tmrw = {}; render(); return; }
     if (e.key === 'Escape' && morning){ morning = null; clearDraft('rk_own'); render(); return; }
     if (e.key === 'Escape' && sitting){ sitting = null; clearDraft('sit_text'); clearDraft('sit_by'); render(); return; }
-    if (e.key === 'Escape' && askChanges){ askChanges = null; askPick = {}; askReply = ''; askSaid = ''; render(); return; }
+    if (e.key === 'Escape' && askChanges){ askChanges = null; askPick = {}; askSaid = ''; render(); return; }
     if (e.key === 'Enter' && e.target.id === 'pk_edit'){ e.preventDefault(); const b = app.querySelector('[data-parksave]'); if (b) b.click(); return; }
     if (e.key === 'Escape' && habEdit){ habEdit = null; clearModalDrafts(); render(); return; }
     if (e.key === 'Escape' && parkEdit !== null){ parkEdit = null; clearDraft('pk_edit'); render(); return; }
