@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.1';
+  const BUILD = '2026-09-28.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2158,7 +2158,11 @@
       if (d.target){
         const v = compVal(d.id, dk) || 0;
         let p=''; for (let i=0;i<d.target;i++) p += '<span class="pip'+(i<v?' on':'')+'" style="'+(i<v?'background:'+col+';border-color:'+col:'')+'"></span>';
-        h += '<button class="chip'+(v>=d.target?' on':'')+(justDone===d.id?' just':'')+'" style="'+(v>=d.target?tint:'')+'" data-pip="'+d.id+':'+d.target+':'+dk+'"><span class="cl">'+esc(d.l)+'</span><span class="pips">'+p+'</span></button>';
+        // Six or fewer read fine in a line. Past that they go two even rows,
+        // because ten in a row pushes the label off the chip and ten wrapped
+        // wherever they land is the ragged mess this replaced.
+        const cols = d.target > 6 ? Math.ceil(d.target / 2) : d.target;
+        h += '<button class="chip'+(v>=d.target?' on':'')+(justDone===d.id?' just':'')+'" style="'+(v>=d.target?tint:'')+'" data-pip="'+d.id+':'+d.target+':'+dk+'"><span class="cl">'+esc(d.l)+'</span><span class="pips" style="--pc:'+cols+'">'+p+'</span></button>';
       } else {
         const on = isDone(d.id, dk);
         h += '<button class="chip'+(on?' on':'')+(justDone===d.id?' just':'')+'" style="'+(on?tint:'')+'" data-done="'+d.id+'|'+dk+'"><span class="cl">'+esc(d.l)+'</span>'+

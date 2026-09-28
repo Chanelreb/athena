@@ -1899,8 +1899,13 @@
   #soft-app .parkwait { font-style: normal; font-size: 12px; color: var(--ghost); margin-right: 6px; }
   /* Twelve weeks instead of twenty eight days, so the cells breathe. */
   #soft-app .hgrid.wk { grid-template-columns: repeat(6, 11px); }
-  /* Ten pips on a phone want to wrap rather than push the label off the chip. */
-  #soft-app .chip .pips { flex-wrap: wrap; max-width: 88px; row-gap: 3px; justify-content: flex-end; }
+  /* Past six, the pips go into even rows rather than wrapping wherever they
+     happen to land. Ten reads as five and five, which you can count at a
+     glance, instead of seven and three, which you cannot. */
+  #soft-app .chip .pips {
+    display: grid; grid-template-columns: repeat(var(--pc, 6), 7px);
+    gap: 5px 4px; justify-content: end; align-content: center;
+  }
 
   /* ---- the three rocks ----------------------------------------------------
      What today is for, above what today merely contains. Numbered, because
