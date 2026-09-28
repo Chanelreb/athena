@@ -23,8 +23,13 @@ const PUBLIC = process.env.VAPID_PUBLIC || '';
 const PRIVATE = process.env.VAPID_PRIVATE || '';
 const SECRET = process.env.PUSH_CRON_SECRET || '';
 // Push services want a way to contact whoever is sending. A URL is allowed and
-// is less personal than an email address.
-const SUBJECT = process.env.VAPID_SUBJECT || 'https://athena-eight-alpha.vercel.app';
+// is less personal than an email address. Vercel already knows the production
+// domain, so this follows the site rather than being a string to remember to
+// change on the day the address does.
+const SUBJECT = process.env.VAPID_SUBJECT ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? 'https://' + process.env.VERCEL_PROJECT_PRODUCTION_URL
+    : 'https://athena-eight-alpha.vercel.app');
 
 let ready = false;
 function arm(){
