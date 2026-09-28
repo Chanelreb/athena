@@ -30,7 +30,7 @@ alter table public.push_config enable row level security;
 revoke all on public.push_config from anon, authenticated;
 
 insert into public.push_config (id, url, secret)
-values (1, 'https://athena-eight-alpha.vercel.app/api/push', 'PASTE_YOUR_SECRET_HERE')
+values (1, 'https://theathena.app/api/push', 'PASTE_YOUR_SECRET_HERE')
 on conflict (id) do update set url = excluded.url, secret = excluded.secret;
 
 -- ---------------------------------------------------------------------------

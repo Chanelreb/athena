@@ -29,7 +29,7 @@ const SECRET = process.env.PUSH_CRON_SECRET || '';
 const SUBJECT = process.env.VAPID_SUBJECT ||
   (process.env.VERCEL_PROJECT_PRODUCTION_URL
     ? 'https://' + process.env.VERCEL_PROJECT_PRODUCTION_URL
-    : 'https://athena-eight-alpha.vercel.app');
+    : 'https://theathena.app');
 
 let ready = false;
 function arm(){
