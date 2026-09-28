@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.4';
+  const BUILD = '2026-09-28.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2112,6 +2112,55 @@
     return out;
   }
 
+  /* A habit could be made and deleted and never changed, so a typo or a
+     change of mind meant losing the history with it. Everything a habit is
+     lives in four fields, so it gets a proper editor rather than an inline
+     rename that could only fix one of them. */
+  // Ten, because ten glasses of water is a real thing someone counts. Past
+  // that the pips stop reading as a glance and start needing counting, which
+  // is the one thing a chip is for.
+  const HABN = [1,2,3,4,5,6,7,8,9,10];
+  let habEdit = null;
+  function openHabitEditor(id){
+    const hb = (S.habits || []).find(x => x.id === id);
+    if (!hb) return;
+    clearModalDrafts();
+    habEdit = { id: hb.id, label: hb.label, cat: hb.cat || (S.categories[0] || {}).id,
+      freq: habWeekly(hb) ? 'weekly' : 'daily', target: Math.max(1, +hb.target || 1) };
+    render();
+  }
+  function habitEditorHTML(){
+    const e = habEdit;
+    const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'"+(c.id===e.cat?' selected':'')+">"+esc(c.label)+"</option>").join('');
+    let h = '<div class="modal-back" data-closehabit></div><div class="modal"><div class="modal-h">Edit habit</div>';
+    h += '<label class="fld"><span>Habit</span><input id="he_label" type="text" value="'+esc(e.label)+'" autocomplete="off"></label>';
+    h += '<label class="fld"><span>Category</span><select id="he_cat">'+CATOPTS+'</select></label>';
+    h += '<div class="fld two">'+
+      '<label><span>How often</span><select id="he_freq">'+
+        '<option value="daily"'+(e.freq==='daily'?' selected':'')+'>Every day</option>'+
+        '<option value="weekly"'+(e.freq==='weekly'?' selected':'')+'>Every week</option></select></label>'+
+      '<label><span>How many times</span><select id="he_target">'+HABN.map(n =>
+        '<option value="'+n+'"'+(n===e.target?' selected':'')+'>'+(n===1?'Once':n===2?'Twice':n+' times')+'</option>').join('')+
+      '</select></label></div>';
+    h += '<small class="gform-hint">Changing how often it happens keeps the history you already have. A daily run and a weekly run are counted separately, so the old one is still there if you change back.</small>';
+    h += '<div class="modal-actions"><button class="del" data-delhabit="'+e.id+'">Delete</button>'+
+      '<span style="flex:1"></span><button class="ghost" data-closehabit>Cancel</button>'+
+      '<button class="go" data-savehabit>Save</button></div></div>';
+    return h;
+  }
+  function commitHabit(){
+    const g = id => document.getElementById(id);
+    const hb = (S.habits || []).find(x => x.id === habEdit.id);
+    if (!hb){ habEdit = null; render(); return; }
+    const lab = ((g('he_label') || {}).value || '').trim();
+    if (!lab){ if (g('he_label')) g('he_label').focus(); return; }
+    hb.label = lab.slice(0, 80);
+    hb.cat = (g('he_cat') || {}).value || hb.cat;
+    hb.freq = ((g('he_freq') || {}).value === 'weekly') ? 'weekly' : 'daily';
+    hb.target = Math.max(1, Math.min(10, +((g('he_target') || {}).value) || 1));
+    habEdit = null; clearModalDrafts(); save(); render();
+  }
+
   /* ---- routines ----
      A habit inside a routine is not also a loose chip. It happens when its
      routine happens, which is the whole reason for putting it in one: you do
@@ -2655,7 +2704,8 @@
         if (isDone(d.id, dayKey(dd), d.target)) streak++;
         else if (i > 0) break;
       }
-      h += '<div class="hab"><div class="hl"><b>'+esc(d.l)+'</b>'+
+      h += '<div class="hab"><div class="hl">'+
+        (d.own ? '<button class="habname" data-habedit="'+d.id+'">'+esc(d.l)+'</button>' : '<b>'+esc(d.l)+'</b>')+
         '<small>'+count+' of '+elapsed+' days'+(streak>1?' · <em>'+streak+' day run</em>':'')+
         (inR ? ' · <em class="inroutine">'+esc(inR.name)+'</em>' : '')+'</small></div>'+
         '<div class="hgrid">'+cells+'</div>'+
@@ -2683,7 +2733,8 @@
           if (isDone(d.id, weekKey(ww), d.target)) run++;
           else if (i > 0) break;
         }
-        h += '<div class="hab"><div class="hl"><b>'+esc(d.l)+'</b>'+
+        h += '<div class="hab"><div class="hl">'+
+          (d.own ? '<button class="habname" data-habedit="'+d.id+'">'+esc(d.l)+'</button>' : '<b>'+esc(d.l)+'</b>')+
           '<small>'+hit+' of '+gone+' weeks'+(run>1?' · <em>'+run+' week run</em>':'')+
           (d.target?' · '+d.target+' times a week':'')+'</small></div>'+
           '<div class="hgrid wk">'+cells+'</div>'+
@@ -2692,10 +2743,6 @@
       });
     }
 
-    // Ten, because ten glasses of water is a real thing someone counts. Past
-    // that the pips stop reading as a glance and start needing counting, which
-    // is the one thing a chip is for.
-    const HABN = [1,2,3,4,5,6,7,8,9,10];
     const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'>"+esc(c.label)+"</option>").join('');
     h += '<h2>Add a habit</h2><div class="gform">'+
       '<input id="hl" type="text" placeholder="Something you want to do regularly" autocomplete="off">'+
@@ -4227,6 +4274,10 @@
      park until you save, so cancelling loses nothing, and a failed guess is
      not an error: you get the editor with the plain title, which is exactly
      what you used to get anyway. */
+  // A thought typed in a hurry is a thought with a typo in it. Tapping the
+  // words swaps them for a box, which is less machinery than an editor for
+  // something that is one line of text and nothing else.
+  let parkEdit = null;
   let parkBusy = null;
   async function parkToTask(i, dk, kind){
     const item = (S.parked || [])[i];
@@ -4876,8 +4927,8 @@
         return '<div class="ptask" draggable="true" data-dragtask="'+tk.id+'">'+
           '<button class="ptick" data-tasktoggle="'+tk.id+'|'+dayKey(vd)+'" aria-label="Tick off '+esc(tk.title)+'">'+
             '<span class="mark" style="border-color:'+col+'">'+TICK+'</span></button>'+
-          '<span class="pt"><b>'+esc(tk.title)+'</b>'+
-          (bits.length ? '<em>'+esc(bits.join(' · '))+'</em>' : '')+'</span></div>';
+          '<button class="pt" data-taskedit="'+tk.id+'"><b>'+esc(tk.title)+'</b>'+
+          (bits.length ? '<em>'+esc(bits.join(' · '))+'</em>' : '')+'</button></div>';
       }).join('') + '</div>';
       h += '<p class="place-hint">Drag one onto a block to do it then, or onto empty time to fix a slot.</p>';
     }
@@ -4932,7 +4983,12 @@
     h += (S.parked||[]).length
       ? '<ul class="parked">'+S.parked.map((p,i) => {
           const open = parkOpen === i;
-          return '<li'+(open ? ' class="open"' : '')+'><span>'+esc(p.t)+'</span>'+
+          if (parkEdit === i)
+            return '<li class="editing"><input id="pk_edit" type="text" value="'+esc(p.t)+'" autocomplete="off">'+
+              '<button class="parkdo on" data-parksave="'+i+'" aria-label="Save">✓</button>'+
+              '<button data-parkcancel aria-label="Cancel">×</button></li>';
+          return '<li'+(open ? ' class="open"' : '')+'>'+
+            '<button class="parktext" data-parkedit="'+i+'">'+esc(p.t)+'</button>'+
           (parkBusy === i ? '<em class="parkwait">reading it\u2026</em>' : '')+
           '<button class="parkdo'+(open ? ' on' : '')+'" data-parkopen="'+i+'" aria-label="Turn this into something" title="Turn this into something">'+(open ? '×' : '→')+'</button>'+
           '<button data-unpark="'+i+'" aria-label="Remove">×</button>'+
@@ -5500,6 +5556,7 @@
     if (undoState) h += '<div class="undobar"><span>'+esc(undoState.label)+'</span><button data-undo>Undo</button></div>';
     if (editing) h += editorHTML();
     if (taskEdit) h += taskEditorHTML();
+    if (habEdit) h += habitEditorHTML();
     if (noteEdit) h += noteEditorHTML();
     if (morning) h += morningHTML(now);
     if (sitting) h += sessionHTML(now);
@@ -7612,7 +7669,20 @@
         target:+((document.getElementById('hn')||{}).value || 1) });
       save(); render(); return;
     }
-    if ((m = t('[data-delhabit]'))){ markUndo('Habit removed'); S.habits = S.habits.filter(x => x.id !== m.dataset.delhabit); save(); render(); return; }
+    if ((m = t('[data-habedit]'))){ openHabitEditor(m.dataset.habedit); return; }
+    if (t('[data-closehabit]')){ habEdit = null; clearModalDrafts(); render(); return; }
+    if (t('[data-savehabit]')){ commitHabit(); return; }
+    if ((m = t('[data-delhabit]'))){ markUndo('Habit removed'); S.habits = S.habits.filter(x => x.id !== m.dataset.delhabit); habEdit = null; clearModalDrafts(); save(); render(); return; }
+    if ((m = t('[data-parkedit]'))){ parkEdit = +m.dataset.parkedit; parkOpen = null; render();
+      const i = document.getElementById('pk_edit'); if (i){ i.focus(); i.select(); } return; }
+    if (t('[data-parkcancel]')){ parkEdit = null; clearDraft('pk_edit'); render(); return; }
+    if ((m = t('[data-parksave]'))){
+      const el = document.getElementById('pk_edit');
+      const v = ((el || {}).value || '').trim();
+      const i = +m.dataset.parksave;
+      if (v && S.parked[i]) S.parked[i].t = v.slice(0, 200);
+      parkEdit = null; clearDraft('pk_edit'); save(); render(); return;
+    }
 
     if (t('[data-addgoal]')){
       const ti = (document.getElementById('gt')||{}).value || '';
@@ -7790,6 +7860,9 @@
     if (e.key === 'Escape' && morning){ morning = null; clearDraft('rk_own'); render(); return; }
     if (e.key === 'Escape' && sitting){ sitting = null; clearDraft('sit_text'); clearDraft('sit_by'); render(); return; }
     if (e.key === 'Escape' && askChanges){ askChanges = null; askPick = {}; askReply = ''; askSaid = ''; render(); return; }
+    if (e.key === 'Enter' && e.target.id === 'pk_edit'){ e.preventDefault(); const b = app.querySelector('[data-parksave]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && habEdit){ habEdit = null; clearModalDrafts(); render(); return; }
+    if (e.key === 'Escape' && parkEdit !== null){ parkEdit = null; clearDraft('pk_edit'); render(); return; }
     if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit || noteEdit || goalAI)){
       if (noteEdit){ const b = app.querySelector('[data-notecancel]'); if (b){ b.click(); return; } }
       editing = null; taskEdit = null; settingsOpen = false; aiOpen = false; aiPreview = null; aiStep = 'input';
@@ -7962,7 +8035,7 @@
 
   function userBusy(){
     const ae = document.activeElement;
-    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || searchOpen || tomorrowOpen || !!askChanges || !!sitting || !!morning ||
+    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || habEdit || searchOpen || tomorrowOpen || !!askChanges || !!sitting || !!morning ||
       (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
   }
   function applyUpdate(){

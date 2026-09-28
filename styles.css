@@ -1977,3 +1977,24 @@
     #soft-app .rk-tick { width: 30px; height: 30px; }
     #soft-app .mr-when { padding: 9px 10px; }
   }
+
+  /* ---- things you can now change your mind about -------------------------- */
+  #soft-app .habname {
+    background: none; border: 0; padding: 0; font: inherit; font-weight: 600;
+    color: var(--text); cursor: pointer; text-align: left;
+  }
+  #soft-app .habname:hover { color: var(--live); }
+  #soft-app .parktext {
+    flex: 1; min-width: 0; background: none; border: 0; padding: 0;
+    font: inherit; color: var(--text); cursor: pointer; text-align: left;
+  }
+  #soft-app .parktext:hover { color: var(--live); }
+  #soft-app .parked li.editing input {
+    flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--live);
+    color: var(--text); border-radius: 8px; padding: 6px 9px; font: inherit;
+  }
+  #soft-app .place .ptask .pt {
+    flex: 1; min-width: 0; background: none; border: 0; padding: 0;
+    font: inherit; color: var(--text); cursor: pointer; text-align: left;
+  }
+  #soft-app .place .ptask .pt:hover b { color: var(--live); }
