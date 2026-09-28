@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.13';
+  const BUILD = '2026-09-28.14';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1333,6 +1333,30 @@
 
   // A real time grid over any set of days. Seven of them on a desktop, three on
   // a phone, where seven columns leave about 45px each and nothing is readable.
+  /* A meeting is drawn, never edited. It gets its own lane down the right of
+     the day rather than sitting among the blocks, because it is not one: you
+     cannot move it, tick it or make it shorter, and dressing it up as a block
+     would invite all three. The lane is what says at a glance how much of the
+     day was decided by somebody else. */
+  function meetHTML(m, px, h){
+    const top = px(Math.max(m.sm, DS));
+    const hgt = Math.max(16, px(Math.min(m.em, DE)) - top - 2);
+    const e = m.ev;
+    const sub = hgt >= 40 ? clockOf(fmtM(m.sm)) + '\u2013' + clockOf(fmtM(Math.min(m.em, DE))) : '';
+    const where = hgt >= 58 && e.where ? '<em>' + esc(e.where) + '</em>' : '';
+    return '<div class="cmeet" style="top:' + top + 'px;height:' + hgt + 'px" ' +
+      'title="' + esc(e.title + (e.where ? ' \u00b7 ' + e.where : '') + ' \u00b7 ' + e.from) + '">' +
+      '<b>' + esc(e.title) + '</b>' + (sub ? '<em>' + sub + '</em>' : '') + where + '</div>';
+  }
+
+  // All-day entries have no place on a timed grid, so they sit above it.
+  function allDayStrip(list){
+    const ad = list.filter(m => m.allDay);
+    if (!ad.length) return '';
+    return '<div class="cmeet-all">' + ad.map(m =>
+      '<span title="' + esc(m.ev.from) + '">' + esc(m.ev.title) + '</span>').join('') + '</div>';
+  }
+
   function gridHTML(days, now, tot){
     const H = 680, px = m => (m - DS) / SPAN * H;
     const todayIdx = days.findIndex(d => dayKey(d) === dayKey(now));
@@ -1345,8 +1369,12 @@
     let cols = '';
     days.forEach((dd, pos) => {
       const dk = dayKey(dd);
+      const timedMeets = meetingsOn(dd).filter(m => !m.allDay);
       let inner = '';
       for (let m = DS + 60; m < DE; m += 60) inner += '<div class="gl" style="top:'+px(m)+'px"></div>';
+      // Blocks go inside a lane of their own once there are meetings to sit
+      // beside. Without them the lane is the full width and nothing moves.
+      inner += '<div class="clane">';
       blocksForDate(dd).filter(b => !b.allDay).forEach(b => {
         const st = Math.max(mins(b.s), DS), en = Math.min(mins(b.e), DE);
         if (en <= st) return;
@@ -1363,8 +1391,12 @@
           'data-uid="'+b.id+'" data-dk="'+dk+'" data-sm="'+mins(b.s)+'" data-em="'+mins(b.e)+'" data-pos="'+pos+'">'+
           '<b>'+esc(b.t)+'</b><em>'+clockOf(b.s)+'–'+clockOf(b.e)+'</em><i class="rz"></i></button>';
       });
+      inner += '</div>';
+      if (timedMeets.length)
+        inner += '<div class="cmlane">' + timedMeets.map(m => meetHTML(m, px)).join('') + '</div>';
       if (pos === todayIdx && t >= DS && t <= DE) inner += '<div class="cbnow" style="top:'+px(t)+'px"></div>';
-      cols += '<div class="calcol'+(pos===todayIdx?' td':'')+'" data-newon="'+dk+'">'+inner+'</div>';
+      cols += '<div class="calcol'+(pos===todayIdx?' td':'')+(timedMeets.length?' hasmeet':'')+'" '+
+        'data-newon="'+dk+'">'+inner+'</div>';
     });
     // the drag handler reads the column dates straight off here
     return h + '<div class="cal"><div class="calhrs" style="height:'+H+'px">'+hrs+'</div>'+
@@ -1412,6 +1444,13 @@
         if (e <= s) return;
         if (!b.step) tot[b.c] = (tot[b.c]||0) + (mins(b.e) - mins(b.s));
         segs += '<i class="'+(b.step?'seg-step':'')+'" style="left:'+((s-DS)/SPAN*100)+'%;width:'+((e-s)/SPAN*100)+'%;background:'+catColor(b.c)+'"></i>';
+      });
+      // Meetings ride the same bar, drawn as a hollow band so a booked hour
+      // reads differently from an hour you chose.
+      meetingsOn(dates[d]).filter(m => !m.allDay).forEach(m => {
+        const s = Math.max(m.sm, DS), e2 = Math.min(m.em, DE);
+        if (e2 <= s) return;
+        segs += '<i class="seg-meet" style="left:'+((s-DS)/SPAN*100)+'%;width:'+((e2-s)/SPAN*100)+'%"></i>';
       });
       if (isToday && t >= DS && t <= DE) segs += '<span class="wnow" style="left:'+((t-DS)/SPAN*100)+'%"></span>';
       h += '<div class="wrow'+(isToday?' today':'')+'"><span class="wday">'+LBL[d]+'</span>'+
@@ -1576,7 +1615,9 @@
       if (m > DS) lines += '<div class="gl" style="top:'+px(m)+'px"></div>';
     }
 
-    let body = lines;
+    // The hour lines stay on the column itself. Only the blocks go into the
+    // lane, or they would stop short wherever a meeting pushed them in.
+    let body = '';
     laid.forEach(x => {
       const b = x.b, hgt = Math.max(22, px(x.e) - px(x.s) - 2);
       const col = catColor(b.c);
@@ -1616,10 +1657,19 @@
         (isStep ? '' : '<i class="drz"></i>')+
         '</div>';
     });
+    const dmeets = meetingsOn(vd), dtimed = dmeets.filter(m => !m.allDay);
+    // Blocks are wrapped so the meetings can take a lane beside them. With no
+    // meetings the wrapper is the full width and the day looks exactly as it
+    // always did.
+    body = lines + '<div class="clane">' + body + '</div>';
+    if (dtimed.length)
+      body += '<div class="cmlane">' + dtimed.map(m => meetHTML(m, px)).join('') + '</div>';
     if (isToday && t >= DS && t <= DE) body += '<div class="cbnow" style="top:'+px(t)+'px"></div>';
 
+    h += allDayStrip(dmeets);
     h += '<div class="daygrid"><div class="calhrs" style="height:'+DAY_H+'px">'+hrs+'</div>'+
-      '<div class="dcol" style="height:'+DAY_H+'px" data-newon="'+dk+'">'+body+'</div></div>';
+      '<div class="dcol'+(dtimed.length?' hasmeet':'')+'" style="height:'+DAY_H+'px" '+
+      'data-newon="'+dk+'">'+body+'</div></div>';
     return h;
   }
 
@@ -4054,6 +4104,172 @@
   }
 
   /* What today actually asks of you, counted. */
+  /* ---------- Outlook and Microsoft 365 ----------
+     What is already in the calendar, so the day Athena shows is the day you
+     actually have rather than the one that would exist if nobody booked you.
+
+     Read only, on purpose. Nothing here writes to Outlook. The events are a
+     cached copy: kept in this browser so the day draws instantly and still
+     draws on a train, refreshed quietly when it goes stale. They are never
+     saved into S, because they are not yours to edit and a backup of them
+     would go out of date the moment it was written. */
+  const CAL_KEY = 'athena:cal', CAL_STATE = 'athena:msstate';
+  const CAL_STALE = 10 * 60 * 1000;      // refetch at most every ten minutes
+  let cal = { accounts: [], events: [], at: 0, err: '', busy: false };
+
+  function calLoad(){
+    try {
+      const j = JSON.parse(lsGet(CAL_KEY) || 'null');
+      if (j){ cal.events = j.events || []; cal.accounts = j.accounts || []; cal.at = j.at || 0; }
+    } catch(_){}
+  }
+  const calStash = () => lsSet(CAL_KEY, JSON.stringify({
+    events: cal.events, accounts: cal.accounts, at: cal.at
+  }));
+
+  async function calPost(body){
+    const { data } = await sb.auth.getSession();
+    const token = data && data.session ? data.session.access_token : '';
+    const r = await fetch('/api/ms', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify(body)
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok){ const e = new Error(j.error || 'That did not work.'); e.reconnect = !!j.reconnect; throw e; }
+    return j;
+  }
+
+  // Which calendars are attached. This one goes straight to the database
+  // rather than through the server, because the labels are not secret and the
+  // row rules already limit it to yours.
+  async function calAccounts(){
+    if (!cloud || !session) return;
+    try {
+      const { data, error } = await sb.from('ms_accounts').select('id,label,created_at').order('created_at');
+      if (error) throw error;
+      cal.accounts = data || []; calStash();
+    } catch(e){ cal.err = (e && e.message) || 'Could not check your calendars.'; }
+  }
+
+  async function calFetch(force){
+    if (!cloud || !session || cal.busy) return;
+    if (!cal.accounts.length) return;
+    if (!force && Date.now() - cal.at < CAL_STALE) return;
+    cal.busy = true; if (force) render();
+    try {
+      const from = new Date(); from.setHours(0, 0, 0, 0);
+      const to = new Date(from); to.setDate(to.getDate() + 8);
+      const j = await calPost({ action: 'events', from: from.toISOString(), to: to.toISOString() });
+      cal.events = j.events || []; cal.at = Date.now();
+      // One calendar failing should not take the other one down with it, so
+      // the server reports them separately and so does this.
+      cal.err = (j.trouble || []).map(t => t.account + ': ' + t.why).join(' · ');
+      calStash();
+    } catch(e){ cal.err = (e && e.message) || 'Could not read your calendar.'; }
+    cal.busy = false; render();
+  }
+
+  async function calConnect(){
+    cal.busy = true; cal.err = ''; render();
+    try {
+      // A one-off value that goes to Microsoft and has to come back unchanged.
+      // It is what tells a real return from a link somebody else sent you.
+      const st = uid8() + uid8() + uid8();
+      try { sessionStorage.setItem(CAL_STATE, st); } catch(_){}
+      const j = await calPost({ action: 'start', state: st });
+      location.href = j.url;
+    } catch(e){ cal.err = (e && e.message) || 'Could not start that.'; cal.busy = false; render(); }
+  }
+
+  // Coming back from Microsoft. The code lands in the address bar, so the
+  // first thing to do is take it out of there: it is single use and short
+  // lived, but it has no business sitting in history or in a screenshot.
+  async function calReturn(){
+    let q;
+    try { q = new URLSearchParams(location.search); } catch(_){ return false; }
+    const code = q.get('mscode'), sent = q.get('msstate'), err = q.get('mserror');
+    if (!code && !err) return false;
+    try { history.replaceState(null, '', location.pathname); } catch(_){}
+    settingsOpen = true;
+    if (err){ cal.err = err; return true; }
+    let want = '';
+    try { want = sessionStorage.getItem(CAL_STATE) || ''; sessionStorage.removeItem(CAL_STATE); } catch(_){}
+    if (!want || want !== sent){
+      cal.err = 'That sign-in did not start here, so Athena stopped it. Try Connect a calendar again.';
+      return true;
+    }
+    cal.busy = true;
+    try { const j = await calPost({ action: 'connect', code }); cal.err = ''; announce('Connected ' + j.label); }
+    catch(e){ cal.err = (e && e.message) || 'Could not finish connecting.'; }
+    cal.busy = false;
+    await calAccounts();
+    await calFetch(true);
+    return true;
+  }
+
+  async function calForget(id){
+    const who = (cal.accounts.find(x => x.id === id) || {}).label || 'that calendar';
+    try {
+      const { error } = await sb.from('ms_accounts').delete().eq('id', id);
+      if (error) throw error;
+    } catch(e){ cal.err = (e && e.message) || 'Could not disconnect that.'; render(); return; }
+    cal.events = cal.events.filter(ev => ev.from !== who);
+    cal.err = ''; announce('Disconnected ' + who);
+    await calAccounts();
+    if (cal.accounts.length){ await calFetch(true); }
+    else { cal.events = []; calStash(); render(); }
+  }
+
+  /* The meetings on one day, in local time, ready to draw. Microsoft answers
+     in UTC, which is the only sane thing for it to do and the wrong thing to
+     show, so the conversion happens here, once. */
+  function meetingsOn(d){
+    if (!cal.events.length) return [];
+    const dk = dayKey(d), out = [];
+    cal.events.forEach(ev => {
+      if (!ev || !ev.busy || !ev.start) return;
+      const s = new Date(ev.start), e = new Date(ev.end || ev.start);
+      if (isNaN(s.getTime())) return;
+      if (ev.allDay){ if (dayKey(s) === dk) out.push({ ev, allDay: true, sm: DS, em: DS }); return; }
+      if (dayKey(s) !== dk) return;
+      const sm = s.getHours() * 60 + s.getMinutes();
+      // A meeting running past midnight is shown running to the end of the
+      // day rather than wrapping round to the morning.
+      const raw = (!isNaN(e.getTime()) && dayKey(e) === dk) ? e.getHours() * 60 + e.getMinutes() : DE;
+      out.push({ ev, allDay: false, sm, em: Math.max(raw, sm + 15) });
+    });
+    return out.sort((x, y) => x.sm - y.sm || x.em - y.em);
+  }
+
+  /* Stretches with nothing in them, meetings and blocks both counted, long
+     enough to be worth offering. Only on a day that actually has meetings:
+     a gap between your own blocks is just your day, and pointing at it would
+     be Athena talking for the sake of it. */
+  const GAP_MIN = 45;
+  function calGaps(now, from){
+    const ms = meetingsOn(now).filter(m => !m.allDay);
+    if (!ms.length) return [];
+    const spans = blocksForDate(now).filter(b => !b.allDay)
+      .map(b => [mins(b.s), mins(b.e)])
+      .concat(ms.map(m => [m.sm, m.em]))
+      .sort((x, y) => x[0] - y[0]);
+    const solid = [];
+    spans.forEach(sp => {
+      const last = solid[solid.length - 1];
+      if (last && sp[0] <= last[1]) last[1] = Math.max(last[1], sp[1]);
+      else solid.push(sp.slice());
+    });
+    const out = [];
+    let at = Math.max(DS, from == null ? DS : from);
+    solid.forEach(sp => {
+      if (sp[0] - at >= GAP_MIN) out.push({ s: at, e: sp[0] });
+      at = Math.max(at, sp[1]);
+    });
+    if (DE - at >= GAP_MIN) out.push({ s: at, e: DE });
+    return out.slice(0, 4);
+  }
+
   function dayBrief(now){
     const dk = dayKey(now), nowM = now.getHours() * 60 + now.getMinutes();
     const all = blocksForDate(now);
@@ -4064,7 +4280,10 @@
     const closing = hardTasks().filter(tk => tk.due === dk);
     const owed = dueCommits(now);
     const late = (S.tasks || []).filter(tk => !tk.repeat && !tk.doneAt && tk.due && tk.due < dk);
-    return { all, timed, ahead, booked, appts, closing, owed, late, first: ahead[0] };
+    const meets = meetingsOn(now);
+    const meetMins = meets.filter(m => !m.allDay).reduce((n, m) => n + (m.em - m.sm), 0);
+    return { all, timed, ahead, booked, appts, closing, owed, late, first: ahead[0],
+             meets, meetMins, gaps: calGaps(now, nowM) };
   }
 
   /* Things worth being a rock, in the order they deserve it. */
@@ -4104,6 +4323,10 @@
     if (b.timed.length) rows.push([b.timed.length, 'block' + (b.timed.length !== 1 ? 's' : '') +
       (b.booked ? ', ' + dur(b.booked) + ' of them' : '')]);
     if (b.appts.length) rows.push([b.appts.length, 'at a fixed time']);
+    const timedMeets = b.meets.filter(m => !m.allDay), dayMeets = b.meets.length - timedMeets.length;
+    if (timedMeets.length) rows.push([timedMeets.length, 'in your calendar' +
+      (b.meetMins ? ', ' + dur(b.meetMins) : '')]);
+    if (dayMeets) rows.push([dayMeets, 'on all day']);
     if (b.owed.length) rows.push([b.owed.length, 'commitment' + (b.owed.length !== 1 ? 's' : '') + ' due']);
     if (b.late.length) rows.push([b.late.length, 'overdue']);
     if (rows.length)
@@ -4140,6 +4363,60 @@
     return list.map(t => '<option value="' + t + '"' + (t === start ? ' selected' : '') + '>' + clockOf(t) + '</option>').join('');
   }
 
+
+  /* What is actually free, offered rather than just noted. You asked for the
+     offer: a gap you can see is a gap you skip, a gap with a button on it is
+     a block. One tap makes the block and puts your first homeless rock in it. */
+  function gapOfferHTML(now){
+    const gaps = calGaps(now, now.getHours() * 60 + now.getMinutes());
+    if (!gaps.length) return '';
+    let h = '<div class="rvbar-h">Free between your meetings</div>';
+    gaps.forEach(g => {
+      h += '<button class="rkpick gapoff" data-gapblock="' + g.s + '-' + g.e + '">' +
+        '<span class="rk-t"><b>' + dur(g.e - g.s) + ' free</b>' +
+        '<em>' + clockOf(fmtM(g.s)) + ' to ' + clockOf(fmtM(g.e)) + '</em></span>' +
+        '<span class="rk-plus">+</span></button>';
+    });
+    return h;
+  }
+
+  // Which part of your life a found hour belongs to. The rock's own category
+  // if the rock is a task, because that is the one thing here that actually
+  // knows. Otherwise whatever the day is mostly made of, which beats taking
+  // the first category in the list and filing a work gap under Personal.
+  function gapCat(now, rock){
+    if (rock && rock.kind === 'task'){
+      const tk = findTask(rock.ref);
+      if (tk && tk.cat) return tk.cat;
+    }
+    const tally = {};
+    blocksForDate(now).filter(b => !b.allDay && b.c).forEach(b => {
+      tally[b.c] = (tally[b.c] || 0) + (mins(b.e) - mins(b.s));
+    });
+    const best = Object.keys(tally).sort((x, y) => tally[y] - tally[x])[0];
+    return best || (S.categories[0] || {}).id;
+  }
+
+  // Turn a gap into a real block on the day, and hand it the first rock that
+  // has nowhere to be. Undoable like everything else that changes the week.
+  function gapBlock(spec){
+    const now = new Date(), dk = dayKey(now);
+    const bits = String(spec).split('-');
+    const s = +bits[0], e = +bits[1];
+    if (!(e > s)) return;
+    markUndo('Block from a gap');
+    const homeless = morning && (morning.picks || []).find(r => !r.block);
+    const title = homeless ? homeless.text.slice(0, 60) : 'Focus';
+    const ev = {
+      id: 'ev_' + uid8(), title, note: '', cat: gapCat(now, homeless),
+      allDay: false, start: fmtM(s), end: fmtM(e), rrule: null, date: dk, ex: {}, skip: []
+    };
+    S.events.push(ev);
+    if (homeless) homeless.block = ev.id;
+    announce(dur(e - s) + ' blocked, ' + clockOf(fmtM(s)));
+    save(); render();
+  }
+
   function morningRocksHTML(now){
     const cands = rockCandidates(now);
     const picked = morning.picks;
@@ -4164,6 +4441,8 @@
           '<span class="rk-t"><b>' + esc(c.text) + '</b><em>' + esc(c.why) + '</em></span><span class="rk-plus">+</span></button>';
       });
     }
+
+    h += gapOfferHTML(now);
 
     if (!full){
       h += '<div class="gform" style="margin-top:10px">' +
@@ -6350,6 +6629,50 @@
   const HOURS = (() => { const o = []; for (let h = 0; h < 24; h++){ o.push(pad(h)+':00'); o.push(pad(h)+':30'); } return o; })();
   const hourOpts = (sel) => HOURS.map(t => '<option value="'+t+'"'+(t === sel ? ' selected' : '')+'>'+clockOf(t)+'</option>').join('');
 
+  function calSettingsHTML(){
+    let h = '<div class="modal-h" style="margin-top:8px">Calendar</div>';
+    if (!cloud || !session){
+      h += '<p class="setnote">Sign in to connect a calendar. The connection is kept with your account, not on this device, ' +
+        'so it follows you to your phone.</p>';
+      return h;
+    }
+    if (!cal.accounts.length){
+      h += '<p class="setnote">Athena can read your Outlook or Microsoft 365 calendar and show your meetings alongside your day, ' +
+        'so what you plan fits around what is already booked. You can connect your work and your personal account, both at once.</p>';
+      h += '<p class="setnote">Reading only. Athena never writes to your calendar, never sends anything, and never opens your email.</p>';
+    } else {
+      h += '<div class="callist">';
+      cal.accounts.forEach(ac => {
+        h += '<div class="calrow"><span class="calwho">' + esc(ac.label) + '</span>' +
+          '<button class="linkish" data-calforget="' + esc(ac.id) + '">Disconnect</button></div>';
+      });
+      h += '</div>';
+      const n = cal.events.length;
+      h += '<p class="setnote">' + (n ? n + ' thing' + (n === 1 ? '' : 's') + ' in the next week' : 'Nothing in the next week') +
+        (cal.at ? ', read ' + agoWords(cal.at) : '') + '. ' +
+        'Athena looks again on its own, and Refresh is there for when you have just moved something.</p>';
+    }
+    if (cal.err) h += '<div class="errdetail"><b>That did not work</b><span>' + esc(cal.err) + '</span></div>';
+    h += '<div class="datalist">';
+    h += '<button class="ghost" data-calconnect' + (cal.busy ? ' disabled' : '') + '>' +
+      (cal.busy ? 'Working\u2026' : (cal.accounts.length ? 'Connect another calendar' : 'Connect a calendar')) + '</button>';
+    if (cal.accounts.length)
+      h += '<button class="ghost" data-calrefresh' + (cal.busy ? ' disabled' : '') + '>Refresh now</button>';
+    h += '</div>';
+    return h;
+  }
+
+  // Plain words for how long ago, because "read 14:22" makes you do the sum.
+  function agoWords(at){
+    const m = Math.round((Date.now() - at) / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return m + ' minute' + (m === 1 ? '' : 's') + ' ago';
+    const hrs = Math.round(m / 60);
+    if (hrs < 24) return hrs + ' hour' + (hrs === 1 ? '' : 's') + ' ago';
+    const d = Math.round(hrs / 24);
+    return d + ' day' + (d === 1 ? '' : 's') + ' ago';
+  }
+
   function nudgeSettingsHTML(){
     const n = nudges();
     let h = '<div class="modal-h" style="margin-top:8px">Nudges</div>';
@@ -6771,6 +7094,7 @@
     h += '<button class="ghost" data-obrerun>Walk me through setup again</button>';
     h += '<p class="setnote">The same questions as the first time, filled in with what you have now. '+
       'Change the hours, add a category, and Athena shows you exactly what it would move before anything happens.</p>';
+    h += calSettingsHTML();
     h += trackSettingsHTML();
     h += nudgeSettingsHTML();
     h += '<div class="modal-h" style="margin-top:8px">Account</div>';
@@ -7548,6 +7872,10 @@
     if (t('[data-closesearch]')){ searchOpen = false; clearDraft('gs_q'); render(); return; }
     if ((m = t('[data-sgo]'))){ searchGo(m.dataset.sgo); return; }
     if (t('[data-solddone]')){ searchOld = !searchOld; render(); return; }
+    if (t('[data-calconnect]')){ commitSettings(); calConnect(); return; }
+    if (t('[data-calrefresh]')){ commitSettings(); calFetch(true); return; }
+    if ((m = t('[data-calforget]'))){ commitSettings(); calForget(m.dataset.calforget); return; }
+    if ((m = t('[data-gapblock]'))){ gapBlock(m.dataset.gapblock); return; }
     if (t('[data-settings]')){ clearModalDrafts(); settingsOpen = true; render(); return; }
     if (t('[data-closesettings]')){ commitSettings(); settingsOpen = false; clearModalDrafts(); render(); return; }
     if (t('[data-addcat]')){ commitSettings(); S.categories.push({ id:'c_'+uid8(), label:'New', color:'#B7B2BE' }); save(); render(); return; }
@@ -8254,11 +8582,16 @@
       snapToday();         // a copy of this morning, before the day touches it
       consumeNudge();      // and anything a notification sent us here to do
       pushCheck();         // is this device set up to be nudged at all
+      calLoad();           // last known calendar, so the day draws complete at once
+      // Coming back from Microsoft takes priority: it finishes a connection
+      // the user is standing there waiting for. Otherwise just top it up.
+      calReturn().then(done => { if (!done) calAccounts().then(() => calFetch(false)); });
       setInterval(() => {
         const ae = document.activeElement;
         if (editing || settingsOpen || aiOpen || taskEdit) return;
         if (ae && app.contains && app.contains(ae) &&
             (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) return;
+        calFetch(false);   // throttled to ten minutes inside, so this is cheap
         render();
       }, 60000);
     });

@@ -28,6 +28,10 @@
     --dim: #A9A1A8;
     --ghost: #6E6774;
     --live: #E5A87E;
+    /* Meetings are drawn in their own colour, deliberately not one of
+       yours: a booked hour is not a category, it is somebody else. */
+    --meet: #8FA3C4;
+    --meet-wash: #8FA3C412;
     --live-soft: #413229;
 
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -373,6 +377,62 @@
   #soft-app .cb.dragging { z-index: 20; box-shadow: 0 8px 22px rgba(0,0,0,.45); opacity: .95; }
   #soft-app .rz { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: ns-resize; }
   #soft-app .cbnow { position: absolute; left: 0; right: 0; height: 2px; background: var(--live); z-index: 3; }
+
+  /* ---------- what is already in your calendar ----------
+     A meeting sits in a lane of its own down the right of the day rather than
+     among the blocks, because it is not one. You cannot move it, tick it or
+     shorten it, and drawing it like a block would invite all three. The lane
+     also does the arithmetic for you: how much of the column it takes is how
+     much of the day somebody else decided.
+
+     Hatched and outlined rather than filled, so at a glance a booked hour
+     never reads as an hour you chose. */
+  #soft-app .clane { position: absolute; inset: 0; }
+  #soft-app .calcol.hasmeet .clane,
+  #soft-app .dcol.hasmeet .clane { right: 42%; }
+  #soft-app .cmlane { position: absolute; top: 0; bottom: 0; right: 0; width: 42%; }
+  #soft-app .cmeet {
+    position: absolute; left: 3px; right: 3px; border-radius: 6px;
+    padding: 5px 6px; font-size: 11.5px; line-height: 1.25;
+    color: var(--text); overflow: hidden;
+    border: 1px solid var(--meet); border-left-width: 3px;
+    background: repeating-linear-gradient(135deg,
+      transparent 0 5px, var(--meet-wash) 5px 10px);
+  }
+  #soft-app .cmeet b { display: block; font-weight: 500; }
+  #soft-app .cmeet em {
+    display: block; font-style: normal; font-size: 10.5px;
+    opacity: .85; font-variant-numeric: tabular-nums;
+  }
+
+  /* All day entries have no place on a timed grid, so they sit above it. */
+  #soft-app .cmeet-all { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  #soft-app .cmeet-all span {
+    font-size: 12px; padding: 4px 10px; border-radius: 999px;
+    color: var(--dim); border: 1px solid var(--meet);
+  }
+
+  /* On the week strips a meeting is the same idea at one tenth the size. */
+  #soft-app .wbar i.seg-meet {
+    top: 3px; bottom: 3px; background: transparent;
+    border: 1px solid var(--meet); border-radius: 3px;
+  }
+
+  /* connected calendars, in Settings */
+  #soft-app .callist { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 8px; }
+  #soft-app .calrow {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+    border-radius: 10px; background: var(--raise); border: 1px solid var(--line);
+  }
+  #soft-app .calwho {
+    flex: 1; min-width: 0; font-size: 13.5px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* A gap is an offer, not a thing you own yet, so it is drawn as an outline
+     in the meeting colour that made it. */
+  #soft-app .rkpick.gapoff { border-style: dashed; border-color: var(--meet); }
+  #soft-app .rkpick.gapoff:hover { border-color: var(--meet); border-style: solid; }
 
   /* a long unbroken run, mentioned before it happens */
   #soft-app .breakhint {
@@ -817,6 +877,8 @@
     --dim: #5A5751;
     --ghost: #8A867F;
     --live: #3A3833;
+    --meet: #5E7495;
+    --meet-wash: #5E74951A;
     /* Deeper than --raise on purpose. With a charcoal accent the block you are
        in can no longer stand out by hue, so it stands out by weight instead. */
     --live-soft: #E6E2D9;
@@ -1136,6 +1198,7 @@
     display: none;
     --bg: #2C2932; --raise: #383441; --line: #474250; --text: #EFEAE5;
     --dim: #A9A1A8; --ghost: #6E6774; --live: #E5A87E; --live-soft: #413229;
+    --meet: #8FA3C4; --meet-wash: #8FA3C412;
     color: var(--text);
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     font-size: 16px; line-height: 1.5;
