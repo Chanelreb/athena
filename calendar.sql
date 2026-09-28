@@ -14,11 +14,11 @@
 --
 -- They are still reachable by your own session, exactly like every other row in
 -- Athena, because the alternative is giving the server a master key that can
--- read everybody's, and that is a worse trade. What the grants below do is stop
--- the browser reading them in the ordinary course of things: it can list which
--- calendars are connected and what they are called, and it is never handed a
--- token, because it never needs one. All the calendar reading happens server
--- side.
+-- read everybody's, and that is a worse trade. So they are stored encrypted:
+-- the row you could fetch holds ciphertext, and the key that opens it lives in
+-- Vercel with the rest of the server secrets. That is what stops a Microsoft
+-- token ever reaching a browser, rather than the grants, which cannot tell your
+-- browser and your server apart when both arrive holding your session.
 
 create table if not exists public.ms_accounts (
   id            uuid primary key default gen_random_uuid(),
@@ -46,11 +46,21 @@ create policy "write own ms accounts"  on public.ms_accounts for insert with che
 create policy "update own ms accounts" on public.ms_accounts for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "delete own ms accounts" on public.ms_accounts for delete using (auth.uid() = user_id);
 
--- Column level grants. The browser can see which calendars are connected and
--- what they are called. The token columns are simply not on the list, so an
--- ordinary read cannot return them even by asking.
-grant select (id, user_id, ms_id, label, created_at) on public.ms_accounts to authenticated;
-grant insert, update, delete on public.ms_accounts to authenticated;
+-- On the grants, and what they do not do.
+--
+-- Supabase hands every new table in this schema to anon and authenticated by
+-- default, and a whole table grant outranks a narrower column one, so listing
+-- safe columns here achieves nothing on its own. Revoking first is what makes
+-- it bite. anon loses the table outright, since nobody signed out has business
+-- with it.
+--
+-- authenticated keeps full select, and that is deliberate rather than an
+-- oversight: the server reads this table as you, using your session, so any
+-- grant narrow enough to hide the tokens from the browser would hide them from
+-- the server too. The tokens are protected by being stored encrypted instead.
+-- What is in these columns is ciphertext, and the key lives only in Vercel.
+revoke all on public.ms_accounts from anon;
+grant select, insert, update, delete on public.ms_accounts to authenticated;
 
 create index if not exists ms_accounts_mine on public.ms_accounts (user_id);
 

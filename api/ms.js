@@ -20,7 +20,18 @@
 // so this endpoint can only ever touch that person's rows. There is no master
 // key anywhere in Athena and this was not the place to introduce one.
 //
+// Which leaves one gap worth closing. Reading as the caller means the browser
+// could make exactly the same request and be handed the Microsoft tokens back,
+// and a Microsoft refresh token is worth more than anything else in Athena: it
+// reaches outside the app into a real mailbox and lasts for months. Column
+// grants cannot help, because the browser and this endpoint arrive as the same
+// person holding the same session. So the tokens are encrypted before they are
+// stored. What the database holds, and what a browser could pull out of it, is
+// ciphertext this endpoint is the only thing able to read.
+//
 // Needs two environment variables in Vercel: MS_CLIENT_ID and MS_CLIENT_SECRET.
+
+import crypto from 'node:crypto';
 
 const MS_ID = process.env.MS_CLIENT_ID || '';
 const MS_SECRET = process.env.MS_CLIENT_SECRET || '';
@@ -38,6 +49,44 @@ const siteURL = () => process.env.VERCEL_PROJECT_PRODUCTION_URL
   ? 'https://' + process.env.VERCEL_PROJECT_PRODUCTION_URL
   : 'https://theathena.app';
 const redirectURI = () => siteURL() + '/api/ms/callback';
+
+// The key is derived from the Microsoft client secret, which already lives in
+// Vercel and nowhere else, so this costs no extra setup step. MS_TOKEN_KEY is
+// there for later, if the two should ever stop being tied together. Rotating
+// either one means reconnecting the calendars, which is a handful of taps and
+// a rare event, and the code below says so plainly rather than failing oddly.
+let keyCache = null;
+function tokenKey(){
+  if (keyCache) return keyCache;
+  const src = process.env.MS_TOKEN_KEY || MS_SECRET;
+  if (!src) return null;
+  keyCache = crypto.scryptSync(src, 'athena.ms.tokens.v1', 32);
+  return keyCache;
+}
+function seal(plain){
+  const key = tokenKey();
+  if (!key || !plain) return plain || null;
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ct = Buffer.concat([c.update(String(plain), 'utf8'), c.final()]);
+  return 'v1.' + iv.toString('base64url') + '.' +
+         c.getAuthTag().toString('base64url') + '.' + ct.toString('base64url');
+}
+function unseal(stored){
+  if (!stored || typeof stored !== 'string') return stored;
+  if (stored.slice(0, 3) !== 'v1.') return stored; // never sealed, use as is
+  const key = tokenKey();
+  const bits = stored.split('.');
+  try {
+    const d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(bits[1], 'base64url'));
+    d.setAuthTag(Buffer.from(bits[2], 'base64url'));
+    return Buffer.concat([d.update(Buffer.from(bits[3], 'base64url')), d.final()]).toString('utf8');
+  } catch (_){
+    const e = new Error('This calendar was connected under a different Microsoft app secret, so Athena can no longer read it. Disconnect it and connect it again.');
+    e.code = 'invalid_grant'; // same cure as a dead token: reconnect
+    throw e;
+  }
+}
 
 function bearer(req){
   const a = req.headers.authorization || '';
@@ -96,17 +145,17 @@ async function msToken(form){
 async function usableToken(jwt, row){
   const now = Date.now();
   if (row.access_token && row.expires_at && new Date(row.expires_at).getTime() - now > 120000)
-    return row.access_token;
+    return unseal(row.access_token);
   const t = await msToken({
-    grant_type: 'refresh_token', refresh_token: row.refresh_token, scope: SCOPES
+    grant_type: 'refresh_token', refresh_token: unseal(row.refresh_token), scope: SCOPES
   });
   const expires = new Date(now + ((+t.expires_in || 3600) * 1000)).toISOString();
   await db(jwt, 'ms_accounts?id=eq.' + encodeURIComponent(row.id), {
     method: 'PATCH',
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify(Object.assign({
-      access_token: t.access_token, expires_at: expires
-    }, t.refresh_token ? { refresh_token: t.refresh_token } : {}))
+      access_token: seal(t.access_token), expires_at: expires
+    }, t.refresh_token ? { refresh_token: seal(t.refresh_token) } : {}))
   });
   return t.access_token;
 }
@@ -189,7 +238,7 @@ export default async function handler(req, res){
         headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
         body: JSON.stringify({
           user_id: user.id, ms_id: msId, label,
-          refresh_token: t.refresh_token, access_token: t.access_token, expires_at: expires
+          refresh_token: seal(t.refresh_token), access_token: seal(t.access_token), expires_at: expires
         })
       });
       res.status(200).json({ ok: true, label });
@@ -201,7 +250,7 @@ export default async function handler(req, res){
       const to = String(body.to || '').slice(0, 40);
       if (!from || !to){ res.status(400).json({ error: 'Need a window of dates.' }); return; }
       const rows = await db(jwt, 'ms_accounts?select=id,label,refresh_token,access_token,expires_at');
-      if (!rows || !rows.length){ res.status(200).json({ events: [], accounts: [] }); return; }
+      if (!rows || !rows.length){ res.status(200).json({ events: [], trouble: [] }); return; }
 
       const events = [], trouble = [];
       for (const row of rows){
