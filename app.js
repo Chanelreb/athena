@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.11';
+  const BUILD = '2026-09-28.12';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -8135,6 +8135,15 @@
   // can issue and let the server be the judge of whether it is right.
   const CODE_MIN = 6, CODE_MAX = 10;
   let codeTimer = null;
+  // How many digits last worked, so the greyed out shape in the box matches
+  // the code that is actually going to arrive. Eight until we have seen one,
+  // because that is what Supabase issues by default now. It is a hint, not a
+  // rule: the box still takes anything from six to ten.
+  const CODE_KEY = 'athena:codelen';
+  const codeHint = () => {
+    const n = parseInt(lsGet(CODE_KEY), 10);
+    return (n >= CODE_MIN && n <= CODE_MAX) ? n : 8;
+  };
 
   function loginHTML(){
     let h = '<div class="login">';
@@ -8149,7 +8158,7 @@
         // and then refused the sixth. Room to hold the spaces, and the input
         // handler takes them straight back out.
         '<input id="auth_code" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" '+
-          'maxlength="24" placeholder="Code from the email" class="codebox">'+
+          'maxlength="24" placeholder="'+'12345678901'.slice(0, codeHint())+'" class="codebox"'+(authBusy?' disabled':'')+'>'+
         '<button class="go" data-verifycode'+(authBusy?' disabled':'')+'>'+(authBusy?'Checking…':'Sign in')+'</button>'+
         '</div>';
       if (authMsg) h += '<p class="login-msg">' + esc(authMsg) + '</p>';
@@ -8224,6 +8233,7 @@
         return;
       }
       // onAuthStateChange starts the app; nothing else to do here.
+      lsSet(CODE_KEY, String(token.length));
       clearDraft('auth_code'); clearDraft('auth_email');
       authMsg = ''; authStep = 'email';
     } catch(e){ authBusy = false; authMsg = 'Something went wrong. Please try again.'; renderAuth(); }

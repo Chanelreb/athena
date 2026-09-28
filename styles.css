@@ -595,10 +595,24 @@
   #soft-app .login-fine { color: var(--ghost); font-size: 12.5px; margin-top: 18px; }
   /* The code is the thing being typed, so let it be the biggest thing on screen.
      Wide letter spacing makes six digits readable as six digits. */
+  /* The code box. The greyed digits behind it show the shape of what is
+     coming, which is friendlier than an empty slab and tells you at a glance
+     how long the thing you are waiting for is. */
   #soft-app .login-box input.codebox {
-    text-align: center; font-size: 28px; letter-spacing: .38em; text-indent: .38em;
-    font-variant-numeric: tabular-nums; padding: 15px 14px;
+    text-align: center; font-size: 27px; letter-spacing: .34em; text-indent: .34em;
+    font-variant-numeric: tabular-nums; font-weight: 600;
+    padding: 17px 10px; border-radius: 14px;
+    transition: border-color .15s, background .15s;
   }
+  #soft-app .login-box input.codebox::placeholder {
+    color: var(--ghost); opacity: .38; font-weight: 400;
+  }
+  #soft-app .login-box input.codebox:focus {
+    border-color: var(--live); background: var(--bg);
+  }
+  /* While it is being checked, the box goes quiet rather than staying live
+     and inviting you to keep typing into something that is already gone. */
+  #soft-app .login-box input.codebox:disabled { opacity: .55; }
   #soft-app .login-alt { display: flex; justify-content: center; gap: 18px; margin-top: 18px; flex-wrap: wrap; }
   #soft-app .login-alt .linkish { font-size: 13.5px; }
 
