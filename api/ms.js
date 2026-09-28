@@ -107,12 +107,15 @@ async function signedInUser(token){
 // Every query runs as the person who asked, so row level security does the
 // work and this code never has to remember whose rows are whose.
 async function db(token, path, init){
-  const r = await fetch(SUPABASE_URL + '/rest/v1/' + path, Object.assign({
-    headers: Object.assign({
-      apikey: SUPABASE_KEY, Authorization: 'Bearer ' + token,
-      'content-type': 'application/json'
-    }, (init && init.headers) || {})
-  }, init || {}));
+  // Headers are set last and on their own. Spreading init over an object that
+  // already held them replaced the whole headers object with init's, which
+  // threw away the key and the session on every call that passed a Prefer.
+  const opts = Object.assign({}, init || {});
+  opts.headers = Object.assign({
+    apikey: SUPABASE_KEY, Authorization: 'Bearer ' + token,
+    'content-type': 'application/json'
+  }, (init && init.headers) || {});
+  const r = await fetch(SUPABASE_URL + '/rest/v1/' + path, opts);
   const text = await r.text();
   let body = null;
   try { body = text ? JSON.parse(text) : null; } catch (_){ body = text; }
