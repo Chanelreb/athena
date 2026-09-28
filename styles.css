@@ -2049,7 +2049,18 @@
   /* ---- backup and restore -------------------------------------------------
      The comparison is the whole point: you should see what you are about to
      lose before you lose it, not after. */
-  #soft-app .filebtn { display: block; text-align: center; cursor: pointer; }
+  /* One column, one width. A button sizes itself to its words and a label
+     fills the line, so without this the three came out ragged: a short
+     "Download a backup", a full width "Restore from a file", and a medium
+     "Restore to an earlier day". */
+  #soft-app .datalist { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 12px; }
+  #soft-app .datalist > .ghost { display: block; width: 100%; text-align: center; margin: 0; }
+  /* And the lone buttons in the sections above, so the whole panel is one
+     column rather than three sections that each choose their own width. The
+     child selector matters: Cancel and Save live inside .modal-actions and
+     must stay side by side. */
+  #soft-app .modal > .ghost { display: block; width: 100%; text-align: center; margin: 2px 0 0; }
+  #soft-app .filebtn { cursor: pointer; }
   #soft-app .filebtn input { display: none; }
   #soft-app .snaplist { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 4px; }
   #soft-app .snaprow {

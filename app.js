@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.12';
+  const BUILD = '2026-09-28.13';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -6718,11 +6718,16 @@
   }
 
   function restoreSettingsHTML(){
-    let h = '<button class="ghost" data-export>Download a backup</button>';
+    // The three sit in a list of their own. A button shrinks to fit its words
+    // and a label does not, so left alone they came out three different
+    // widths, which looks like a mistake because it is one.
+    let h = '<div class="datalist">';
+    h += '<button class="ghost" data-export>Download a backup</button>';
     h += '<label class="ghost filebtn">Restore from a file' +
       '<input id="rs_file" type="file" accept="application/json,.json"></label>';
     h += '<button class="ghost" data-snaplist'+(snapBusy ? ' disabled' : '')+'>'+
       (snapBusy ? 'Looking…' : 'Restore to an earlier day')+'</button>';
+    h += '</div>';
     if (snapErr) h += '<p class="setnote">'+esc(snapErr)+'</p>';
     if (snaps && snaps.length){
       h += '<div class="snaplist">' + snaps.map(s =>
