@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.9';
+  const BUILD = '2026-09-28.10';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -5142,7 +5142,16 @@
     // small insult, so submit it.
     shell.addEventListener('input', e => {
       if (e.target.id !== 'auth_code' || authBusy) return;
-      if (e.target.value.replace(/\D/g, '').length === 6) verifyCode();
+      // Whatever arrives, keep the digits and nothing else. Pasting a code out
+      // of an email brings spaces with it often enough to matter.
+      const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+      if (digits !== e.target.value){
+        const end = e.target.selectionStart >= e.target.value.length;
+        e.target.value = digits;
+        if (end) try { e.target.setSelectionRange(digits.length, digits.length); } catch(_){}
+      }
+      drafts['auth_code'] = digits;
+      if (digits.length === 6) verifyCode();
     });
     /* ---- placing a task by dragging it ----
        Desktop only, and honestly so: HTML5 drag has no touch equivalent, so a
@@ -8122,8 +8131,13 @@
       h += '<h1>Check your email</h1>';
       h += '<p class="login-sub">We sent a six digit code to <b>'+esc(authEmail)+'</b>. Enter it below to finish signing in.</p>';
       h += '<div class="login-box">'+
+        // maxlength counts characters, not digits. At six it meant a code that
+        // arrived with a space in it, which is what tapping the suggestion
+        // above the keyboard often gives you, filled the box after five digits
+        // and then refused the sixth. Room to hold the spaces, and the input
+        // handler takes them straight back out.
         '<input id="auth_code" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" '+
-          'maxlength="6" placeholder="123456" class="codebox">'+
+          'maxlength="24" placeholder="123456" class="codebox">'+
         '<button class="go" data-verifycode'+(authBusy?' disabled':'')+'>'+(authBusy?'Checking…':'Sign in')+'</button>'+
         '</div>';
       if (authMsg) h += '<p class="login-msg">' + esc(authMsg) + '</p>';
@@ -8149,6 +8163,9 @@
     const i = document.getElementById('auth_email');
     if (i && drafts['auth_email']) i.value = drafts['auth_email'];
     const c = document.getElementById('auth_code');
+    // The code was the one field this did not put back, so a rejected code
+    // emptied the box and you retyped all six to fix one wrong digit.
+    if (c && drafts['auth_code']) c.value = drafts['auth_code'];
     if (c) c.focus();
   }
 
@@ -8169,6 +8186,7 @@
           : 'Could not send the code: ' + error.message;
       } else {
         authEmail = email; authStep = 'code';
+        clearDraft('auth_code');        // a new code, not the last one you tried
         authMsg = '';
       }
     } catch(e){ authBusy = false; authMsg = 'Something went wrong. Please try again.'; }
@@ -8193,6 +8211,7 @@
         return;
       }
       // onAuthStateChange starts the app; nothing else to do here.
+      clearDraft('auth_code'); clearDraft('auth_email');
       authMsg = ''; authStep = 'email';
     } catch(e){ authBusy = false; authMsg = 'Something went wrong. Please try again.'; renderAuth(); }
   }
