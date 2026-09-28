@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.16';
+  const BUILD = '2026-09-28.17';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1886,6 +1886,10 @@
     let h = '';
     if (isToday){
       h += dayProgressHTML();   // progress is about today, not a day you're browsing
+      // A second miss goes above the chips, not among them. The whole idea is
+      // that it is the one thing worth doing next, and a chip in a row of
+      // chips is the one thing you scroll past.
+      h += slipHTML(now);
       // Habits sit with the ring they count toward. Only today's: a tick here
       // always lands on today, so offering them on another day would mislead.
       // A habit inside a routine is ticked in its routine's block instead.
@@ -2187,7 +2191,8 @@
     if (!hb) return;
     clearModalDrafts();
     habEdit = { id: hb.id, label: hb.label, cat: hb.cat || (S.categories[0] || {}).id,
-      freq: habWeekly(hb) ? 'weekly' : 'daily', target: Math.max(1, +hb.target || 1) };
+      freq: habWeekly(hb) ? 'weekly' : 'daily', target: Math.max(1, +hb.target || 1),
+      floor: hb.floor || '', anchor: (routineOf(hb.id) || {}).id || '' };
     render();
   }
   function habitEditorHTML(){
@@ -2196,6 +2201,24 @@
     let h = '<div class="modal-back" data-closehabit></div><div class="modal"><div class="modal-h">Edit habit</div>';
     h += '<label class="fld"><span>Habit</span><input id="he_label" type="text" value="'+esc(e.label)+'" autocomplete="off"></label>';
     h += '<label class="fld"><span>Category</span><select id="he_cat">'+CATOPTS+'</select></label>';
+    h += '<label class="fld"><span>The smallest version</span>'+
+      '<input id="he_floor" type="text" value="'+esc(e.floor || '')+'" autocomplete="off" '+
+      'placeholder="'+esc(e.target > 1 ? 'one glass' : 'one page')+'"></label>';
+    h += '<p class="setnote">What you do instead on a day it is not happening. Athena only offers it '+
+      'after you have missed twice, so it stays a way back rather than the thing you aim for.</p>';
+    // Stacking, in Clear's sense: hang the new thing off something already
+    // solid rather than off a time you hope to be free. Athena already runs
+    // habits inside routines, so the anchor is a routine, and setting it from
+    // here is the part that was missing.
+    const ROPTS = '<option value="">On its own, any time of day</option>' +
+      routinesAll().map(r => '<option value="'+esc(r.id)+'"'+(r.id === e.anchor ? ' selected' : '')+'>'+
+        'After ' + esc(r.name) + (r.time ? ', ' + clockOf(r.time) : '') + '</option>').join('');
+    if (routinesAll().length){
+      h += '<label class="fld"><span>When</span><select id="he_anchor">'+ROPTS+'</select></label>';
+      h += '<p class="setnote">Hung off a routine, it happens when that routine happens and stops '+
+        'asking on days the routine does not run. That is the difference between a habit you '+
+        'remember and one you simply do.</p>';
+    }
     h += '<div class="fld two">'+
       '<label><span>How often</span><select id="he_freq">'+
         '<option value="daily"'+(e.freq==='daily'?' selected':'')+'>Every day</option>'+
@@ -2219,6 +2242,18 @@
     hb.cat = (g('he_cat') || {}).value || hb.cat;
     hb.freq = ((g('he_freq') || {}).value === 'weekly') ? 'weekly' : 'daily';
     hb.target = Math.max(1, Math.min(10, +((g('he_target') || {}).value) || 1));
+    const fl = ((g('he_floor') || {}).value || '').trim().slice(0, 80);
+    if (fl) hb.floor = fl; else delete hb.floor;
+    // Moving the anchor means taking it out of wherever it was first, or it
+    // would quietly belong to two routines and be owed twice a day.
+    const an = g('he_anchor') ? String(g('he_anchor').value || '') : null;
+    if (an !== null){
+      routinesAll().forEach(r => {
+        r.habits = (r.habits || []).filter(x => x !== hb.id);
+      });
+      const to = routinesAll().find(r => r.id === an);
+      if (to) (to.habits || (to.habits = [])).push(hb.id);
+    }
     habEdit = null; clearModalDrafts(); save(); render();
   }
 
@@ -2258,12 +2293,127 @@
       routine: r
     }));
   }
+  /* ---------- never miss twice ----------
+     Clear's rule, and the only one of his that needed no new data at all:
+     every tick Athena has ever recorded is already here.
+
+     One miss is not a problem. That is the whole point of the rule, so on one
+     miss Athena says nothing whatsoever. It is the second in a row that turns
+     a bad day into a new pattern, and that is the only moment she speaks.
+
+     Two guards stop it becoming a nag. A habit you have never once kept is
+     not slipping, it is not started, so the rule waits until there is
+     something to slip from. And a habit is only counted as missed on days it
+     was actually due: a habit inside a routine that runs on weekdays cannot
+     miss on a Sunday. */
+  const SLIP_LOOK = 14;      // days of history that count as 'you have kept this'
+
+  // The keys this habit was last due on, most recent first, today excluded.
+  // Today is excluded because the day is not over and a habit you have not
+  // done yet at nine in the morning has not been missed.
+  function habDueKeys(h, now, n){
+    const out = [];
+    if (h.w){
+      for (let i = 1; out.length < n && i <= n + 2; i++){
+        const d = new Date(now); d.setDate(d.getDate() - (i * 7));
+        out.push(weekKey(d));
+      }
+      return out;
+    }
+    const r = routineOf(h.id);
+    for (let i = 1; out.length < n && i <= 60; i++){
+      const d = new Date(now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+      if (r && !runsOn(r, d)) continue;
+      out.push(dayKey(d));
+    }
+    return out;
+  }
+
+  // 0 you are fine, 1 you missed once and Athena keeps it to herself,
+  // 2 or more and she says something.
+  function habSlip(h, now){
+    const keys = habDueKeys(h, now, SLIP_LOOK);
+    if (!keys.length) return 0;
+    // Nothing to slip from yet.
+    if (!keys.some(k => isDone(h.id, k, h.target))) return 0;
+    let n = 0;
+    for (let i = 0; i < keys.length; i++){
+      if (isDone(h.id, keys[i], h.target)) break;
+      n++;
+    }
+    return n;
+  }
+
+  // The smallest version that still counts as showing up. Clear's two minute
+  // rule: the point is not the glass of water, it is not becoming someone who
+  // skips. Her own words when she has written them, and something sensible
+  // when she has not.
+  function habFloorWords(h){
+    const own = ((S.habits || []).find(x => x.id === h.id) || {}).floor;
+    if (own) return String(own);
+    if (h.target > 1) return 'just one';
+    return 'just once, however badly';
+  }
+
+  // Whether Athena should say anything right now. The run behind you is only
+  // half of it: once you have shown up today, however small, the run is
+  // broken and she has nothing left to say. Any tick counts, not a finished
+  // target, because one glass is the whole point of the small version and
+  // being told off straight after doing it is how an app stops being trusted.
+  function habSlipping(h, now){
+    if (compVal(h.id, habKey(h.w, now))) return 0;
+    return habSlip(h, now);
+  }
+
+  // Everything currently slipping, worst first. Weekly habits are counted in
+  // weeks, so two of those is a fortnight and worth hearing about.
+  function slippingHabits(now){
+    return activeHabits(now)
+      .filter(h => !h.goal)
+      .map(h => ({ h, n: habSlipping(h, now) }))
+      .filter(x => x.n >= 2)
+      .sort((x, y) => y.n - x.n);
+  }
+
+  function slipHTML(now){
+    const slips = slippingHabits(now);
+    if (!slips.length) return '';
+    let h = '<div class="sliplist">';
+    slips.slice(0, 3).forEach(x => {
+      const unit = x.h.w ? 'week' : 'day';
+      const dk = habKey(x.h.w, now);
+      h += '<div class="slip">' +
+        '<p><b>' + esc(x.h.l) + '</b>, ' + x.n + ' ' + unit + (x.n === 1 ? '' : 's') + ' missed. ' +
+        'Do not go for the whole thing. Go for <b>' + esc(habFloorWords(x.h)) + '</b>, now.</p>' +
+        '<button class="go" data-slipfloor="' + esc(x.h.id) + '|' + dk + '">Do the small version</button>' +
+        '</div>';
+    });
+    return h + '</div>';
+  }
+
+  // Recording the floor is recording one. For a habit counted to ten that is
+  // one of ten, and for a habit that is simply done or not it is done. Either
+  // way the streak survives, which is the entire point.
+  function slipFloorDo(spec){
+    const bits = String(spec).split('|');
+    const id = bits[0], dk = bits[1];
+    const h = activeHabits(new Date()).find(x => x.id === id);
+    if (!h) return;
+    markUndo('Small version');
+    const m = S.completions[dk] || (S.completions[dk] = {});
+    m[id] = h.target > 1 ? Math.max(1, (+m[id] || 0)) : true;
+    markJustDone(id);
+    announce(h.l + ', kept');
+    save(); render();
+  }
+
   function chipsHTML(now, weekly){
     const want = !!weekly;
     let h = '<div class="chips">';
     looseHabits().filter(d => !!d.w === want).forEach(d => {
       const dk = habKey(d.w, now);
       const col = catColor(d.c);
+      const slipped = habSlipping(d, now) >= 2 ? ' slipping' : '';
       const tint = 'background:'+col+'22;border-color:'+col+'55';
       if (d.target){
         const v = compVal(d.id, dk) || 0;
@@ -2272,10 +2422,10 @@
         // because ten in a row pushes the label off the chip and ten wrapped
         // wherever they land is the ragged mess this replaced.
         const cols = d.target > 6 ? Math.ceil(d.target / 2) : d.target;
-        h += '<button class="chip'+(v>=d.target?' on':'')+(justDone===d.id?' just':'')+'" style="'+(v>=d.target?tint:'')+'" data-pip="'+d.id+':'+d.target+':'+dk+'"><span class="cl">'+esc(d.l)+'</span><span class="pips" style="--pc:'+cols+'">'+p+'</span></button>';
+        h += '<button class="chip'+(v>=d.target?' on':'')+(justDone===d.id?' just':'')+slipped+'" style="'+(v>=d.target?tint:'')+'" data-pip="'+d.id+':'+d.target+':'+dk+'"><span class="cl">'+esc(d.l)+'</span><span class="pips" style="--pc:'+cols+'">'+p+'</span></button>';
       } else {
         const on = isDone(d.id, dk);
-        h += '<button class="chip'+(on?' on':'')+(justDone===d.id?' just':'')+'" style="'+(on?tint:'')+'" data-done="'+d.id+'|'+dk+'"><span class="cl">'+esc(d.l)+'</span>'+
+        h += '<button class="chip'+(on?' on':'')+(justDone===d.id?' just':'')+slipped+'" style="'+(on?tint:'')+'" data-done="'+d.id+'|'+dk+'"><span class="cl">'+esc(d.l)+'</span>'+
           '<span class="mark" style="'+(on?'background:'+col+';border-color:'+col:'')+'"></span></button>';
       }
     });
@@ -3730,6 +3880,57 @@
     return h;
   }
 
+  /* ---------- who you are becoming ----------
+     Clear's point is that a goal is something you hit once and a habit is
+     something you are. So the thing worth naming is not the target, it is the
+     person, and every small action is a vote for being them.
+
+     The votes are not a new thing to track. They are the ticks Athena already
+     has: a habit kept, a rock carried. Counting what is already there is the
+     difference between a scorecard and yet another thing to fill in. */
+  const IDENT_DAYS = 30;
+  const identities = () => (S.identity || (S.identity = {}));
+  const identityOf = track => String(identities()[track] || '');
+
+  // A day's votes for one side of your life: habits kept and rocks carried,
+  // counted in that side's categories only.
+  function votesOn(track, d){
+    const catIds = catsOn(track).map(c => c.id);
+    const mine = id => catIds.indexOf(id) !== -1;
+    const dk = dayKey(d);
+    let n = 0;
+    activeHabits(d).forEach(h => {
+      if (!mine(h.c)) return;
+      if (isDone(h.id, habKey(h.w, d), h.target)) n++;
+    });
+    (rocksAll()[dk] || []).forEach(r => { if (r.doneAt) n++; });
+    return n;
+  }
+
+  function identityScore(track, now){
+    let votes = 0, days = 0, streak = 0, best = 0;
+    for (let i = IDENT_DAYS - 1; i >= 0; i--){
+      const d = new Date(now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+      const v = votesOn(track, d);
+      votes += v;
+      if (v){ days++; streak++; if (streak > best) best = streak; }
+      else if (i > 0) streak = 0;   // today not voted yet is not a broken run
+    }
+    return { votes, days, of: IDENT_DAYS, streak, best };
+  }
+
+  function identityHTML(track, now){
+    const who = identityOf(track);
+    if (!who) return '';
+    const s = identityScore(track, now);
+    return '<div class="ident">' +
+      '<p class="ident-who">You are becoming <b>' + esc(who) + '</b>.</p>' +
+      '<p class="ident-score"><b>' + s.votes + '</b> vote' + (s.votes === 1 ? '' : 's') +
+      ' in the last ' + s.of + ' days, on <b>' + s.days + '</b> of them' +
+      (s.best > 1 ? ', longest run <b>' + s.best + '</b> days' : '') + '.</p>' +
+      '</div>';
+  }
+
   /* ---- the sitting itself ---- */
   let sitting = null;   // { track, step, pick:{}, carry:{} }
 
@@ -3820,6 +4021,7 @@
       ' side this week? One or two is the right number.</p>';
     // Before the promises, the arithmetic. Committing in ignorance of the week
     // is how a commitment becomes something to feel bad about on Friday.
+    h += identityHTML(track, now);
     h += weekAheadHTML(track, now);
 
     if (live.length){
@@ -3954,6 +4156,14 @@
     const r = weekReview(track, now);
     const L = [];
     L.push('You are coaching the ' + trackName(track) + ' side of their life.');
+    const who = identityOf(track);
+    if (who){
+      const sc = identityScore(track, now);
+      L.push('They have said who they are trying to become on this side: "' + who + '".');
+      L.push('Small actions are votes for that person. In the last ' + sc.of + ' days they cast ' +
+        sc.votes + ', on ' + sc.days + ' separate days. Judge the week against that person, ' +
+        'not against a tidy list.');
+    }
     L.push('Today is ' + dayKey(now) + ', a ' + DAYS[now.getDay()] + '.');
 
     const known = notesOn(track);
@@ -3983,6 +4193,25 @@
         (w.noEstimate ? ', of which ' + w.noEstimate + ' carry no estimate so the real figure is higher' : '') + '.');
       if (w.over) L.push('  That is ' + dur(w.short) + ' more work than there is room for. Say so, plainly, ' +
         'and make them choose what goes. Do not soften it and do not let them commit to more on top.');
+    }
+
+    // Which habits are actually being kept. Athena cannot work out on her own
+    // which of these matters most, and inventing a leverage score would be
+    // making it up, so the numbers go to the coach and the judgement is asked
+    // for rather than fabricated.
+    const hstats = activeHabits(now).filter(h => !h.goal).map(h => {
+      const keys = habDueKeys(h, now, 28);
+      const kept = keys.filter(k => isDone(h.id, k, h.target)).length;
+      return { l: h.l, kept, of: keys.length, slip: habSlip(h, now) };
+    }).filter(x => x.of);
+    if (hstats.length){
+      L.push('');
+      L.push('Their habits, kept against due, over the last four weeks:');
+      hstats.forEach(x => L.push('  ' + x.l + ': ' + x.kept + ' of ' + x.of +
+        (x.slip >= 2 ? ' (missed the last ' + x.slip + ' in a row)' : '')));
+      L.push('Name the three with the most leverage, meaning the ones whose keeping would ' +
+        'change the most else. Say why, in their own life, not in general. If the evidence ' +
+        'does not support picking three, pick fewer and say so.');
     }
 
     L.push('');
@@ -6856,6 +7085,19 @@
   const HOURS = (() => { const o = []; for (let h = 0; h < 24; h++){ o.push(pad(h)+':00'); o.push(pad(h)+':30'); } return o; })();
   const hourOpts = (sel) => HOURS.map(t => '<option value="'+t+'"'+(t === sel ? ' selected' : '')+'>'+clockOf(t)+'</option>').join('');
 
+  function identitySettingsHTML(){
+    let h = '<div class="modal-h" style="margin-top:8px">Who you are becoming</div>';
+    h += '<p class="setnote">A goal is something you hit once. This is the person the habits are for, ' +
+      'and every small thing you keep is a vote for being them. Leave either one blank and Athena ' +
+      'will not mention it.</p>';
+    ['work', 'life'].forEach(t => {
+      h += '<label class="fld"><span>' + esc(trackName(t)) + '</span>' +
+        '<input id="id_' + t + '" type="text" value="' + esc(identityOf(t)) + '" autocomplete="off" ' +
+        'placeholder="' + esc(t === 'work' ? 'someone who finishes what she starts' : 'someone who looks after herself first') + '"></label>';
+    });
+    return h;
+  }
+
   function calSettingsHTML(){
     let h = '<div class="modal-h" style="margin-top:8px">Calendar</div>';
     if (!cloud || !session){
@@ -7321,6 +7563,7 @@
     h += '<button class="ghost" data-obrerun>Walk me through setup again</button>';
     h += '<p class="setnote">The same questions as the first time, filled in with what you have now. '+
       'Change the hours, add a category, and Athena shows you exactly what it would move before anything happens.</p>';
+    h += identitySettingsHTML();
     h += calSettingsHTML();
     h += trackSettingsHTML();
     h += nudgeSettingsHTML();
@@ -8095,6 +8338,7 @@
       save(); render(); return;
     }
     if (t('[data-tmdone]')){ tomorrowApply(); return; }
+    if ((m = t('[data-slipfloor]'))){ slipFloorDo(m.dataset.slipfloor); return; }
     if (t('[data-search]')){ openSearch(); return; }
     if (t('[data-closesearch]')){ searchOpen = false; clearDraft('gs_q'); render(); return; }
     if ((m = t('[data-sgo]'))){ searchGo(m.dataset.sgo); return; }
@@ -8607,6 +8851,12 @@
     else toggleDone('m:'+sid, monKey(now));
   }
   function commitSettings(){
+    ['work', 'life'].forEach(t => {
+      const el = document.getElementById('id_' + t);
+      if (!el) return;
+      const v = String(el.value || '').trim().slice(0, 120);
+      if (v) identities()[t] = v; else delete identities()[t];
+    });
     const nm = document.getElementById('s_name');
     if (nm) S.profile.name = nm.value.trim().slice(0,40);
     S.categories.forEach(c => {

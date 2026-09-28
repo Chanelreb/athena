@@ -1987,6 +1987,43 @@
     background: var(--live-soft); border: 1px solid var(--live);
   }
   #soft-app .ahead-hard b { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* A second miss in a row. Loud enough to be the next thing you do, quiet
+     enough that it is clearly not a telling off: nothing has gone wrong, a
+     pattern is just starting and this is the moment it is cheapest to stop. */
+  #soft-app .sliplist { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 4px; }
+  #soft-app .slip {
+    padding: 12px 14px; border-radius: 12px;
+    background: var(--live-soft); border: 1px solid var(--live);
+  }
+  #soft-app .slip p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.5; }
+  /* .go has no base rule in this stylesheet, it is dressed per context, so a
+     button in a new place arrives as a raw browser button. It has to be
+     styled here or it turns up white and square in the middle of the day. */
+  #soft-app .slip .go {
+    margin: 0; background: var(--live); color: var(--on-live);
+    border: 0; border-radius: 10px; padding: 10px 16px;
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
+
+  /* And a mark on the chip itself, so the state is still there once the
+     words have been acted on or scrolled past. */
+  #soft-app .chip.slipping { border-style: dashed; border-color: var(--live); }
+
+  /* Who you are becoming, at the top of the sitting. It reads as a statement
+     rather than a statistic, because that is what it is: the frame the rest
+     of the numbers sit inside. */
+  #soft-app .ident { margin: 2px 0 16px; }
+  #soft-app .ident-who {
+    margin: 0 0 6px; font-family: var(--serif); font-weight: 400;
+    font-size: 18px; line-height: 1.35; color: var(--text);
+  }
+  #soft-app .ident-who b { font-weight: 400; font-style: italic; }
+  #soft-app .ident-score {
+    margin: 0; font-size: 13px; color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  #soft-app .ident-score b { color: var(--text); font-weight: 600; }
   #soft-app .modal.sit .ck-row:first-of-type { border-top: 1px solid var(--line); }
   #soft-app .modal.sit .gform { margin-top: 8px; }
 
