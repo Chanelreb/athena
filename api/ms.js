@@ -163,6 +163,25 @@ async function usableToken(jwt, row){
   return t.access_token;
 }
 
+// Graph answers with a wall clock and the zone beside it, never joined up:
+//   { dateTime: "2026-09-28T11:00:00.0000000", timeZone: "Australia/Perth" }
+//
+// Which zone to ask for is the whole question. UTC is the tempting answer and
+// the wrong one: an all-day entry is midnight in its own zone, and rendered in
+// UTC a Perth holiday on the 28th comes back stamped the 27th, so it lands on
+// the wrong day. Asking for the reader's own zone instead makes both kinds
+// right at once, because then the wall clock Graph sends is the wall clock
+// they are actually living in, and the browser reads it as exactly that.
+const tzOK = /^[A-Za-z][A-Za-z0-9_+\-]*(\/[A-Za-z0-9_+\-]+){0,2}$/;
+const cleanTZ = z => (typeof z === 'string' && z.length <= 64 && tzOK.test(z)) ? z : 'UTC';
+
+const wall = t => (t && t.dateTime) ? String(t.dateTime) : null;
+
+// An all-day entry has no clock to convert. Taking its date straight off the
+// string keeps it on the day Outlook says, instead of sliding a day either way
+// depending on which side of Greenwich you are.
+const dayOf = t => (t && t.dateTime) ? String(t.dateTime).slice(0, 10) : null;
+
 export default async function handler(req, res){
   // Microsoft only ever arrives here one way: a GET carrying the code. It is
   // handed straight back to the app rather than acted on, so that nothing has
@@ -251,9 +270,10 @@ export default async function handler(req, res){
     if (action === 'events'){
       const from = String(body.from || '').slice(0, 40);
       const to = String(body.to || '').slice(0, 40);
+      const tz = cleanTZ(body.tz);
       if (!from || !to){ res.status(400).json({ error: 'Need a window of dates.' }); return; }
       const rows = await db(jwt, 'ms_accounts?select=id,label,refresh_token,access_token,expires_at');
-      if (!rows || !rows.length){ res.status(200).json({ events: [], trouble: [] }); return; }
+      if (!rows || !rows.length){ res.status(200).json({ events: [], trouble: [], tz }); return; }
 
       const events = [], trouble = [];
       for (const row of rows){
@@ -265,7 +285,7 @@ export default async function handler(req, res){
             '$orderby': 'start/dateTime', '$top': '100'
           });
           const r = await fetch('https://graph.microsoft.com/v1.0/me/calendarView?' + q.toString(), {
-            headers: { Authorization: 'Bearer ' + tok, Prefer: 'outlook.timezone="UTC"' }
+            headers: { Authorization: 'Bearer ' + tok, Prefer: 'outlook.timezone="' + tz + '"' }
           });
           const j = await r.json().catch(() => ({}));
           if (!r.ok) throw new Error((j.error && j.error.message) || 'Microsoft would not hand over the calendar');
@@ -273,7 +293,8 @@ export default async function handler(req, res){
             events.push({
               id: ev.id, from: row.label,
               title: String(ev.subject || '(no title)').slice(0, 160),
-              start: ev.start && ev.start.dateTime, end: ev.end && ev.end.dateTime,
+              start: wall(ev.start), end: wall(ev.end),
+              day: ev.isAllDay ? dayOf(ev.start) : null,
               allDay: !!ev.isAllDay,
               // "free" and "working elsewhere" are not really busy, and treating
               // them as blocked time would make a clear day look full.
@@ -285,7 +306,9 @@ export default async function handler(req, res){
           trouble.push({ account: row.label, why: (e && e.message) || 'could not be read' });
         }
       }
-      res.status(200).json({ events, trouble });
+      // The zone is sent back so the browser knows how to read the clocks it
+      // has just been handed, and knows to ask again if it ever moves.
+      res.status(200).json({ events, trouble, tz });
       return;
     }
 

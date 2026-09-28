@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.14';
+  const BUILD = '2026-09-28.15';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1338,23 +1338,31 @@
      cannot move it, tick it or make it shorter, and dressing it up as a block
      would invite all three. The lane is what says at a glance how much of the
      day was decided by somebody else. */
-  function meetHTML(m, px, h){
+  function meetHTML(m, px){
     const top = px(Math.max(m.sm, DS));
     const hgt = Math.max(16, px(Math.min(m.em, DE)) - top - 2);
+    const of = m.of || 1, w = 100 / of, left = w * (m.lane || 0);
     const e = m.ev;
-    const sub = hgt >= 40 ? clockOf(fmtM(m.sm)) + '\u2013' + clockOf(fmtM(Math.min(m.em, DE))) : '';
-    const where = hgt >= 58 && e.where ? '<em>' + esc(e.where) + '</em>' : '';
-    return '<div class="cmeet" style="top:' + top + 'px;height:' + hgt + 'px" ' +
+    const room = of === 1;
+    const sub = (hgt >= 40 && room) ? clockOf(fmtM(m.sm)) + '\u2013' + clockOf(fmtM(Math.min(m.em, DE))) : '';
+    const where = (hgt >= 58 && room && e.where) ? '<em>' + esc(e.where) + '</em>' : '';
+    return '<div class="cmeet" style="top:' + top + 'px;height:' + hgt + 'px;' +
+      'left:calc(' + left + '% + 3px);width:calc(' + w + '% - 6px)" ' +
       'title="' + esc(e.title + (e.where ? ' \u00b7 ' + e.where : '') + ' \u00b7 ' + e.from) + '">' +
       '<b>' + esc(e.title) + '</b>' + (sub ? '<em>' + sub + '</em>' : '') + where + '</div>';
   }
 
+  const moreHTML = (laid, px) => (laid.extra || []).map(x =>
+    '<div class="cmore" style="top:' + (px(x.at) + 2) + 'px">+' + x.n + '</div>').join('');
+
   // All-day entries have no place on a timed grid, so they sit above it.
   function allDayStrip(list){
-    const ad = list.filter(m => m.allDay);
+    const ad = list.filter(isBanner);
     if (!ad.length) return '';
     return '<div class="cmeet-all">' + ad.map(m =>
-      '<span title="' + esc(m.ev.from) + '">' + esc(m.ev.title) + '</span>').join('') + '</div>';
+      '<span title="' + esc(m.ev.title + ' \u00b7 ' + m.ev.from) + '">' + esc(m.ev.title) +
+      (m.allDay ? '' : '<i>' + clockOf(fmtM(m.sm)) + '\u2013' + clockOf(fmtM(Math.min(m.em, DE))) + '</i>') +
+      '</span>').join('') + '</div>';
   }
 
   function gridHTML(days, now, tot){
@@ -1369,7 +1377,7 @@
     let cols = '';
     days.forEach((dd, pos) => {
       const dk = dayKey(dd);
-      const timedMeets = meetingsOn(dd).filter(m => !m.allDay);
+      const laidMeets = layMeets(meetingsOn(dd).filter(m => !isBanner(m)));
       let inner = '';
       for (let m = DS + 60; m < DE; m += 60) inner += '<div class="gl" style="top:'+px(m)+'px"></div>';
       // Blocks go inside a lane of their own once there are meetings to sit
@@ -1392,10 +1400,12 @@
           '<b>'+esc(b.t)+'</b><em>'+clockOf(b.s)+'–'+clockOf(b.e)+'</em><i class="rz"></i></button>';
       });
       inner += '</div>';
-      if (timedMeets.length)
-        inner += '<div class="cmlane">' + timedMeets.map(m => meetHTML(m, px)).join('') + '</div>';
+      if (laidMeets.length)
+        inner += '<div class="cmlane">' + laidMeets.map(m => meetHTML(m, px)).join('') +
+          moreHTML(laidMeets, px) + '</div>';
       if (pos === todayIdx && t >= DS && t <= DE) inner += '<div class="cbnow" style="top:'+px(t)+'px"></div>';
-      cols += '<div class="calcol'+(pos===todayIdx?' td':'')+(timedMeets.length?' hasmeet':'')+'" '+
+      cols += '<div class="calcol'+(pos===todayIdx?' td':'')+
+        (laidMeets.length ? ' hasmeet lanes-'+laidMeets.widest : '')+'" '+
         'data-newon="'+dk+'">'+inner+'</div>';
     });
     // the drag handler reads the column dates straight off here
@@ -1447,7 +1457,7 @@
       });
       // Meetings ride the same bar, drawn as a hollow band so a booked hour
       // reads differently from an hour you chose.
-      meetingsOn(dates[d]).filter(m => !m.allDay).forEach(m => {
+      meetingsOn(dates[d]).filter(m => !isBanner(m)).forEach(m => {
         const s = Math.max(m.sm, DS), e2 = Math.min(m.em, DE);
         if (e2 <= s) return;
         segs += '<i class="seg-meet" style="left:'+((s-DS)/SPAN*100)+'%;width:'+((e2-s)/SPAN*100)+'%"></i>';
@@ -1657,18 +1667,19 @@
         (isStep ? '' : '<i class="drz"></i>')+
         '</div>';
     });
-    const dmeets = meetingsOn(vd), dtimed = dmeets.filter(m => !m.allDay);
+    const dmeets = meetingsOn(vd), dtimed = layMeets(dmeets.filter(m => !isBanner(m)));
     // Blocks are wrapped so the meetings can take a lane beside them. With no
     // meetings the wrapper is the full width and the day looks exactly as it
     // always did.
     body = lines + '<div class="clane">' + body + '</div>';
     if (dtimed.length)
-      body += '<div class="cmlane">' + dtimed.map(m => meetHTML(m, px)).join('') + '</div>';
+      body += '<div class="cmlane">' + dtimed.map(m => meetHTML(m, px)).join('') +
+        moreHTML(dtimed, px) + '</div>';
     if (isToday && t >= DS && t <= DE) body += '<div class="cbnow" style="top:'+px(t)+'px"></div>';
 
     h += allDayStrip(dmeets);
     h += '<div class="daygrid"><div class="calhrs" style="height:'+DAY_H+'px">'+hrs+'</div>'+
-      '<div class="dcol'+(dtimed.length?' hasmeet':'')+'" style="height:'+DAY_H+'px" '+
+      '<div class="dcol'+(dtimed.length ? ' hasmeet lanes-'+dtimed.widest : '')+'" style="height:'+DAY_H+'px" '+
       'data-newon="'+dk+'">'+body+'</div></div>';
     return h;
   }
@@ -4113,18 +4124,34 @@
      draws on a train, refreshed quietly when it goes stale. They are never
      saved into S, because they are not yours to edit and a backup of them
      would go out of date the moment it was written. */
-  const CAL_KEY = 'athena:cal', CAL_STATE = 'athena:msstate';
+  // v2: the first version cached times with no timezone on them, which a
+  // browser reads as local. Changing the name throws that cache away rather
+  // than leaving a day looking wrong until the next refresh.
+  const CAL_KEY = 'athena:cal2', CAL_STATE = 'athena:msstate';
   const CAL_STALE = 10 * 60 * 1000;      // refetch at most every ten minutes
-  let cal = { accounts: [], events: [], at: 0, err: '', busy: false };
+  const deviceTZ = () => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+    catch(_){ return 'UTC'; }
+  };
+  let cal = { accounts: [], events: [], at: 0, err: '', busy: false, tz: deviceTZ() };
 
   function calLoad(){
+    // The first cache held times with no zone on them. It is not read any
+    // more; this just stops it sitting in storage forever.
+    try { localStorage.removeItem('athena:cal'); } catch(_){}
     try {
       const j = JSON.parse(lsGet(CAL_KEY) || 'null');
-      if (j){ cal.events = j.events || []; cal.accounts = j.accounts || []; cal.at = j.at || 0; }
+      if (j){
+        cal.events = j.events || []; cal.accounts = j.accounts || []; cal.at = j.at || 0;
+        cal.tz = j.tz || 'UTC';
+        // Fly to Sydney and every clock in here is two hours out. Throwing the
+        // cache away is cheaper than reasoning about it.
+        if (cal.tz !== deviceTZ()){ cal.events = []; cal.at = 0; }
+      }
     } catch(_){}
   }
   const calStash = () => lsSet(CAL_KEY, JSON.stringify({
-    events: cal.events, accounts: cal.accounts, at: cal.at
+    events: cal.events, accounts: cal.accounts, at: cal.at, tz: cal.tz
   }));
 
   async function calPost(body){
@@ -4160,8 +4187,10 @@
     try {
       const from = new Date(); from.setHours(0, 0, 0, 0);
       const to = new Date(from); to.setDate(to.getDate() + 8);
-      const j = await calPost({ action: 'events', from: from.toISOString(), to: to.toISOString() });
-      cal.events = j.events || []; cal.at = Date.now();
+      const j = await calPost({
+        action: 'events', from: from.toISOString(), to: to.toISOString(), tz: deviceTZ()
+      });
+      cal.events = j.events || []; cal.at = Date.now(); cal.tz = j.tz || 'UTC';
       // One calendar failing should not take the other one down with it, so
       // the server reports them separately and so does this.
       cal.err = (j.trouble || []).map(t => t.account + ': ' + t.why).join(' · ');
@@ -4224,14 +4253,67 @@
   /* The meetings on one day, in local time, ready to draw. Microsoft answers
      in UTC, which is the only sane thing for it to do and the wrong thing to
      show, so the conversion happens here, once. */
+  // A time with no zone on it is read as local by every browser, and Microsoft
+  // sends the zone in a separate field. The server anchors them now; this is
+  // here so a stray unanchored one can never quietly shift by a whole offset.
+  // The clocks arrive as wall time in the zone we asked for, which is this
+  // device's own, so they are read as local. A string that already carries an
+  // offset is left alone, and UTC only turns up if the zone was refused.
+  const calMoment = s => {
+    const t = String(s);
+    if (/(Z|[+-]\d{2}:?\d{2})$/.test(t)) return new Date(t);
+    return new Date(cal.tz === 'UTC' ? t + 'Z' : t);
+  };
+
+  /* Meetings that overlap need lanes of their own, or they print on top of
+     one another and you get three titles in the same six millimetres. Same
+     idea as layOut does for blocks, but these already know their minutes.
+
+     Three lanes is the most that stays readable on a phone. Past that the
+     extras are counted rather than drawn, because four unreadable slivers
+     tell you less than a number does. */
+  const MEET_LANES = 3;
+  function layMeets(list){
+    const items = list.map(m => Object.assign({}, m, {
+      s: Math.max(m.sm, DS), e: Math.min(m.em, DE)
+    })).filter(x => x.e > x.s).sort((x, y) => x.s - y.s || y.e - x.e);
+    const out = [], extra = [];
+    let i = 0;
+    while (i < items.length){
+      let end = items[i].e, j = i + 1;
+      while (j < items.length && items[j].s < end){ end = Math.max(end, items[j].e); j++; }
+      const cluster = items.slice(i, j), lanes = [];
+      cluster.forEach(x => {
+        let lane = 0;
+        while (lane < lanes.length && lanes[lane] > x.s) lane++;
+        lanes[lane] = x.e; x.lane = lane;
+      });
+      const of = Math.min(lanes.length, MEET_LANES);
+      cluster.forEach(x => { x.of = of; });
+      const shown = cluster.filter(x => x.lane < MEET_LANES);
+      const hidden = cluster.length - shown.length;
+      out.push.apply(out, shown);
+      if (hidden) extra.push({ at: cluster[0].s, n: hidden });
+      i = j;
+    }
+    // How wide the lane needs to be to hold the worst pile-up on the day.
+    out.widest = out.reduce((n, x) => Math.max(n, x.of), 1);
+    out.extra = extra;
+    return out;
+  }
+
+  const LONG_MEET = 6 * 60;
+  const isBanner = m => m.allDay || (m.em - m.sm) >= LONG_MEET;
+
   function meetingsOn(d){
     if (!cal.events.length) return [];
     const dk = dayKey(d), out = [];
     cal.events.forEach(ev => {
       if (!ev || !ev.busy || !ev.start) return;
-      const s = new Date(ev.start), e = new Date(ev.end || ev.start);
+      // An all-day entry carries its own date and no clock worth converting.
+      if (ev.allDay){ if ((ev.day || String(ev.start).slice(0, 10)) === dk) out.push({ ev, allDay: true, sm: DS, em: DS }); return; }
+      const s = calMoment(ev.start), e = calMoment(ev.end || ev.start);
       if (isNaN(s.getTime())) return;
-      if (ev.allDay){ if (dayKey(s) === dk) out.push({ ev, allDay: true, sm: DS, em: DS }); return; }
       if (dayKey(s) !== dk) return;
       const sm = s.getHours() * 60 + s.getMinutes();
       // A meeting running past midnight is shown running to the end of the
@@ -4248,7 +4330,7 @@
      be Athena talking for the sake of it. */
   const GAP_MIN = 45;
   function calGaps(now, from){
-    const ms = meetingsOn(now).filter(m => !m.allDay);
+    const ms = meetingsOn(now).filter(m => !isBanner(m));
     if (!ms.length) return [];
     const spans = blocksForDate(now).filter(b => !b.allDay)
       .map(b => [mins(b.s), mins(b.e)])
@@ -4281,7 +4363,7 @@
     const owed = dueCommits(now);
     const late = (S.tasks || []).filter(tk => !tk.repeat && !tk.doneAt && tk.due && tk.due < dk);
     const meets = meetingsOn(now);
-    const meetMins = meets.filter(m => !m.allDay).reduce((n, m) => n + (m.em - m.sm), 0);
+    const meetMins = meets.filter(m => !isBanner(m)).reduce((n, m) => n + (m.em - m.sm), 0);
     return { all, timed, ahead, booked, appts, closing, owed, late, first: ahead[0],
              meets, meetMins, gaps: calGaps(now, nowM) };
   }
@@ -4323,7 +4405,7 @@
     if (b.timed.length) rows.push([b.timed.length, 'block' + (b.timed.length !== 1 ? 's' : '') +
       (b.booked ? ', ' + dur(b.booked) + ' of them' : '')]);
     if (b.appts.length) rows.push([b.appts.length, 'at a fixed time']);
-    const timedMeets = b.meets.filter(m => !m.allDay), dayMeets = b.meets.length - timedMeets.length;
+    const timedMeets = b.meets.filter(m => !isBanner(m)), dayMeets = b.meets.length - timedMeets.length;
     if (timedMeets.length) rows.push([timedMeets.length, 'in your calendar' +
       (b.meetMins ? ', ' + dur(b.meetMins) : '')]);
     if (dayMeets) rows.push([dayMeets, 'on all day']);

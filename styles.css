@@ -388,8 +388,22 @@
      Hatched and outlined rather than filled, so at a glance a booked hour
      never reads as an hour you chose. */
   #soft-app .clane { position: absolute; inset: 0; }
+  /* How much room the meetings take depends on how stacked they are. One
+     at a time and your blocks keep most of the day; three deep and the day
+     really is mostly other people, so it looks like it. */
   #soft-app .calcol.hasmeet .clane,
   #soft-app .dcol.hasmeet .clane { right: 42%; }
+  #soft-app .calcol.lanes-2 .clane, #soft-app .dcol.lanes-2 .clane { right: 52%; }
+  #soft-app .calcol.lanes-3 .clane, #soft-app .dcol.lanes-3 .clane { right: 60%; }
+  #soft-app .calcol.lanes-2 .cmlane, #soft-app .dcol.lanes-2 .cmlane { width: 52%; }
+  #soft-app .calcol.lanes-3 .cmlane, #soft-app .dcol.lanes-3 .cmlane { width: 60%; }
+
+  /* Deeper than three and the rest are counted rather than drawn as slivers. */
+  #soft-app .cmore {
+    position: absolute; right: 3px; font-size: 10.5px; font-weight: 600;
+    color: var(--meet); background: var(--bg); border: 1px solid var(--meet);
+    border-radius: 999px; padding: 1px 6px; z-index: 2;
+  }
   #soft-app .cmlane { position: absolute; top: 0; bottom: 0; right: 0; width: 42%; }
   #soft-app .cmeet {
     position: absolute; left: 3px; right: 3px; border-radius: 6px;
@@ -408,8 +422,13 @@
   /* All day entries have no place on a timed grid, so they sit above it. */
   #soft-app .cmeet-all { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
   #soft-app .cmeet-all span {
-    font-size: 12px; padding: 4px 10px; border-radius: 999px;
-    color: var(--dim); border: 1px solid var(--meet);
+    display: inline-flex; align-items: baseline; gap: 7px;
+    font-size: 12px; padding: 4px 11px; border-radius: 999px;
+    color: var(--text); border: 1px solid var(--meet);
+  }
+  #soft-app .cmeet-all span i {
+    font-style: normal; font-size: 11px; color: var(--meet);
+    font-variant-numeric: tabular-nums;
   }
 
   /* On the week strips a meeting is the same idea at one tenth the size. */
