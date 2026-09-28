@@ -32,6 +32,9 @@
        yours: a booked hour is not a category, it is somebody else. */
     --meet: #8FA3C4;
     --meet-wash: #8FA3C412;
+    /* Not the accent. Reserved for the one button that destroys work. */
+    --danger: #D98A7B;
+    --on-danger: #2C2932;
     --live-soft: #413229;
 
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -898,6 +901,8 @@
     --live: #3A3833;
     --meet: #5E7495;
     --meet-wash: #5E74951A;
+    --danger: #A33B28;
+    --on-danger: #FFFFFF;
     /* Deeper than --raise on purpose. With a charcoal accent the block you are
        in can no longer stand out by hue, so it stands out by weight instead. */
     --live-soft: #E6E2D9;
@@ -1037,6 +1042,21 @@
     border-radius: 12px; padding: 11px 14px; font-size: 13px; line-height: 1.45; margin: 18px 0 4px;
   }
   #soft-app .modal .savewarn { margin: 0 0 12px; }
+
+  /* Starting again. The only button in Athena that throws work away, so it
+     is dressed as what it is: quiet where it sits in Settings, so it is not
+     inviting, and unmistakable at the moment of pressing. --warn is the
+     reserved something-is-wrong colour and this is the one place that is the
+     honest reading. */
+  #soft-app .ghost.danger { color: var(--danger); border-color: var(--danger); }
+  /* .go has no base rule in this stylesheet, it is dressed per context, so
+     this one is written out in full rather than inheriting nothing. */
+  #soft-app .modal .del-go {
+    background: var(--danger); color: var(--on-danger); border: 0;
+    border-radius: 10px; padding: 10px 16px;
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
+  #soft-app .modal .del-go[disabled] { opacity: .45; cursor: default; }
 
   /* tasks with nowhere to land today */
   #soft-app .homeless {
@@ -1218,6 +1238,7 @@
     --bg: #2C2932; --raise: #383441; --line: #474250; --text: #EFEAE5;
     --dim: #A9A1A8; --ghost: #6E6774; --live: #E5A87E; --live-soft: #413229;
     --meet: #8FA3C4; --meet-wash: #8FA3C412;
+    --danger: #D98A7B; --on-danger: #2C2932;
     color: var(--text);
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     font-size: 16px; line-height: 1.5;
@@ -1975,7 +1996,27 @@
     border-radius: 10px; padding: 9px 15px; font: inherit; font-weight: 600; cursor: pointer;
   }
   #soft-app .modal.sit { width: min(540px, calc(100vw - 28px)); }
-  #soft-app .modal.sit .rvgrid { display: flex; flex-direction: column; gap: 2px; margin: 12px 0 14px; }
+  /* Counted rows: a figure, then what it is. Only the container was ever
+     dressed, so the number and its label sat against each other with nothing
+     between them and it read as "11halready booked". The figures are given a
+     column of their own and right aligned in it, so a list of them lines up
+     the way a list of numbers should.
+
+     Used by the morning check-in, the weekly sitting and the reset panel. */
+  /* A grid rather than a guessed width, so every figure shares one column
+     sized to the widest of them. "5h 30m" next to "1" then still lines up,
+     which a min-width could only manage while the numbers happened to be a
+     similar length. The rows are display:contents so the b and the span drop
+     straight into the grid. */
+  #soft-app .modal.sit .rvgrid {
+    display: grid; grid-template-columns: max-content 1fr;
+    gap: 5px 10px; margin: 12px 0 14px; align-items: baseline;
+  }
+  #soft-app .modal.sit .rvgrid > div { display: contents; }
+  #soft-app .modal.sit .rvgrid b {
+    text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  #soft-app .modal.sit .rvgrid span { color: var(--dim); font-size: 13.5px; line-height: 1.4; }
 
   /* The line that is meant to be uncomfortable. It gets the weight of a
      warning without the colour of an error, because nothing has gone wrong:

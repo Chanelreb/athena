@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.17';
+  const BUILD = '2026-09-29.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -369,6 +369,10 @@
     if (!undoState) return;
     S = Object.assign(blank(), JSON.parse(undoState.snap));
     undoState = null; clearTimeout(undoTimer);
+    // Setup claims `ob` the first time it draws, and holds it. Undoing back
+    // to a week that plainly does not need setting up has to let that go, or
+    // the data comes back behind a welcome screen that will not leave.
+    if (ob && !ob.rerun && S.profile && S.profile.onboarded) ob = null;
     save(); render();
   }
 
@@ -6020,6 +6024,14 @@
       if (r){ r.cat = e.target.value; save(); render(); }
     });
 
+    // The acknowledgement on the reset panel. A checkbox reports on change,
+    // never on click, which is the trap the session day dropdown fell into.
+    shell.addEventListener('change', e => {
+      if (!resetting || !e.target.dataset || !('resetack' in e.target.dataset)) return;
+      resetting.ack = !!e.target.checked;
+      render();
+    });
+
     shell.addEventListener('change', e => {
       if (e.target.id !== 'tmr_on') return;
       timer.target = e.target.value;
@@ -6211,7 +6223,14 @@
     if ((loadFailed || bootBroken) && !workLocal){ app.classList.remove('wide'); paint(loadFailedHTML()); return; }
     // `ob` is also set when someone reruns setup from Settings, which is why
     // this is not gated on needsOnboarding alone.
-    if (ob || needsOnboarding()){ app.classList.remove('wide'); paint(onboardingHTML()); return; }
+    if (ob || needsOnboarding()){
+      app.classList.remove('wide');
+      paint(onboardingHTML() + (undoState
+        ? '<div class="undobar"><span>' + esc(undoState.label) + '</span>' +
+          '<button data-undo>Undo</button></div>'
+        : ''));
+      return;
+    }
     const now = new Date();
     const vd = viewDate();
     const hr = now.getHours();
@@ -6318,6 +6337,9 @@
     // on top. Drawn any earlier and the confirmation sits behind the panel
     // that opened it, invisible.
     if (restoring) h += restoreHTML();
+    // And this one after that again, because it is opened from Settings too
+    // and must not end up behind the panel that opened it.
+    if (resetting) h += resetHTML();
 
     paint(h);
   }
@@ -7389,6 +7411,10 @@
   function countOf(d){
     const c = (d && d.coach) || {};
     const notes = ((c.notes || {}).work || []).length + ((c.notes || {}).life || []).length;
+    // Plural here on purpose. The restore table pairs these rows by index and
+    // uses one side's label to name the row, so a label that changed with the
+    // count would read "1 routine" above a column saying 7. Anywhere a single
+    // count is shown on its own does its own singularising.
     return [
       ['blocks', (d.events || []).length],
       ['tasks', (d.tasks || []).length],
@@ -7528,7 +7554,77 @@
         '<em>'+(s.taken_on === dayKey(new Date()) ? 'this morning' : 'that morning')+'</em></button>').join('') + '</div>';
     }
     h += '<p class="setnote">A snapshot is taken the first time you open Athena each day, so it holds things as they were before that day started. The last seven are kept. Nothing is replaced without showing you what is in it first.</p>';
+    // Underneath the two that can save you, and looking like what it is.
+    h += '<div class="datalist" style="margin-top:14px">' +
+      '<button class="ghost danger" data-resetopen>Start again from scratch</button></div>';
     return h;
+  }
+
+  /* ---------- starting again ----------
+     The one button in Athena that throws work away on purpose, so it is built
+     to be hard to press by accident and easy to survive pressing.
+
+     It says what will go, counted, before it goes. It offers the backup in
+     the same breath rather than expecting you to have thought of it. It needs
+     a deliberate acknowledgement, not just a second tap in the same spot.
+
+     And the snapshots are deliberately left alone. They live with the account
+     rather than in the data, so a reset does not touch them, which means
+     Restore to an earlier day still reaches this morning for the next seven
+     days. That is the difference between a reset you can regret and one you
+     cannot. */
+  let resetting = null;   // { ack: bool } while the confirmation is open
+
+  function resetHTML(){
+    // One of something is not "1 routines". Every label here is a plural
+    // whose first word carries the s, so dropping it is enough and there is
+    // no list of exceptions to keep in step.
+    const one = lab => lab.replace(/^(\w+?)s\b/, '$1');
+    const rows = countOf(S).filter(r => r[1] > 0)
+      .map(r => [r[1] === 1 ? one(r[0]) : r[0], r[1]]);
+    let h = '<div class="modal-back" data-resetclose></div>';
+    h += '<div class="modal sit"><div class="modal-h">Start again from scratch</div>';
+    h += '<p class="setnote">Everything below is deleted, on every device you are signed in on. ' +
+      'Then Athena walks you through setup as though it were the first time.</p>';
+    if (rows.length){
+      h += '<div class="rvgrid">' + rows.map(r =>
+        '<div><b>' + r[1] + '</b><span>' + esc(r[0]) + '</span></div>').join('') + '</div>';
+    } else {
+      h += '<p class="setnote">There is nothing in here yet, so this will not lose you anything.</p>';
+    }
+    h += '<p class="setnote"><b>What stays:</b> your account, your connected calendars, ' +
+      'and your snapshots. Athena takes one each morning and keeps the last seven, so ' +
+      '<b>Restore to an earlier day</b> can still bring this morning back for a week. ' +
+      'That is your way out if you change your mind after the undo has gone.</p>';
+    h += '<div class="datalist"><button class="ghost" data-export>Download a backup first</button></div>';
+    h += '<label class="fld chk"><input type="checkbox" data-resetack' + (resetting.ack ? ' checked' : '') + '>' +
+      '<span>I know this cannot be undone once the undo has gone</span></label>';
+    h += '<div class="modal-actions"><button class="ghost" data-resetclose>Keep everything</button>' +
+      '<span style="flex:1"></span>' +
+      '<button class="del-go" data-resetgo' + (resetting.ack ? '' : ' disabled') + '>Delete it all</button></div>';
+    return h + '</div>';
+  }
+
+  function doReset(){
+    if (!resetting || !resetting.ack) return;
+    // markUndo first, so the undo bar covers this like anything else.
+    // It is not the real safety net, the snapshots are, but it catches the
+    // moment of immediate regret that a confirmation dialog cannot.
+    markUndo('Everything cleared');
+    S = blank();
+    resetting = null;
+    settingsOpen = false;
+    clearModalDrafts();
+    announce('Athena cleared, starting again');
+    // After announce, not before: announce takes the undo bar over to say its
+    // piece and resets the clock while it does, so a longer window set any
+    // earlier is quietly thrown away. Longer because setup fills the screen
+    // and taking in what you have just done takes longer than reading a toast.
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => { undoState = null; render(); }, 30000);
+    // onboarding lets itself in: no events and not onboarded is exactly the
+    // state a brand new account is in, and render already watches for it.
+    save(); render();
   }
 
   /* ---------- settings (name + categories) ---------- */
@@ -8338,6 +8434,9 @@
       save(); render(); return;
     }
     if (t('[data-tmdone]')){ tomorrowApply(); return; }
+    if (t('[data-resetopen]')){ commitSettings(); resetting = { ack: false }; render(); return; }
+    if (t('[data-resetclose]')){ resetting = null; render(); return; }
+    if (t('[data-resetgo]')){ doReset(); return; }
     if ((m = t('[data-slipfloor]'))){ slipFloorDo(m.dataset.slipfloor); return; }
     if (t('[data-search]')){ openSearch(); return; }
     if (t('[data-closesearch]')){ searchOpen = false; clearDraft('gs_q'); render(); return; }
