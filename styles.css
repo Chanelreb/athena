@@ -1984,17 +1984,31 @@
     color: var(--text); cursor: pointer; text-align: left;
   }
   #soft-app .habname:hover { color: var(--live); }
-  #soft-app .parktext {
+  /* The scratchpad and To place both live in the side panels, which sit
+     outside #soft-app. Scoping these to #soft-app meant they never reached
+     the panel, where .parked li button was left styling the words at 19px and
+     dim, and a bare button kept its browser default box. The rest of the
+     panel's own rules are written unscoped or against .ath-side, so these are
+     too, and .parked li .parktext has to outrank .parked li button. */
+  .parked li .parktext {
     flex: 1; min-width: 0; background: none; border: 0; padding: 0;
     font: inherit; color: var(--text); cursor: pointer; text-align: left;
+    line-height: inherit;
   }
-  #soft-app .parktext:hover { color: var(--live); }
-  #soft-app .parked li.editing input {
+  .parked li .parktext:hover { color: var(--live); }
+  .parked li.editing input {
     flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--live);
     color: var(--text); border-radius: 8px; padding: 6px 9px; font: inherit;
   }
-  #soft-app .place .ptask .pt {
-    flex: 1; min-width: 0; background: none; border: 0; padding: 0;
-    font: inherit; color: var(--text); cursor: pointer; text-align: left;
+  .ptask .pt {
+    background: none; border: 0; padding: 0; font: inherit;
+    color: inherit; cursor: pointer; text-align: left;
   }
-  #soft-app .place .ptask .pt:hover b { color: var(--live); }
+  .ptask .pt:hover b { color: var(--live); }
+  /* Category sits beside the time on a routine card and wraps under it when
+     there is no room. */
+  #soft-app .rwhen select {
+    background: var(--raise); border: 1px solid var(--line); color: var(--text);
+    border-radius: 9px; padding: 7px 9px; font: inherit; font-size: 13px;
+    -webkit-appearance: none; appearance: none; max-width: 140px;
+  }

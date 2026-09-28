@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.5';
+  const BUILD = '2026-09-28.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2645,6 +2645,9 @@
         '<button class="del" data-delroutine="'+r.id+'" aria-label="Remove routine">×</button></div>';
       h += '<div class="rwhen">'+
         '<label><span>At</span><input type="time" data-rtime="'+r.id+'" value="'+esc(r.time || '07:00')+'"></label>'+
+        '<label><span>Category</span><select data-rcat="'+r.id+'">'+S.categories.map(c =>
+          '<option value="'+c.id+'"'+((r.cat || '') === c.id ? ' selected' : '')+'>'+esc(c.label)+'</option>').join('')+
+        '</select></label>'+
         '<span class="rdays">'+RD.map((d, i) =>
           '<button class="'+(runsOn(r, { getDay: () => i }) ? 'on' : '')+'" data-rwd="'+r.id+':'+i+'">'+d+'</button>').join('')+
         '</span></div>';
@@ -5271,6 +5274,14 @@
       if (e.target.dataset.rname) r.name = e.target.value.slice(0, 60);
       else if (e.target.value) r.time = e.target.value;
       save();
+    });
+
+    // The category is a select, so it reports on change rather than on input.
+    shell.addEventListener('change', e => {
+      const rc = e.target.dataset && e.target.dataset.rcat;
+      if (!rc) return;
+      const r = routinesAll().find(x => x.id === rc);
+      if (r){ r.cat = e.target.value; save(); render(); }
     });
 
     shell.addEventListener('change', e => {
