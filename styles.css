@@ -1901,3 +1901,59 @@
   #soft-app .hgrid.wk { grid-template-columns: repeat(6, 11px); }
   /* Ten pips on a phone want to wrap rather than push the label off the chip. */
   #soft-app .chip .pips { flex-wrap: wrap; max-width: 88px; row-gap: 3px; justify-content: flex-end; }
+
+  /* ---- the three rocks ----------------------------------------------------
+     What today is for, above what today merely contains. Numbered, because
+     three is the point and a fourth would have nowhere to go. */
+  #soft-app .rocks {
+    border: 1px solid var(--line); border-left: 3px solid var(--live);
+    border-radius: 14px; background: var(--raise); padding: 12px 14px; margin: 14px 0 4px;
+  }
+  #soft-app .rk-h {
+    font-family: var(--serif); font-size: 12.5px; color: var(--dim);
+    text-transform: uppercase; letter-spacing: .1em; margin-bottom: 8px;
+  }
+  #soft-app .rkrow { display: flex; align-items: center; gap: 11px; padding: 6px 0; }
+  #soft-app .rkrow + .rkrow { border-top: 1px solid var(--line); }
+  #soft-app .rk-tick {
+    flex: 0 0 auto; width: 26px; height: 26px; padding: 0; cursor: pointer;
+    background: none; border: 1.5px solid var(--ghost); border-radius: 50%;
+    color: var(--dim); font: inherit; font-size: 13px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #soft-app .rk-tick:hover { border-color: var(--live); color: var(--live); }
+  #soft-app .rk-tick svg { width: 15px; height: 15px; display: block; }
+  #soft-app .rkrow.done .rk-tick { background: var(--live); border-color: var(--live); color: var(--on-live); }
+  #soft-app .rkrow.done .rk-t b { text-decoration: line-through; opacity: .7; }
+  #soft-app .rk-t { flex: 1; min-width: 0; }
+  #soft-app .rk-t b { display: block; font-weight: 600; font-size: 15px; }
+  #soft-app .rk-t em { display: block; font-style: normal; font-size: 12.5px; color: var(--dim); margin-top: 1px; }
+
+  /* the check-in itself */
+  #soft-app .mrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  #soft-app .mrow .cd { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+  #soft-app .mr-t { flex: 1; min-width: 0; font-size: 14.5px; }
+  #soft-app .mr-t em { display: block; font-style: normal; font-size: 12.5px; color: var(--dim); margin-top: 1px; }
+  #soft-app .mr-when {
+    flex: 0 0 auto; background: var(--raise); border: 1px solid var(--line); color: var(--text);
+    border-radius: 9px; padding: 7px 9px; font: inherit; font-size: 13px;
+    -webkit-appearance: none; appearance: none; max-width: 42%;
+  }
+  #soft-app .mr-fixed { flex: 0 0 auto; font-style: normal; font-size: 12px; color: var(--ghost); }
+  #soft-app .rk-n {
+    flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--live); color: var(--on-live); font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #soft-app .rkpick {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    background: none; border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; margin-bottom: 6px; color: var(--text); font: inherit; cursor: pointer;
+  }
+  #soft-app .rkpick:hover { border-color: var(--live); }
+  #soft-app .rkpick .rk-t b { font-weight: 500; font-size: 14.5px; }
+  #soft-app .rk-plus { flex: 0 0 auto; color: var(--live); font-size: 18px; line-height: 1; }
+  @media (pointer: coarse) {
+    #soft-app .rk-tick { width: 30px; height: 30px; }
+    #soft-app .mr-when { padding: 9px 10px; }
+  }

@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-27.8';
+  const BUILD = '2026-09-28.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3962,6 +3962,228 @@
     return h;
   }
 
+  /* ---------- the morning check-in, and the three rocks ----------
+     Covey's jar. Put the sand and the pebbles in first and the big rocks never
+     fit. Put the big rocks in first and everything else falls in around them.
+     The daily version is picking the three things that, if they happen, make it
+     a good day, and deciding that before the day starts deciding for you.
+
+     Two steps and no model involved. First what you have on, with the chance to
+     shove a block to a better hour. Then your three, chosen from what is
+     genuinely pressing or typed in yourself, each dropped into a block so the
+     rock has somewhere to actually sit.
+
+     Moving a block here moves it today only. The repeat is left exactly as it
+     was, because a morning reshuffle is about this morning and not about every
+     Monday for the rest of the year. */
+  let morning = null;
+
+  const rocksAll = () => (coach().rocks || (coach().rocks = {}));
+  const rocksOn = dk => rocksAll()[dk] || null;
+  const rockDone = (r, d) => {
+    if (r.kind === 'task'){ const tk = findTask(r.ref); return tk ? taskDone(tk, d) : !!r.doneAt; }
+    if (r.kind === 'commitment'){ const c = findCommit(r.ref); return c ? c.state !== 'live' : !!r.doneAt; }
+    return !!r.doneAt;
+  };
+
+  // Due once the morning you set has arrived and today has not been answered.
+  // Answered includes saying you have no rocks today, which is a real answer.
+  function morningDue(now){
+    if (rocksOn(dayKey(now))) return false;
+    const n = nudges();
+    return (now.getHours() * 60 + now.getMinutes()) >= mins(n.morningAt || '07:00');
+  }
+
+  function openMorning(now){
+    morning = { step: 'day', picks: [], custom: '' };
+    render();
+  }
+
+  /* What today actually asks of you, counted. */
+  function dayBrief(now){
+    const dk = dayKey(now), nowM = now.getHours() * 60 + now.getMinutes();
+    const all = blocksForDate(now);
+    const timed = all.filter(b => !b.allDay);
+    const ahead = timed.filter(b => mins(b.e) > nowM);
+    const booked = timed.filter(b => !b.step && !b.task).reduce((a, b) => a + (mins(b.e) - mins(b.s)), 0);
+    const appts = timed.filter(b => b.task);
+    const closing = hardTasks().filter(tk => tk.due === dk);
+    const owed = dueCommits(now);
+    const late = (S.tasks || []).filter(tk => !tk.repeat && !tk.doneAt && tk.due && tk.due < dk);
+    return { all, timed, ahead, booked, appts, closing, owed, late, first: ahead[0] };
+  }
+
+  /* Things worth being a rock, in the order they deserve it. */
+  function rockCandidates(now){
+    const b = dayBrief(now), out = [], seen = {};
+    const add = (key, text, why, kind, ref) => {
+      if (seen[key] || out.length >= 8) return;
+      seen[key] = 1; out.push({ key, text, why, kind, ref });
+    };
+    b.closing.forEach(tk => add('t:' + tk.id, tk.title, 'closes ' + clockOf(hardClose(tk)) + ', must not miss', 'task', tk.id));
+    b.owed.forEach(c => add('c:' + c.id, c.text, 'you committed to this', 'commitment', c.id));
+    b.late.sort(taskSorter(now)).slice(0, 3).forEach(tk =>
+      add('t:' + tk.id, tk.title, dueLabel(tk.due, now, tk.dateType).text, 'task', tk.id));
+    openTasks(now).filter(tk => tk.due === dayKey(now)).sort(taskSorter(now)).slice(0, 3).forEach(tk =>
+      add('t:' + tk.id, tk.title, 'due today', 'task', tk.id));
+    (S.goals || []).forEach(g => {
+      const nx = goalNext(g, now);
+      if (nx) add('g:' + g.id, nx.split(' · ')[0], 'toward ' + g.title, 'free', '');
+    });
+    openTasks(now).filter(tk => tk.priority === 'high' && !tk.doneAt).sort(taskSorter(now)).slice(0, 3).forEach(tk =>
+      add('t:' + tk.id, tk.title, 'high priority', 'task', tk.id));
+    return out;
+  }
+
+  const blockOpts = (now, sel) => {
+    const list = blocksForDate(now).filter(b => !b.allDay && !b.step && !b.task);
+    return '<option value="">No particular block</option>' + list.map(b =>
+      '<option value="' + b.id + '"' + (b.id === sel ? ' selected' : '') + '>' +
+      esc(b.t) + ', ' + clockOf(b.s) + '</option>').join('');
+  };
+
+  function morningDayHTML(now){
+    const b = dayBrief(now);
+    let h = '<p class="ai-intro">What today has on it, before you decide what it is for.</p>';
+
+    const rows = [];
+    if (b.timed.length) rows.push([b.timed.length, 'block' + (b.timed.length !== 1 ? 's' : '') +
+      (b.booked ? ', ' + dur(b.booked) + ' of them' : '')]);
+    if (b.appts.length) rows.push([b.appts.length, 'at a fixed time']);
+    if (b.owed.length) rows.push([b.owed.length, 'commitment' + (b.owed.length !== 1 ? 's' : '') + ' due']);
+    if (b.late.length) rows.push([b.late.length, 'overdue']);
+    if (rows.length)
+      h += '<div class="rvgrid">' + rows.map(x =>
+        '<div class="rvrow"><span class="rvn">' + x[0] + '</span><span class="rvl">' + esc(x[1]) + '</span></div>').join('') + '</div>';
+
+    if (b.closing.length)
+      h += '<div class="savewarn">' + b.closing.map(tk =>
+        esc(tk.title) + ' closes at ' + clockOf(hardClose(tk))).join('. ') + '.</div>';
+
+    if (!b.ahead.length){
+      h += '<p class="park-empty">Nothing else booked today. An open day is a fine thing to have, and three rocks will fill it better than a list will.</p>';
+      return h;
+    }
+
+    h += '<div class="rvbar-h">Still to come</div>';
+    h += '<p class="tmnote">Shifting one here moves it today only. Whatever it repeats on is left alone.</p>';
+    b.ahead.forEach(bl => {
+      const own = !bl.step && !bl.task && !bl.routine;
+      h += '<div class="mrow"><span class="cd" style="background:' + catColor(bl.c) + '"></span>' +
+        '<span class="mr-t">' + esc(bl.t) + '<em>' + clockOf(bl.s) + ' to ' + clockOf(bl.e) + '</em></span>' +
+        (own ? '<select class="mr-when" data-mvblock="' + bl.id + '">' + hourOptsFrom(bl.s) + '</select>'
+             : '<em class="mr-fixed">fixed</em>') + '</div>';
+    });
+    return h;
+  }
+
+  // The half hours, plus this block's own start if it is not on one, so moving
+  // a 9:15 block does not silently drag it to 9:00 the moment you look at it.
+  function hourOptsFrom(start){
+    const list = HOURS.slice();
+    if (list.indexOf(start) === -1) list.push(start);
+    list.sort();
+    return list.map(t => '<option value="' + t + '"' + (t === start ? ' selected' : '') + '>' + clockOf(t) + '</option>').join('');
+  }
+
+  function morningRocksHTML(now){
+    const cands = rockCandidates(now);
+    const picked = morning.picks;
+    const full = picked.length >= 3;
+    let h = '<p class="ai-intro">Three things that, if they happen, make today a good day. Not the list, the rocks.</p>';
+
+    if (picked.length){
+      h += '<div class="rvbar-h">Your ' + (picked.length === 1 ? 'rock' : picked.length + ' rocks') + '</div>';
+      picked.forEach((r, i) => {
+        h += '<div class="mrow"><span class="rk-n">' + (i + 1) + '</span>' +
+          '<span class="mr-t">' + esc(r.text) + (r.why ? '<em>' + esc(r.why) + '</em>' : '') + '</span>' +
+          '<select class="mr-when" data-rockblock="' + i + '">' + blockOpts(now, r.block) + '</select>' +
+          '<button class="del" data-rockdrop="' + i + '" aria-label="Take it off">×</button></div>';
+      });
+    }
+
+    const left = cands.filter(c => !picked.some(p => p.key === c.key));
+    if (left.length && !full){
+      h += '<div class="rvbar-h">Worth considering</div>';
+      left.slice(0, 6).forEach(c => {
+        h += '<button class="rkpick" data-rockadd="' + esc(c.key) + '">' +
+          '<span class="rk-t"><b>' + esc(c.text) + '</b><em>' + esc(c.why) + '</em></span><span class="rk-plus">+</span></button>';
+      });
+    }
+
+    if (!full){
+      h += '<div class="gform" style="margin-top:10px">' +
+        '<input id="rk_own" type="text" placeholder="Or name one yourself" autocomplete="off">' +
+        '<button class="ghost" data-rockown>Make it a rock</button></div>';
+    } else {
+      h += '<p class="ai-howto">Three is the whole point. Take one off if something better turns up.</p>';
+    }
+    return h;
+  }
+
+  function morningHTML(now){
+    let h = '<div class="modal-back" data-mclose></div>';
+    h += '<div class="modal sit"><div class="modal-h">' + DAYS[now.getDay()] + ' morning</div>';
+    h += morning.step === 'day' ? morningDayHTML(now) : morningRocksHTML(now);
+    h += '<div class="modal-actions">';
+    if (morning.step === 'day'){
+      h += '<button class="ghost" data-mnone>No rocks today</button><span style="flex:1"></span>' +
+        '<button class="go" data-mnext>Pick my rocks</button>';
+    } else {
+      h += '<button class="ghost" data-mback>Back</button><span style="flex:1"></span>' +
+        '<button class="go" data-mdone>' + (morning.picks.length ? 'That is the day set' : 'Skip the rocks') + '</button>';
+    }
+    return h + '</div></div>';
+  }
+
+  function morningFinish(now){
+    const dk = dayKey(now);
+    markUndo('Morning check-in');
+    const list = (morning.picks || []).map(r => ({
+      id: 'rk_' + uid8(), text: r.text, why: r.why || '', kind: r.kind, ref: r.ref || '',
+      block: r.block || '', doneAt: null
+    }));
+    // A rock that is a task gets pinned to its block, so it turns up inside the
+    // block on the day as well as at the top. The pin is the mechanism that
+    // already exists for exactly this.
+    list.forEach(r => {
+      if (r.kind !== 'task' || !r.block) return;
+      const tk = findTask(r.ref);
+      if (tk){ tk.pin = { b: r.block, d: dk }; tk.hold = false; }
+    });
+    rocksAll()[dk] = list;
+    announce(list.length ? list.length + (list.length === 1 ? ' rock set for today' : ' rocks set for today') : 'Morning checked in');
+    morning = null;
+    save(); render();
+  }
+
+  /* The rocks themselves, at the top of the day, all day. */
+  function rocksHTML(now){
+    const dk = dayKey(now);
+    const list = rocksOn(dk);
+    if (!list || !list.length) return '';
+    const evOf = id => { const e = findEvent(id); return e ? e.title : ''; };
+    let h = '<div class="rocks"><div class="rk-h">Today’s rocks</div>';
+    list.forEach((r, i) => {
+      const done = rockDone(r, now);
+      const where = r.block ? evOf(r.block) : '';
+      h += '<div class="rkrow' + (done ? ' done' : '') + '">' +
+        '<button class="rk-tick" data-rocktick="' + dk + '|' + i + '" aria-label="Tick off ' + esc(r.text) + '">' +
+          (done ? TICK : (i + 1)) + '</button>' +
+        '<span class="rk-t"><b>' + esc(r.text) + '</b>' +
+        (where ? '<em>in ' + esc(where) + '</em>' : (r.why ? '<em>' + esc(r.why) + '</em>' : '')) +
+        '</span></div>';
+    });
+    return h + '</div>';
+  }
+
+  function morningPromptHTML(now){
+    if (!morningDue(now)) return '';
+    return '<div class="sitprompt"><div class="sp-row">' +
+      '<span>Three rocks for today. Five minutes, and the day stops deciding for you.</span>' +
+      '<button class="go" data-mopen>Set the day</button></div></div>';
+  }
+
   /* ---------- parked thoughts ---------- */
   /* ---- turning a parked thought into a task, with a guess ----
      "Ring the insurer about the excess" is a Life admin job, about ten
@@ -5010,6 +5232,24 @@
       // reported the value it had before you picked one.
       const sd = e.target && e.target.dataset && e.target.dataset.sitday;
       if (sd){ setSessionWhen(sd, 'day', e.target.value); render(); return; }
+      // Shoving a block to a better hour, today only. The length goes with it
+      // and the repeat is left exactly as it was.
+      const mv = e.target && e.target.dataset && e.target.dataset.mvblock;
+      if (mv){
+        const ev = findEvent(mv), dk = dayKey(new Date());
+        if (ev){
+          const o = (ev.ex && ev.ex[dk]) || {};
+          const was = o.start != null ? o.start : ev.start;
+          const len = mins(o.end != null ? o.end : ev.end) - mins(was);
+          const s = e.target.value;
+          ev.ex = ev.ex || {};
+          ev.ex[dk] = Object.assign({}, ev.ex[dk], { start: s, end: fmtM(Math.min(1439, mins(s) + len)) });
+          save();
+        }
+        render(); return;
+      }
+      const rb = e.target && e.target.dataset && e.target.dataset.rockblock;
+      if (rb && morning){ morning.picks[+rb].block = e.target.value; return; }
       const k = e.target && e.target.dataset && e.target.dataset.nudgeval;
       if (!k) return;
       if (k.indexOf('sit_') === 0){ setSessionWhen(k.slice(4), 'time', e.target.value); render(); return; }
@@ -5184,6 +5424,9 @@
     // Only on today. A check-in about a Thursday you are merely looking at is
     // not a check-in.
     if (view === 'day' && !weekShown() && dayKey(vd) === dayKey(now)){
+      // What today is for, above what today merely contains.
+      h += rocksHTML(now);
+      h += morningPromptHTML(now);
       h += sessionPromptHTML(now);
       h += dailyCheckHTML(now);
     }
@@ -5226,6 +5469,7 @@
     if (editing) h += editorHTML();
     if (taskEdit) h += taskEditorHTML();
     if (noteEdit) h += noteEditorHTML();
+    if (morning) h += morningHTML(now);
     if (sitting) h += sessionHTML(now);
     if (askChanges) h += askChangesHTML();
     if (tomorrowOpen) h += tomorrowHTML();
@@ -5255,7 +5499,12 @@
   // address straight away, so a reload later in the evening does not reopen
   // a screen that was dealt with hours ago.
   function consumeNudge(){
-    if (typeof location === 'undefined' || !/[?&]n=tomorrow/.test(location.search)) return;
+    if (typeof location === 'undefined') return;
+    if (/[?&]n=morning/.test(location.search)){
+      try { history.replaceState({}, '', location.pathname); } catch(_){}
+      openMorning(new Date()); return;
+    }
+    if (!/[?&]n=tomorrow/.test(location.search)) return;
     tomorrowOpen = true; tmrw = {};
     try { history.replaceState({}, '', location.pathname); } catch(_){}
     render();
@@ -5834,7 +6083,7 @@
         if (first) bits.push('first is ' + first.t + ' at ' + clockOf(first.s));
         if (late) bits.push(late + ' overdue');
         out.push({ at: at(d, n.morningAt), kind: 'morning', tag: 'm:' + dk,
-          title: 'Today', body: bits.join(', ') + '.', url: './' });
+          title: 'Today', body: bits.join(', ') + '.', url: './?n=morning' });
       }
 
       if (n.blocks) blocks.forEach(b => {
@@ -6859,6 +7108,40 @@
     if ((m = t('[data-delevent]'))){ markUndo('Event deleted'); S.events = S.events.filter(x => x.id !== m.dataset.delevent); editing = null; clearModalDrafts(); save(); render(); return; }
     if ((m = t('[data-wd]'))){ syncEditor(); const d = +m.dataset.wd; const i = editing.weekdays.indexOf(d); if (i===-1) editing.weekdays.push(d); else editing.weekdays.splice(i,1); render(); return; }
     if ((m = t('[data-settheme]'))){ commitSettings(); S.profile.theme = m.dataset.settheme; applyTheme(); save(); render(); return; }
+    if (t('[data-mopen]')){ openMorning(now); return; }
+    if (t('[data-mclose]')){ morning = null; clearDraft('rk_own'); render(); return; }
+    if (t('[data-mnext]')){ morning.step = 'rocks'; render(); return; }
+    if (t('[data-mback]')){ morning.step = 'day'; render(); return; }
+    if (t('[data-mnone]')){ rocksAll()[today] = []; morning = null; save(); render(); return; }
+    if (t('[data-mdone]')){ morningFinish(now); return; }
+    if ((m = t('[data-rockadd]'))){
+      const c = rockCandidates(now).find(x => x.key === m.dataset.rockadd);
+      if (c && morning.picks.length < 3) morning.picks.push(Object.assign({ block: '' }, c));
+      render(); return;
+    }
+    if ((m = t('[data-rockdrop]'))){ morning.picks.splice(+m.dataset.rockdrop, 1); render(); return; }
+    if (t('[data-rockown]')){
+      const el = document.getElementById('rk_own');
+      const v = ((el || {}).value || '').trim();
+      if (!v){ if (el) el.focus(); return; }
+      if (morning.picks.length < 3)
+        morning.picks.push({ key: 'own:' + uid8(), text: v.slice(0, 120), why: '', kind: 'free', ref: '', block: '' });
+      clearDraft('rk_own'); render(); return;
+    }
+    if ((m = t('[data-rocktick]'))){
+      const [dk, i] = m.dataset.rocktick.split('|');
+      const list = rocksOn(dk) || [];
+      const r = list[+i];
+      if (r){
+        // Ticking a rock ticks the thing it stands for, or the rock itself
+        // when it stands for nothing but your own intention.
+        if (r.kind === 'task'){ const tk = findTask(r.ref); if (tk) toggleTask(tk, now); else r.doneAt = r.doneAt ? null : dk; }
+        else if (r.kind === 'commitment'){ answerCommit(r.ref, 'done'); }
+        else r.doneAt = r.doneAt ? null : dk;
+        markJustDone(r.id); buzz(12);
+      }
+      save(); maybeCelebrate(); render(); return;
+    }
     if ((m = t('[data-sitopen]'))){ openSession(m.dataset.sitopen); return; }
     if (t('[data-sitclose]')){ sitting = null; clearDraft('sit_text'); clearDraft('sit_by'); render(); return; }
     if (t('[data-sittalk]')){ sitting.step = 'talk'; render(); sittingTalk(); return; }
@@ -7472,6 +7755,7 @@
     if (e.key === 'Enter' && e.target.id === 'ne_newitem'){ e.preventDefault(); const b = app.querySelector('[data-noteadditem]'); if (b) b.click(); return; }
     if (e.key === 'Escape' && searchOpen){ searchOpen = false; clearDraft('gs_q'); render(); return; }
     if (e.key === 'Escape' && tomorrowOpen){ tomorrowOpen = false; tmrw = {}; render(); return; }
+    if (e.key === 'Escape' && morning){ morning = null; clearDraft('rk_own'); render(); return; }
     if (e.key === 'Escape' && sitting){ sitting = null; clearDraft('sit_text'); clearDraft('sit_by'); render(); return; }
     if (e.key === 'Escape' && askChanges){ askChanges = null; askPick = {}; askReply = ''; askSaid = ''; render(); return; }
     if (e.key === 'Escape' && (editing || settingsOpen || aiOpen || taskEdit || noteEdit || goalAI)){
@@ -7646,7 +7930,7 @@
 
   function userBusy(){
     const ae = document.activeElement;
-    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || searchOpen || tomorrowOpen || !!askChanges || !!sitting ||
+    return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || searchOpen || tomorrowOpen || !!askChanges || !!sitting || !!morning ||
       (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
   }
   function applyUpdate(){
