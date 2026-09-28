@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-28.2';
+  const BUILD = '2026-09-28.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -4162,12 +4162,36 @@
   }
 
   /* The rocks themselves, at the top of the day, all day. */
+  /* The jar itself, because the whole idea is a jar and it was sitting there
+     unused. Stones fill from the bottom as they are ticked, one slot per rock
+     you actually set, so two rocks is a two stone jar rather than a jar that
+     looks a third empty all day.
+
+     Ellipses at slight angles rather than hand drawn paths: they read as
+     stones, and they render the same everywhere. */
+  function jarHTML(total, done){
+    const STONES = [
+      { cx:22,   cy:47,   rx:12, ry:7.5, rot:-6 },
+      { cx:20.5, cy:35.5, rx:10, ry:6.5, rot:9 },
+      { cx:23,   cy:25.5, rx:8,  ry:5.5, rot:-11 }
+    ].slice(0, Math.max(1, Math.min(3, total)));
+    const stones = STONES.map((s, i) =>
+      '<ellipse class="jst' + (i < done ? ' on' : '') + '" cx="' + s.cx + '" cy="' + s.cy +
+      '" rx="' + s.rx + '" ry="' + s.ry + '" transform="rotate(' + s.rot + ' ' + s.cx + ' ' + s.cy + ')"/>').join('');
+    return '<svg class="jar" viewBox="0 0 44 60" aria-hidden="true">' +
+      '<path class="jrim" d="M13.5 4 h17 a2 2 0 0 1 2 2 v3.5 h-21 V6 a2 2 0 0 1 2 -2 z"/>' +
+      '<path class="jbody" d="M9 14 q0 -4 4.5 -4.5 h17 Q35 10 35 14 v35 q0 6.5 -6.5 6.5 h-13 Q9 55.5 9 49 z"/>' +
+      stones +
+      '</svg>';
+  }
+
   function rocksHTML(now){
     const dk = dayKey(now);
     const list = rocksOn(dk);
     if (!list || !list.length) return '';
     const evOf = id => { const e = findEvent(id); return e ? e.title : ''; };
-    let h = '<div class="rocks"><div class="rk-h">Today’s rocks</div>';
+    const kept = list.filter(r => rockDone(r, now)).length;
+    let h = '<div class="rocks"><div class="rk-main"><div class="rk-h">Today’s rocks</div>';
     list.forEach((r, i) => {
       const done = rockDone(r, now);
       const where = r.block ? evOf(r.block) : '';
@@ -4178,7 +4202,7 @@
         (where ? '<em>in ' + esc(where) + '</em>' : (r.why ? '<em>' + esc(r.why) + '</em>' : '')) +
         '</span></div>';
     });
-    return h + '</div>';
+    return h + '</div>' + jarHTML(list.length, kept) + '</div>';
   }
 
   function morningPromptHTML(now){
