@@ -2049,6 +2049,34 @@
   /* .go has no base rule in this stylesheet, it is dressed per context, so a
      button in a new place arrives as a raw browser button. It has to be
      styled here or it turns up white and square in the middle of the day. */
+  /* The fortnight behind a habit. A full bar is a day kept, a dashed stub is
+     a day missed, a half bar is today started but not finished, and the
+     outlined one on the end is today still open. Heights carry the meaning so
+     it reads at a glance and still reads without colour.
+
+     The colour comes from --runc where the caller sets one, which is how the
+     editor draws each habit in its own category colour while the slip panel,
+     already dressed in the accent, stays in the accent. */
+  #soft-app .hrun { display: flex; align-items: flex-end; gap: 4px; min-height: 22px; }
+  #soft-app .hrun i {
+    display: block; width: 11px; height: 22px; border-radius: 3px;
+    background: var(--runc, var(--live)); opacity: .9;
+  }
+  #soft-app .hrun i.miss {
+    background: transparent; border: 1px dashed var(--runc, var(--live));
+    height: 10px; opacity: .75;
+  }
+  #soft-app .hrun i.part { height: 11px; opacity: .5; }
+  #soft-app .hrun i.open { background: transparent; border: 1px solid var(--line); }
+  #soft-app .hrun-w { margin: 8px 0 12px; font-size: 12px; color: var(--dim); }
+
+  /* Eleven bars and a gap is 210px, which a narrow phone does not have once
+     the panel's own padding is taken out. They shrink rather than wrap,
+     because a fortnight broken across two lines is not a fortnight. */
+  @media (max-width: 400px) {
+    #soft-app .hrun { gap: 3px; }
+    #soft-app .hrun i { width: 9px; }
+  }
   #soft-app .slip .go {
     margin: 0; background: var(--live); color: var(--on-live);
     border: 0; border-radius: 10px; padding: 10px 16px;

@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-29.2';
+  const BUILD = '2026-09-29.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2379,6 +2379,61 @@
       .sort((x, y) => y.n - x.n);
   }
 
+  /* ---------- the run behind a habit ----------
+     Never miss twice is about a run being broken, and until now Athena only
+     ever said how big the gap was. Drawn, it puts the thing you built next to
+     the thing you are one day from losing, which is the entire argument for
+     doing the small version right now.
+
+     The days counted are the days it was due, not the last fourteen squares
+     of calendar: a habit inside a weekday routine has no business showing two
+     gaps every weekend it was never asked about. Today is drawn too, as an
+     open slot rather than a miss, because the day is not over. */
+  const HRUN = h => h.w ? 8 : 14;
+
+  function habRun(h, now){
+    const past = habDueKeys(h, now, HRUN(h));          // most recent first
+    const cells = past.map(k => ({
+      kept: isDone(h.id, k, h.target), today: false
+    })).reverse();
+    const tk = habKey(h.w, now);
+    cells.push({
+      kept: isDone(h.id, tk, h.target),
+      // Started but not finished. One glass of ten is not a full day and not
+      // a missed one, and after the small version that is exactly where you
+      // are, so it gets its own height rather than being rounded either way.
+      part: !isDone(h.id, tk, h.target) && !!compVal(h.id, tk),
+      today: true
+    });
+    return cells;
+  }
+
+  // --runc is left open rather than hard coded, so a caller on a surface that
+  // is not already the accent can hand it the habit's own colour.
+  function habRunHTML(h, now, col){
+    const cells = habRun(h, now);
+    const kept = cells.filter(c => !c.today && c.kept).length;
+    const of = cells.length - 1;
+    const style = col ? ' style="--runc:' + col + '"' : '';
+    return '<div class="hrun"' + style + ' role="img" aria-label="' +
+      esc(kept + ' of the last ' + of + ' kept') + '">' +
+      cells.map(c => '<i class="' +
+        (c.kept ? 'kept' : c.part ? 'part' : c.today ? 'open' : 'miss') +
+        '"></i>').join('') + '</div>';
+  }
+
+  // Said in whole words underneath, because a row of bars is a shape and the
+  // count is a fact, and the two do different jobs.
+  function habRunWords(h, now){
+    const cells = habRun(h, now);
+    const kept = cells.filter(c => !c.today && c.kept).length;
+    const of = cells.length - 1;
+    const slip = habSlip(h, now);
+    const base = kept + ' of the last ' + of + ' kept';
+    if (slip < 2) return base + '.';
+    return base + ', then the last ' + slip + '.';
+  }
+
   function slipHTML(now){
     const slips = slippingHabits(now);
     if (!slips.length) return '';
@@ -2387,6 +2442,8 @@
       const unit = x.h.w ? 'week' : 'day';
       const dk = habKey(x.h.w, now);
       h += '<div class="slip">' +
+        habRunHTML(x.h, now) +
+        '<p class="hrun-w">' + esc(habRunWords(x.h, now)) + '</p>' +
         '<p><b>' + esc(x.h.l) + '</b>, ' + x.n + ' ' + unit + (x.n === 1 ? '' : 's') + ' missed. ' +
         'Do not go for the whole thing. Go for <b>' + esc(habFloorWords(x.h)) + '</b>, now.</p>' +
         '<button class="go" data-slipfloor="' + esc(x.h.id) + '|' + dk + '">Do the small version</button>' +
