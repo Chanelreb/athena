@@ -2013,10 +2013,18 @@
     gap: 5px 10px; margin: 12px 0 14px; align-items: baseline;
   }
   #soft-app .modal.sit .rvgrid > div { display: contents; }
-  #soft-app .modal.sit .rvgrid b {
-    text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;
+  /* By position, not by tag. Two shapes of row feed this grid: the morning
+     check-in writes span.rvn + span.rvl, everything newer writes b + span.
+     Styling the tags would dress one and miss the other, and worse, .rvrow's
+     own flex rule loses to this one, so the morning rows arrive here whether
+     they were written for it or not. */
+  #soft-app .modal.sit .rvgrid > div > :first-child {
+    text-align: right; font-weight: 600; font-size: 15px;
+    color: var(--text); font-variant-numeric: tabular-nums;
   }
-  #soft-app .modal.sit .rvgrid span { color: var(--dim); font-size: 13.5px; line-height: 1.4; }
+  #soft-app .modal.sit .rvgrid > div > :last-child {
+    color: var(--dim); font-size: 13.5px; line-height: 1.4; font-weight: 400;
+  }
 
   /* The line that is meant to be uncomfortable. It gets the weight of a
      warning without the colour of an error, because nothing has gone wrong:
@@ -2145,6 +2153,17 @@
     -webkit-appearance: none; appearance: none; max-width: 42%;
   }
   #soft-app .mr-fixed { flex: 0 0 auto; font-style: normal; font-size: 12px; color: var(--ghost); }
+  /* What clearing this one would carry forward, said before you press it
+     rather than after. It sits under the time because it is a consequence of
+     the row, not a second fact about it. */
+  /* em.mr-carry, not .mr-carry: this sits inside .mr-t, whose own em rule
+     is a type selector and outranks a bare class. Written flat it came out
+     the same dim grey as the time above it. */
+  #soft-app .mr-t em.mr-carry {
+    display: block; font-style: normal; font-size: 12px;
+    color: var(--live); margin-top: 2px;
+  }
+  #soft-app .mrow .del { flex: 0 0 auto; }
   #soft-app .rk-n {
     flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%;
     background: var(--live); color: var(--on-live); font-size: 12px; font-weight: 700;

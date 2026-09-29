@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-29.1';
+  const BUILD = '2026-09-29.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -4753,6 +4753,115 @@
       esc(b.t) + ', ' + clockOf(b.s) + '</option>').join('');
   };
 
+  /* ---------- taking a block off today ----------
+     The kids are sick, or it is the school holidays, and the day you planned
+     is not the day you have. Clearing a block takes it off this one date and
+     leaves every other time it repeats alone, which is what `skip` on an
+     event has always meant. Nothing new is stored.
+
+     The part worth getting right is what happens to the work that was in it.
+     Most tasks are not really in a block at all: they surface in whichever
+     block shares their category, so they find the next one by themselves and
+     need no help. The ones that need help are the ones pinned here, by the
+     morning check-in or by hand, because a pin names this block on this date
+     and that date is about to stop existing.
+
+     Those go through the same placer that fills a week: earliest block of
+     their category with room, tomorrow or next week, never past a due date.
+     Anything that will not fit inside three weeks is put back in the list
+     rather than dropped into an already full block. */
+
+  // Every task whose pin names this block on this day.
+  const pinnedHere = (bl, d) => (S.tasks || []).filter(tk =>
+    !tk.doneAt && tk.pin && tk.pin.b === bl.id && tk.pin.d === dayKey(d));
+
+  // What clearing would move, so it can be said before it happens as well as
+  // after. Counts the pinned ones, and separately the ones that were only
+  // ever offered here and have somewhere else to be today anyway.
+  function clearEffect(bl, d){
+    const pinned = pinnedHere(bl, d);
+    const shown = tasksForBlock(bl, d).filter(tk => !pinned.some(p => p.id === tk.id));
+    return { pinned, loose: shown.length };
+  }
+
+  // Take one block off one day, and give its pinned work somewhere to go.
+  function clearBlock(bl, d, quiet){
+    const ev = findEvent(bl.id);
+    if (!ev) return null;
+    const dk = dayKey(d);
+    const moving = pinnedHere(bl, d);
+    // Off the day first. The placer reads blocksForDate, so it has to already
+    // be gone or it will cheerfully put the tasks straight back where they were.
+    ev.skip = (ev.skip || []).concat(ev.skip && ev.skip.indexOf(dk) !== -1 ? [] : [dk]);
+    // A one-off block has no other days to protect, so skipping it leaves a
+    // block that exists and never happens. Take it out properly.
+    if (!ev.rrule) S.events = (S.events || []).filter(x => x.id !== ev.id);
+    let res = { placed: 0, left: [] };
+    if (moving.length){
+      moving.forEach(tk => { tk.pin = null; });
+      res = placeByCapacity(moving, d);
+    }
+    if (!quiet) announce(clearWords(bl, moving.length, res));
+    return { moved: moving.length, res: res };
+  }
+
+  // Say where the work went, in the same breath as saying the block is gone.
+  // Silence here is how you find out three days later that four things quietly
+  // became overdue.
+  // The one left behind that actually has a deadline, if there is one. A task
+  // with no date sitting in the list is a choice; a dated one is a miss
+  // waiting to happen, and it is worth its own words.
+  const datedLeft = left => (left || []).filter(tk => tk.due)
+    .sort((x, y) => String(x.due).localeCompare(String(y.due)))[0] || null;
+
+  function leftWords(left){
+    const n = (left || []).length;
+    if (!n) return '';
+    const dated = datedLeft(left);
+    if (!dated) return n + ' back in the list';
+    const rest = n - 1;
+    return dated.title + ' has nowhere to go' + (rest ? ', and ' + rest + ' more' : '');
+  }
+
+  function clearWords(bl, moved, res){
+    if (!moved) return bl.t + ' cleared';
+    const bits = [];
+    if (res.placed) bits.push(res.placed + ' moved on');
+    const lw = leftWords(res.left);
+    if (lw) bits.push(lw);
+    return bl.t + ' cleared, ' + bits.join(' and ');
+  }
+
+  // The whole day, for the mornings where none of it is happening.
+  function clearDay(d){
+    const own = blocksForDate(d).filter(b => !b.allDay && !b.step && !b.task && !b.routine);
+    if (!own.length) return;
+    markUndo('Day cleared');
+    let placed = 0, left = [];
+    own.forEach(bl => {
+      const r = clearBlock(bl, d, true);
+      if (!r) return;
+      placed += r.res.placed || 0;
+      left = left.concat(r.res.left || []);
+    });
+    const bits = [own.length + ' block' + (own.length === 1 ? '' : 's') + ' cleared'];
+    if (placed) bits.push(placed + ' moved on');
+    const lw = leftWords(left);
+    if (lw) bits.push(lw);
+    announce(bits.join(', '));
+    save(); render();
+  }
+
+  function clearOne(spec){
+    const bits = String(spec).split('|');
+    const d = parseDay(bits[1]);
+    const bl = blocksForDate(d).find(b => String(b.id) === bits[0]);
+    if (!bl) return;
+    markUndo('Block cleared');
+    clearBlock(bl, d, false);
+    save(); render();
+  }
+
   function morningDayHTML(now){
     const b = dayBrief(now);
     let h = '<p class="ai-intro">What today has on it, before you decide what it is for.</p>';
@@ -4781,14 +4890,27 @@
     }
 
     h += '<div class="rvbar-h">Still to come</div>';
-    h += '<p class="tmnote">Shifting one here moves it today only. Whatever it repeats on is left alone.</p>';
+    h += '<p class="tmnote">Shifting one here moves it today only, and clearing one takes it off ' +
+      'today only. Whatever either repeats on is left alone.</p>';
+    const dk = dayKey(now);
     b.ahead.forEach(bl => {
       const own = !bl.step && !bl.task && !bl.routine;
+      const eff = own ? clearEffect(bl, now) : null;
+      const note = !eff ? ''
+        : eff.pinned.length ? '<em class="mr-carry">' + eff.pinned.length + ' would move on</em>'
+        : '';
       h += '<div class="mrow"><span class="cd" style="background:' + catColor(bl.c) + '"></span>' +
-        '<span class="mr-t">' + esc(bl.t) + '<em>' + clockOf(bl.s) + ' to ' + clockOf(bl.e) + '</em></span>' +
-        (own ? '<select class="mr-when" data-mvblock="' + bl.id + '">' + hourOptsFrom(bl.s) + '</select>'
+        '<span class="mr-t">' + esc(bl.t) + '<em>' + clockOf(bl.s) + ' to ' + clockOf(bl.e) + '</em>' + note + '</span>' +
+        (own ? '<select class="mr-when" data-mvblock="' + bl.id + '">' + hourOptsFrom(bl.s) + '</select>' +
+               '<button class="del" data-clearblock="' + esc(bl.id) + '|' + dk + '" ' +
+               'aria-label="Clear ' + esc(bl.t) + ' from today">\u00d7</button>'
              : '<em class="mr-fixed">fixed</em>') + '</div>';
     });
+    // For the mornings where it is not one block, it is the whole day.
+    const own = b.ahead.filter(x => !x.step && !x.task && !x.routine);
+    if (own.length > 1)
+      h += '<button class="ghost danger" data-clearday="' + dk + '" style="margin-top:10px">' +
+        'Clear the rest of today</button>';
     return h;
   }
 
@@ -8434,6 +8556,8 @@
       save(); render(); return;
     }
     if (t('[data-tmdone]')){ tomorrowApply(); return; }
+    if ((m = t('[data-clearblock]'))){ clearOne(m.dataset.clearblock); return; }
+    if ((m = t('[data-clearday]'))){ clearDay(parseDay(m.dataset.clearday)); return; }
     if (t('[data-resetopen]')){ commitSettings(); resetting = { ack: false }; render(); return; }
     if (t('[data-resetclose]')){ resetting = null; render(); return; }
     if (t('[data-resetgo]')){ doReset(); return; }
