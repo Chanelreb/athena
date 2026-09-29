@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-29.5';
+  const BUILD = '2026-09-29.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3652,6 +3652,9 @@
   }
 
   /* ---- the daily check ----
+     Not on the day at the moment, by request. The call that drew it is
+     commented out where the day is built. Everything below still works and
+     is one line from coming back.
      Thirty seconds. It shows what is live, and asks about anything that has
      come due, once, with three answers. It never asks why: that belongs in the
      weekly session where there is room for the answer. Daily is for
@@ -6479,7 +6482,12 @@
       h += rocksHTML(now);
       h += morningPromptHTML(now);
       h += sessionPromptHTML(now);
-      h += dailyCheckHTML(now);
+      // Today's check is off the day for now, at Chanel's ask: it turned up
+      // unexplained and she was not sure what it was for. Nothing is lost by
+      // it going. The commitments themselves are still under Grow, with the
+      // same three answers on each, and the morning check-in still counts the
+      // ones that have come due. Put this line back to have it again.
+      // h += dailyCheckHTML(now);
     }
     // One line, above everything it can change. On any other view it would be
     // asking about a week you are not looking at.
