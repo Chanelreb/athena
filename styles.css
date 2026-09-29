@@ -2078,6 +2078,17 @@
   }
   #soft-app .ahead-hard b { font-weight: 600; font-variant-numeric: tabular-nums; }
 
+  /* What you will not trade, raised at the one moment it is a question:
+     the week does not fit and something has to go. Set as a quiet aside
+     under the uncomfortable line rather than as a panel of its own, because
+     it is a way of answering that line, not a second announcement. */
+  #soft-app .vals { margin: 0 0 16px; padding-left: 13px; border-left: 2px solid var(--line); }
+  #soft-app .vals-q { margin: 0 0 7px; font-size: 13px; color: var(--dim); }
+  #soft-app .vals-l { list-style: none; margin: 0; padding: 0; }
+  #soft-app .vals-l li {
+    font-family: var(--serif); font-size: 15.5px; line-height: 1.45; color: var(--text);
+  }
+
   /* A second miss in a row. Loud enough to be the next thing you do, quiet
      enough that it is clearly not a telling off: nothing has gone wrong, a
      pattern is just starting and this is the moment it is cheapest to stop. */

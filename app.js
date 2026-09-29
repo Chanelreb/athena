@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-29.8';
+  const BUILD = '2026-09-29.9';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3994,6 +3994,8 @@
         'you that decides which.</p>';
       if (w.noEstimate) h += '<p class="ai-howto">And ' + w.noEstimate + ' of those have no estimate on them, ' +
         'so the real number is worse than this one.</p>';
+      // Only here. Not on the day, not in a weekly report, not as a score.
+      h += valuesHTML();
     } else if (w.clashMins >= 60){
       h += '<p class="ahead-hard">' + esc(dur(w.clashMins)) + ' of the time you set aside already has a meeting ' +
         'sitting on it. Those blocks are not going to happen where they are.</p>';
@@ -4312,8 +4314,16 @@
       L.push('  Work due in that window: ' + dur(w.taskMins) + ' across ' + w.taskCount +
         ' task' + (w.taskCount === 1 ? '' : 's') +
         (w.noEstimate ? ', of which ' + w.noEstimate + ' carry no estimate so the real figure is higher' : '') + '.');
-      if (w.over) L.push('  That is ' + dur(w.short) + ' more work than there is room for. Say so, plainly, ' +
-        'and make them choose what goes. Do not soften it and do not let them commit to more on top.');
+      if (w.over){
+        L.push('  That is ' + dur(w.short) + ' more work than there is room for. Say so, plainly, ' +
+          'and make them choose what goes. Do not soften it and do not let them commit to more on top.');
+        const v = values();
+        if (v.length){
+          L.push('  They have named what they are not willing to trade: ' + v.join('; ') + '.');
+          L.push('  Use these to help them choose what goes, not to praise them for having values ' +
+            'and not as a reason to keep everything. They are a tiebreak, not a speech.');
+        }
+      }
     }
 
     // Which habits are actually being kept. Athena cannot work out on her own
@@ -7445,6 +7455,39 @@
     return Object.keys(seen).map(k => seen[k]);
   }
 
+  /* ---------- what you are not willing to trade ----------
+     Values on a poster change nothing. They are worth having in here for one
+     moment only: when the week does not fit and something has to go. That is
+     the one time a value is a question rather than a statement, and it is the
+     only place Athena raises them.
+
+     So they sit silent all week. No score, no weekly values report, nothing
+     to keep up with. They appear when the arithmetic says the week is over
+     full, and they appear as a question about what goes. */
+  const VALUES_MAX = 5;
+  const values = () => ((S.profile || {}).values || []);
+
+  function valuesHTML(){
+    const v = values();
+    if (!v.length) return '';
+    return '<div class="vals">' +
+      '<p class="vals-q">Whatever goes, it should not be the thing that serves these.</p>' +
+      '<ul class="vals-l">' + v.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>' +
+      '</div>';
+  }
+
+  function valuesSettingsHTML(){
+    const v = values();
+    let h = '<div class="modal-h" style="margin-top:8px">What you will not trade</div>';
+    h += '<p class="setnote">Three or four things you are not willing to give up. Athena keeps quiet ' +
+      'about them all week and raises them at the one moment they are useful: when the week does not ' +
+      'fit and you are deciding what goes. One per line.</p>';
+    h += '<div class="fld"><textarea id="s_values" rows="' + Math.max(3, Math.min(VALUES_MAX, v.length + 1)) + '" ' +
+      'placeholder="Being present at dinner&#10;Doing what I said I would do&#10;Work I would put my name to">' +
+      esc(v.join('\n')) + '</textarea></div>';
+    return h;
+  }
+
   function dayHoursSettingsHTML(){
     const p = S.profile || {};
     const from = p.dayStart || DAY_FROM, to = p.dayEnd || DAY_TO;
@@ -8021,6 +8064,7 @@
       'Change the hours, add a category, and Athena shows you exactly what it would move before anything happens.</p>';
     h += dayHoursSettingsHTML();
     h += identitySettingsHTML();
+    h += valuesSettingsHTML();
     h += calSettingsHTML();
     h += trackSettingsHTML();
     h += nudgeSettingsHTML();
@@ -9325,6 +9369,15 @@
   }
   let dayHoursErr = '';
   function commitSettings(){
+    (() => {
+      const el = document.getElementById('s_values');
+      if (!el) return;
+      const list = String(el.value || '').split('\n')
+        .map(x => x.trim()).filter(Boolean).slice(0, VALUES_MAX)
+        .map(x => x.slice(0, 80));
+      S.profile = S.profile || {};
+      if (list.length) S.profile.values = list; else delete S.profile.values;
+    })();
     (() => {
       const g = id => document.getElementById(id);
       if (!g('s_daystart') || !g('s_dayend')) return;
