@@ -1323,10 +1323,39 @@
   }
 
   /* the focus timer */
+  /* The clock is a ring that empties with the digits inside it, so how much
+     is left reads as a shape before it reads as a number. */
+  .ath-side .tmr-ring { position: relative; width: 140px; margin: 4px auto 16px; }
+  .ath-side .tmr-ring svg { width: 100%; height: auto; display: block; transform: rotate(-90deg); }
+  .ath-side .tmr-ring circle { fill: none; stroke-width: 6; }
+  .ath-side .tmr-ring .trbg { stroke: var(--line); }
+  .ath-side .tmr-ring .trfg {
+    stroke: var(--ghost); stroke-linecap: round;
+    transition: stroke-dashoffset .3s linear;
+  }
+  .ath-side .tmr.going .tmr-ring .trfg { stroke: #E5A87E; }
+  html[data-theme="light"] .ath-side .tmr.going .tmr-ring .trfg { stroke: #9A5B1E; }
+  /* A second is a second: easing it would make the last one look wrong. */
+  @media (prefers-reduced-motion: reduce) { .ath-side .tmr-ring .trfg { transition: none; } }
   .ath-side .tmr-face {
-    font-size: 42px; line-height: 1; text-align: center; margin: 6px 0 14px;
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 34px; line-height: 1;
     font-variant-numeric: tabular-nums; letter-spacing: .01em;
   }
+
+  /* The way into the explainer, on the panel heading itself, because that is
+     where the question occurs to you. */
+  /* Only this panel. To place puts a count in its heading, and turning
+     every panel-h into a spread row would have shoved that count to the far
+     edge of a panel nobody asked about. */
+  .ath-side .tmr .panel-h { display: flex; align-items: center; justify-content: space-between; }
+  .ath-side .pomo-q {
+    flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%;
+    background: none; border: 1px solid var(--line); color: var(--ghost);
+    font: inherit; font-size: 11px; line-height: 1; letter-spacing: 0;
+    cursor: pointer; padding: 0; text-transform: none;
+  }
+  .ath-side .pomo-q:hover { border-color: var(--ghost); color: var(--dim); }
   /* Running gets its own colour rather than the accent, so it still reads on a
      theme whose accent is deliberately quiet. */
   .ath-side .tmr.going .tmr-face { color: #E5A87E; }
@@ -2088,6 +2117,20 @@
   #soft-app .vals-l li {
     font-family: var(--serif); font-size: 15.5px; line-height: 1.45; color: var(--text);
   }
+
+  /* The method, spelled out. Numbered because it genuinely is a sequence:
+     the break only works after the work and the long break only after four
+     of them, which is the part everybody skips. */
+  #soft-app .pomo { display: flex; flex-direction: column; gap: 14px; margin: 14px 0 16px; }
+  #soft-app .pomo-s { display: flex; gap: 12px; align-items: flex-start; }
+  #soft-app .pomo-n {
+    flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%;
+    border: 1px solid var(--live); color: var(--live);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  #soft-app .pomo-s b { display: block; font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+  #soft-app .pomo-s p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--dim); }
 
   /* A second miss in a row. Loud enough to be the next thing you do, quiet
      enough that it is clearly not a telling off: nothing has gone wrong, a

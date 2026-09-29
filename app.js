@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-29.9';
+  const BUILD = '2026-09-29.10';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -5774,6 +5774,30 @@
   const timerLeft = () => timer.endsAt ? Math.max(0, timer.endsAt - Date.now()) : Math.max(0, timer.leftMs);
   const timerFace = ms => { const s = Math.ceil(ms / 1000); return pad(Math.floor(s / 60)) + ':' + pad(s % 60); };
 
+  /* The clock as a ring that empties, with the digits inside it. Fifteen
+     minutes left of twenty five reads instantly as a shape and not at all as
+     a number, which is the whole reason for drawing it.
+
+     The arc is its own element so the tick can move it without a render. A
+     render a second would fight anything being typed anywhere else on the
+     page, which is why the digits were done this way already. */
+  const TMR_R = 52, TMR_C = 2 * Math.PI * TMR_R;
+  const timerOffset = (leftMs, totalMs) => {
+    const gone = totalMs > 0 ? Math.min(1, Math.max(0, 1 - leftMs / totalMs)) : 0;
+    return (TMR_C * gone).toFixed(1);
+  };
+  function timerRingHTML(leftMs, totalMs){
+    return '<div class="tmr-ring">' +
+      '<svg viewBox="0 0 120 120" aria-hidden="true">' +
+        '<circle class="trbg" cx="60" cy="60" r="' + TMR_R + '"></circle>' +
+        '<circle class="trfg" id="ath-arc" cx="60" cy="60" r="' + TMR_R + '" ' +
+          'stroke-dasharray="' + TMR_C.toFixed(1) + '" ' +
+          'stroke-dashoffset="' + timerOffset(leftMs, totalMs) + '"></circle>' +
+      '</svg>' +
+      '<div class="tmr-face" id="ath-face">' + timerFace(leftMs) + '</div>' +
+      '</div>';
+  }
+
   // Bank whatever has actually elapsed since the clock last started, then stop
   // counting. Called from every way a timer can stop, so no minute is counted
   // twice and none is lost.
@@ -5818,6 +5842,8 @@
       const left = timerLeft();
       const face = document.getElementById('ath-face');
       if (face) face.textContent = timerFace(left);
+      const arc = document.getElementById('ath-arc');
+      if (arc) arc.setAttribute('stroke-dashoffset', timerOffset(left, timer.mins * 60000));
       if (left <= 0){ clearInterval(timerTick); timerFinish(); }
     }, 250);
   }
@@ -5839,6 +5865,45 @@
     return out;
   }
 
+  /* What the clock is actually doing, for anyone who has not met the method.
+     It sits behind a question mark on the panel rather than as text nobody
+     reads twice, and it is honest about where Athena departs from the recipe
+     instead of pretending to follow it. */
+  let pomoOpen = false;
+  function pomodoroHTML(){
+    let h = '<div class="modal-back" data-pomoclose></div>';
+    h += '<div class="modal sit"><div class="modal-h">Why twenty five minutes</div>';
+    h += '<p class="ai-intro">The clock is the Pomodoro technique, named after the tomato shaped ' +
+      'kitchen timer Francesco Cirillo used as a student in the late eighties.</p>';
+    h += '<div class="pomo">';
+    [
+      ['Pick one thing', 'Not a list. One. The clock asks you what it is counting for, and that ' +
+        'question is half the method.'],
+      ['Work until it rings', 'No email, no quick look at something else. If a thought arrives, ' +
+        'park it and carry on. Interrupting the run is the only way to fail at this.'],
+      ['Then stop, properly', 'Five minutes away from it. Stand up, look out a window. The break ' +
+        'is not a reward for the work, it is part of how the next one stays sharp.'],
+      ['Four rounds, then a longer one', 'After four, take twenty or thirty. This is the bit ' +
+        'everybody skips and the bit that makes it last all afternoon.']
+    ].forEach((s, i) => {
+      h += '<div class="pomo-s"><span class="pomo-n">' + (i + 1) + '</span>' +
+        '<div><b>' + esc(s[0]) + '</b><p>' + esc(s[1]) + '</p></div></div>';
+    });
+    h += '</div>';
+    h += '<p class="ai-howto">The point is not the twenty five. It is that a short fixed ' +
+      'commitment is far easier to start than an open ended one, and starting is the part ' +
+      'you are actually struggling with.</p>';
+    h += '<div class="rvbar-h">Where Athena differs</div>';
+    h += '<p class="setnote">You pick the length, because twenty five is somebody else\u2019s idea ' +
+      'of a work session and yours might be ten or forty five. And the minutes are logged against ' +
+      'whatever you told the clock you were doing, so your estimates can be held up against ' +
+      'the truth later.</p>';
+    h += '<div class="modal-actions"><button class="ghost" data-pomoclose>Close</button>' +
+      '<span style="flex:1"></span>' +
+      '<button class="go" data-pomoset>Set it to 25 and start</button></div>';
+    return h + '</div>';
+  }
+
   function timerHTML(){
     const left = timerLeft(), running = timerRunning();
     const idle = !running && left === timer.mins * 60000;
@@ -5850,8 +5915,10 @@
       if (live) timer.target = live.id;
     }
     let h = '<div class="panel tmr'+(running ? ' going' : '')+(justDone === 'timer' ? ' just' : '')+'">';
-    h += '<div class="panel-h">Focus</div>';
-    h += '<div class="tmr-face" id="ath-face">'+timerFace(left)+'</div>';
+    h += '<div class="panel-h">Focus' +
+      '<button class="pomo-q" data-pomo aria-label="How the focus timer works" ' +
+      'title="How the focus timer works">?</button></div>';
+    h += timerRingHTML(left, timer.mins * 60000);
     h += '<select class="tmr-on" id="tmr_on" data-timertarget'+(running ? ' disabled' : '')+'>'+
       '<option value="">Nothing in particular</option>'+
       targets.map(x => '<option value="'+esc(x.id)+'"'+(timer.target === x.id ? ' selected' : '')+'>'+
@@ -6670,6 +6737,7 @@
     // And this one after that again, because it is opened from Settings too
     // and must not end up behind the panel that opened it.
     if (resetting) h += resetHTML();
+    if (pomoOpen) h += pomodoroHTML();
 
     paint(h);
   }
@@ -8841,6 +8909,9 @@
       save(); render(); return;
     }
     if (t('[data-tmdone]')){ tomorrowApply(); return; }
+    if (t('[data-pomo]')){ pomoOpen = true; render(); return; }
+    if (t('[data-pomoclose]')){ pomoOpen = false; render(); return; }
+    if (t('[data-pomoset]')){ pomoOpen = false; timerReset(25); timerStart(); render(); return; }
     if (t('[data-parkgo]')){
       const el = document.querySelector('.park');
       if (el){ el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
