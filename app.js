@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-29.6';
+  const BUILD = '2026-09-29.7';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -693,6 +693,14 @@
   // already filed under it, and nobody expects a setup wizard to do that.
   function obCommitProfile(){
     S.profile.name = (ob.name || '').trim().slice(0, 40);
+    // Setup has always asked when the day starts and ends, and has always
+    // used the answer only to decide where to put the starter blocks. It is
+    // the same question Settings asks, so it now sets the same thing and the
+    // grid arrives already drawn to the hours she just gave.
+    (() => {
+      const s = mins(ob.start || '07:00'), e = mins(ob.end || '21:00');
+      if (e > s && e - s >= DAY_MIN){ S.profile.dayStart = ob.start; S.profile.dayEnd = ob.end; }
+    })();
     if (ob.rerun){
       ob.cats.forEach(id => {
         if (S.categories.some(c => c.id === id)) return;
@@ -1336,7 +1344,27 @@
   /* ==========================================================================
      Views
      ========================================================================== */
-  const DS = 360, DE = 1290, SPAN = DE - DS;   // day window: 6am → 9:30pm
+  /* The hours the day is drawn between. Six to half nine was a guess that
+     suited nobody in particular, so it is a setting now.
+
+     let, not const: everything that draws a day reads these, and they change
+     when the setting does. dayWindow() is the only thing that writes them,
+     and it is called wherever S arrives or changes.
+
+     A window narrower than six hours is refused rather than clamped, because
+     the failure it causes is invisible: blocks outside it simply stop being
+     drawn, and a day that quietly loses half its contents is worse than a
+     setting that will not take. */
+  const DAY_FROM = '06:00', DAY_TO = '21:30', DAY_MIN = 6 * 60;
+  let DS = mins(DAY_FROM), DE = mins(DAY_TO), SPAN = DE - DS;
+  function dayWindow(){
+    const p = (S && S.profile) || {};
+    const s = mins(p.dayStart || DAY_FROM), e = mins(p.dayEnd || DAY_TO);
+    const ok = e > s && (e - s) >= DAY_MIN;
+    DS = ok ? s : mins(DAY_FROM);
+    DE = ok ? e : mins(DAY_TO);
+    SPAN = DE - DS;
+  }
 
   function weekTotals(tot){
     const cats = S.categories;
@@ -6416,6 +6444,9 @@
   }
 
   function render(){
+    // Before anything is measured. S is replaced by loading, restoring,
+    // undoing and resetting, and this is the one line all four pass through.
+    dayWindow();
     if ((loadFailed || bootBroken) && !workLocal){ app.classList.remove('wide'); paint(loadFailedHTML()); return; }
     // `ob` is also set when someone reruns setup from Settings, which is why
     // this is not gated on needsOnboarding alone.
@@ -7312,6 +7343,46 @@
   const HOURS = (() => { const o = []; for (let h = 0; h < 24; h++){ o.push(pad(h)+':00'); o.push(pad(h)+':30'); } return o; })();
   const hourOpts = (sel) => HOURS.map(t => '<option value="'+t+'"'+(t === sel ? ' selected' : '')+'>'+clockOf(t)+'</option>').join('');
 
+  // How many of her blocks a proposed window would stop drawing. Anything
+  // wholly outside it is not hidden politely, it simply is not rendered, so
+  // the number has to be said out loud before the change is made.
+  function blocksOutside(s, e){
+    const seen = {};
+    for (let i = 0; i < 7; i++){
+      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i);
+      blocksForDate(d).forEach(b => {
+        if (b.allDay) return;
+        const bs = mins(b.s), be = mins(b.e);
+        // Keyed on the block, not the occurrence. uid carries the date for a
+        // repeating one, so keying on that listed Wind down seven times.
+        if (be <= s || bs >= e) seen[b.id] = b.t;
+      });
+    }
+    return Object.keys(seen).map(k => seen[k]);
+  }
+
+  function dayHoursSettingsHTML(){
+    const p = S.profile || {};
+    const from = p.dayStart || DAY_FROM, to = p.dayEnd || DAY_TO;
+    let h = '<div class="modal-h" style="margin-top:8px">Your hours</div>';
+    h += '<p class="setnote">The stretch of the day Athena draws. Blocks outside it are still there, ' +
+      'they are simply not on the grid, so pick the hours you actually live in rather than the ones ' +
+      'you are awake for.</p>';
+    h += '<div class="fld two">' +
+      '<label><span>Day starts</span><select id="s_daystart">' + hourOpts(from) + '</select></label>' +
+      '<label><span>Day ends</span><select id="s_dayend">' + hourOpts(to) + '</select></label></div>';
+    const out = blocksOutside(mins(from), mins(to));
+    if (out.length){
+      const one = out.length === 1;
+      h += '<div class="savewarn">' +
+        (one ? 'One of your blocks falls' : out.length + ' of your blocks fall') +
+        ' outside these hours and ' + (one ? 'is' : 'are') + ' not being drawn: ' +
+        esc(out.slice(0, 4).join(', ')) + (out.length > 4 ? ', and more' : '') + '.</div>';
+    }
+    if (dayHoursErr) h += '<div class="errdetail"><b>Not saved</b><span>' + esc(dayHoursErr) + '</span></div>';
+    return h;
+  }
+
   function identitySettingsHTML(){
     let h = '<div class="modal-h" style="margin-top:8px">Who you are becoming</div>';
     h += '<p class="setnote">A goal is something you hit once. This is the person the habits are for, ' +
@@ -7864,6 +7935,7 @@
     h += '<button class="ghost" data-obrerun>Walk me through setup again</button>';
     h += '<p class="setnote">The same questions as the first time, filled in with what you have now. '+
       'Change the hours, add a category, and Athena shows you exactly what it would move before anything happens.</p>';
+    h += dayHoursSettingsHTML();
     h += identitySettingsHTML();
     h += calSettingsHTML();
     h += trackSettingsHTML();
@@ -8189,7 +8261,9 @@
      ========================================================================== */
 
   // ----- desktop drag in the expanded grid: resize + vertical (time) move -----
-  const GH = 680, GSPAN = SPAN, GORDER = [1,2,3,4,5,6,0];
+  // GSPAN used to be a copy of SPAN taken once at load. The window moves now,
+  // so it has to be read when the drag happens, not when the file did.
+  const GH = 680, GORDER = [1,2,3,4,5,6,0];
   /* ---- moving and resizing on the day grid ----
      The week grid has had this all along; the day grid was read-only for shape,
      which made it the odd one out. Same idea, simpler geometry: one column, so
@@ -8305,16 +8379,16 @@
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (!drag.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
     if (!drag.moved){ drag.moved = true; drag.el.classList.add('dragging'); }
-    const pxMin = GH / GSPAN;
+    const pxMin = GH / SPAN;
     const dm = Math.round((dy / pxMin) / 15) * 15;
     if (drag.resize){
-      drag.newE = Math.min(DS + GSPAN, Math.max(drag.s + 15, drag.e + dm));
+      drag.newE = Math.min(DS + SPAN, Math.max(drag.s + 15, drag.e + dm));
       drag.el.style.height = Math.max(20, (drag.newE - drag.s) * pxMin - 2) + 'px';
     } else {
       const len = drag.e - drag.s;
       const last = Math.max(0, (drag.cols.length || 7) - 1);
       drag.newPos = Math.max(0, Math.min(last, drag.pos + Math.round(dx / drag.colW)));
-      drag.newS = Math.max(DS, Math.min(DS + GSPAN - len, drag.s + dm));
+      drag.newS = Math.max(DS, Math.min(DS + SPAN - len, drag.s + dm));
       drag.newE = drag.newS + len;
       drag.el.style.transform = 'translate(' + ((drag.newPos - drag.pos) * drag.colW) + 'px,' +
         ((drag.newS - drag.s) * pxMin) + 'px)';
@@ -9156,7 +9230,22 @@
     else if (st.freq === 'weekly') toggleDone('w:'+sid, weekKey(now));
     else toggleDone('m:'+sid, monKey(now));
   }
+  let dayHoursErr = '';
   function commitSettings(){
+    (() => {
+      const g = id => document.getElementById(id);
+      if (!g('s_daystart') || !g('s_dayend')) return;
+      const from = g('s_daystart').value, to = g('s_dayend').value;
+      const s = mins(from), e = mins(to);
+      // Refused rather than clamped. A window that silently corrected itself
+      // would look like the setting had not worked.
+      if (!(e > s)){ dayHoursErr = 'The day has to end after it starts.'; return; }
+      if (e - s < DAY_MIN){ dayHoursErr = 'Athena needs at least ' + (DAY_MIN / 60) + ' hours to draw a day in.'; return; }
+      dayHoursErr = '';
+      S.profile = S.profile || {};
+      S.profile.dayStart = from; S.profile.dayEnd = to;
+      dayWindow();
+    })();
     ['work', 'life'].forEach(t => {
       const el = document.getElementById('id_' + t);
       if (!el) return;
