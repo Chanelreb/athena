@@ -955,16 +955,31 @@
   #soft-app .bmain .bw { display: block; color: var(--dim); font-size: 12.5px; margin-top: 2px; font-variant-numeric: tabular-nums; }
 
   /* ===== Day progress ===== */
-  #soft-app .dayprog { display: flex; align-items: center; gap: 14px; margin: 2px 0 20px; }
-  #soft-app .pring { flex: 0 0 auto; width: 52px; height: 52px; }
-  #soft-app .pring svg { width: 100%; height: 100%; transform: rotate(-90deg); display: block; }
-  #soft-app .pring circle { fill: none; stroke-width: 4; }
-  #soft-app .pring .rbg { stroke: var(--line); }
-  #soft-app .pring .rfg { stroke: var(--live); stroke-linecap: round; transition: stroke-dashoffset .55s cubic-bezier(.22,1,.36,1); }
-  #soft-app .dptxt { min-width: 0; }
-  #soft-app .dptxt b { display: block; font-family: var(--serif); font-weight: 400; font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
-  #soft-app .dptxt small { display: block; color: var(--dim); font-size: 12.5px; margin-top: 4px; }
-  #soft-app .dayprog.full .dptxt b { color: var(--live); }
+  /* How much of today you have kept, in the header beside the controls.
+     Sized to the cog rather than to itself, so the row it joins does not have
+     to change shape to hold it. The number sits over the drawing rather than
+     inside it, because the svg is rotated a quarter turn to start the arc at
+     the top and anything inside would be lying on its side. */
+  #soft-app .hprog {
+    position: relative; flex: 0 0 auto; width: 32px; height: 32px; margin-top: 1px;
+  }
+  #soft-app .hprog svg { width: 100%; height: 100%; transform: rotate(-90deg); display: block; }
+  #soft-app .hprog circle { fill: none; stroke-width: 3; }
+  #soft-app .hprog .rbg { stroke: var(--line); }
+  #soft-app .hprog .rfg {
+    stroke: var(--live); stroke-linecap: round;
+    transition: stroke-dashoffset .55s cubic-bezier(.22,1,.36,1);
+  }
+  #soft-app .hpn {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; color: var(--dim);
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  #soft-app .hprog.full .hpn { color: var(--live); }
+  /* The tick is the same drawing the chips use, which is sized to its box and
+     inked for a filled chip, so here it takes the ring's colour instead. */
+  #soft-app .hprog .hpn svg { width: 13px; height: 13px; transform: none; }
+  #soft-app .hprog .hpn svg path { stroke: var(--live); }
 
   /* ===== The tick ===== */
   @keyframes athPop { 0% { transform: scale(1); } 38% { transform: scale(1.28); } 100% { transform: scale(1); } }
@@ -999,7 +1014,7 @@
     :is(#soft-app, .ath-side) .trow.just .tcheck .mark, #soft-app .item.just .dot::after,
     :is(#soft-app, .ath-side) .trow.just .tcheck .mark::after, #soft-app .item.just .dot svg path,
     :is(#soft-app, .ath-side) .trow.just .tcheck .mark svg path, #soft-app .celebrate { animation: none; }
-    #soft-app .pring .rfg { transition: none; }
+    #soft-app .hprog .rfg { transition: none; }
   }
 
   /* ===== Narrow phones (about 320px) =====

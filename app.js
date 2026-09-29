@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-29.3';
+  const BUILD = '2026-09-29.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1047,22 +1047,32 @@
     activeHabits(now).forEach(hb => { total++; if (isDone(hb.id, habKey(hb.w, now), hb.target)) done++; });
     return { done, total };
   }
-  // The ring lives on the Day view with its number beside it, not crammed inside
-  // a badge in the header where it fought the motif and wrapped.
+  /* In the header, between the name and the controls.
+
+     It was here once before and was moved out because it fought the motif and
+     wrapped. What wrapped was the sentence beside it, so this version has no
+     sentence: the arc carries the proportion, the count sits inside it, and
+     the whole thing is the size of the cog next to it, which is a shape a row
+     of buttons already has room for. The words it used to say live on as its
+     label, so hovering or a screen reader still gets the full sentence.
+
+     Finished, it drops the number for a tick. Ten of ten is not a number you
+     need to read, it is a thing you want to see. */
   function dayProgressHTML(){
     const p = dayProgress();
     if (!p.total) return '';
     const pct = p.done / p.total;
-    const R = 22, C = 2 * Math.PI * R;
+    const R = 15, C = 2 * Math.PI * R;
     const all = p.done === p.total;
-    return '<div class="dayprog'+(all ? ' full' : '')+'">'+
-      '<div class="pring"><svg viewBox="0 0 52 52" aria-hidden="true">'+
-        '<circle class="rbg" cx="26" cy="26" r="'+R+'"></circle>'+
-        '<circle class="rfg" cx="26" cy="26" r="'+R+'" stroke-dasharray="'+C.toFixed(1)+'" '+
-          'stroke-dashoffset="'+(C * (1 - pct)).toFixed(1)+'"></circle>'+
-      '</svg></div>'+
-      '<div class="dptxt"><b>'+(all ? 'All ' + p.total : p.done + ' of ' + p.total)+'</b>'+
-      '<small>'+(all ? 'kept today' : 'kept today')+'</small></div></div>';
+    const said = all ? 'All ' + p.total + ' kept today' : p.done + ' of ' + p.total + ' kept today';
+    return '<div class="hprog' + (all ? ' full' : '') + '" role="img" title="' + esc(said) + '" ' +
+      'aria-label="' + esc(said) + '">' +
+      '<svg viewBox="0 0 36 36" aria-hidden="true">' +
+        '<circle class="rbg" cx="18" cy="18" r="' + R + '"></circle>' +
+        '<circle class="rfg" cx="18" cy="18" r="' + R + '" stroke-dasharray="' + C.toFixed(1) + '" ' +
+          'stroke-dashoffset="' + (C * (1 - pct)).toFixed(1) + '"></circle>' +
+      '</svg>' +
+      '<span class="hpn">' + (all ? TICK : p.done) + '</span></div>';
   }
   // Called after any tick. Fires once per day, only on the transition to done.
   function maybeCelebrate(){
@@ -1889,7 +1899,6 @@
 
     let h = '';
     if (isToday){
-      h += dayProgressHTML();   // progress is about today, not a day you're browsing
       // A second miss goes above the chips, not among them. The whole idea is
       // that it is the one thing worth doing next, and a chip in a row of
       // chips is the one thing you scroll past.
@@ -6425,6 +6434,7 @@
       '<p>'+DAYS[now.getDay()]+' '+now.getDate()+' '+MON[now.getMonth()]+' · '+
       clockOf(pad(now.getHours())+':'+pad(now.getMinutes()))+'</p></div>'+
       '<div class="greetbtns">'+
+        dayProgressHTML()+
         '<button class="cog mag" data-search aria-label="Find anything">'+MAG+'</button>'+
         '<button class="cog" data-settings aria-label="Settings">'+COG+'</button>'+
       '</div></div>';
