@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-29.4';
+  const BUILD = '2026-09-29.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1056,8 +1056,8 @@
      of buttons already has room for. The words it used to say live on as its
      label, so hovering or a screen reader still gets the full sentence.
 
-     Finished, it drops the number for a tick. Ten of ten is not a number you
-     need to read, it is a thing you want to see. */
+     Finished, the ring fills and the words become All kept, because eight of
+     eight is not a sum anybody needs to read. */
   function dayProgressHTML(){
     const p = dayProgress();
     if (!p.total) return '';
@@ -1067,12 +1067,17 @@
     const said = all ? 'All ' + p.total + ' kept today' : p.done + ' of ' + p.total + ' kept today';
     return '<div class="hprog' + (all ? ' full' : '') + '" role="img" title="' + esc(said) + '" ' +
       'aria-label="' + esc(said) + '">' +
-      '<svg viewBox="0 0 36 36" aria-hidden="true">' +
-        '<circle class="rbg" cx="18" cy="18" r="' + R + '"></circle>' +
-        '<circle class="rfg" cx="18" cy="18" r="' + R + '" stroke-dasharray="' + C.toFixed(1) + '" ' +
-          'stroke-dashoffset="' + (C * (1 - pct)).toFixed(1) + '"></circle>' +
-      '</svg>' +
-      '<span class="hpn">' + (all ? TICK : p.done) + '</span></div>';
+      '<span class="hpr">' +
+        '<svg viewBox="0 0 36 36" aria-hidden="true">' +
+          '<circle class="rbg" cx="18" cy="18" r="' + R + '"></circle>' +
+          '<circle class="rfg" cx="18" cy="18" r="' + R + '" stroke-dasharray="' + C.toFixed(1) + '" ' +
+            'stroke-dashoffset="' + (C * (1 - pct)).toFixed(1) + '"></circle>' +
+        '</svg>' +
+        (all ? '<span class="hpt">' + TICK + '</span>' : '') +
+      '</span>' +
+      '<span class="hpw"><b>' + (all ? 'All ' + p.total : p.done + ' of ' + p.total) + '</b>' +
+      '<small>kept today</small></span>' +
+      '</div>';
   }
   // Called after any tick. Fires once per day, only on the transition to done.
   function maybeCelebrate(){
@@ -6434,10 +6439,13 @@
       '<p>'+DAYS[now.getDay()]+' '+now.getDate()+' '+MON[now.getMonth()]+' · '+
       clockOf(pad(now.getHours())+':'+pad(now.getMinutes()))+'</p></div>'+
       '<div class="greetbtns">'+
-        dayProgressHTML()+
         '<button class="cog mag" data-search aria-label="Find anything">'+MAG+'</button>'+
         '<button class="cog" data-settings aria-label="Settings">'+COG+'</button>'+
       '</div></div>';
+    // Its own line, directly under the name. Beside the name there is no room
+    // on a phone for words big enough to say what it is counting, and a ring
+    // with no words is a decoration.
+    h += dayProgressHTML();
     h += '<div class="quote"><p>'+esc(LINES[doy % LINES.length])+'</p></div>';
 
     // Blocks are a top-level place now, not a mode hidden inside the week. Today
