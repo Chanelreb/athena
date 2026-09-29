@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-29.7';
+  const BUILD = '2026-09-29.8';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -139,32 +139,47 @@
     '<path d="M19.4 14.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 1 1-4 0v-.11a1.7 1.7 0 0 0-1.1-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.05H3a2 2 0 1 1 0-4h.11a1.7 1.7 0 0 0 1.56-1.1 1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1.05-1.56V3a2 2 0 1 1 4 0v.11a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1.05H21a2 2 0 1 1 0 4h-.11a1.7 1.7 0 0 0-1.56 1.04Z"/></svg>';
 
   /* ---------- daily lines (generic) ---------- */
+  /* The line at the top of the day. The unattributed ones are the house's
+     own; the rest are Chanel's, from the books she has actually read, which
+     is the difference between a quote and a reminder.
+
+     Shaped as objects rather than strings so the name can be set apart from
+     the words instead of trailing after them in the same breath. */
   const LINES = [
-    'You are the architect. The calendar is only the drawing.',
-    'One percent better today. That is the whole strategy.',
-    'A system you trust beats ten mornings of willpower.',
-    'Big years are small weeks that kept their promises.',
-    'Nobody drifts into the life they wanted. They draw it first.',
-    'Make today the day yesterday was preparing for.',
-    'Kindness compounds faster than any interest rate.',
-    'Organised is not tidy. Organised is knowing what comes next.',
-    'Success is a hundred ordinary days pointed the same way.',
-    'Design the week you want, then go and live inside it.',
-    'Yesterday set the floor. Today is where you raise it.',
-    'Write it down and your mind is free to think again.',
-    'You do not need a bigger week. You need a kept one.',
-    'Blueprints before bricks. Draw the week before you live it.',
-    'Beat yesterday. It is the only scoreboard worth reading.',
-    'Every block you keep makes the next one easier to keep.',
-    'The winning is not loud. It is Tuesday, done properly.',
-    'You are not reacting to your life. You are designing it.',
-    'Today gets one improvement. Tomorrow gets another.',
-    'Structure is what freedom looks like once it grows up.',
-    'Quiet consistency is the most underrated form of ambition.',
-    'Leave today a little better than you found it.',
-    'Order is not restriction. It is room to breathe.',
-    'A life by design starts with one hour placed on purpose.',
-    'Build the week on purpose and the year builds itself.'
+    { t: 'You are the architect. The calendar is only the drawing.' },
+    { t: 'One percent better today. That is the whole strategy.' },
+    { t: 'A system you trust beats ten mornings of willpower.' },
+    { t: 'Big years are small weeks that kept their promises.' },
+    { t: 'Nobody drifts into the life they wanted. They draw it first.' },
+    { t: 'Make today the day yesterday was preparing for.' },
+    { t: 'Kindness compounds faster than any interest rate.' },
+    { t: 'Organised is not tidy. Organised is knowing what comes next.' },
+    { t: 'Success is a hundred ordinary days pointed the same way.' },
+    { t: 'Design the week you want, then go and live inside it.' },
+    { t: 'Yesterday set the floor. Today is where you raise it.' },
+    { t: 'Write it down and your mind is free to think again.' },
+    { t: 'You do not need a bigger week. You need a kept one.' },
+    { t: 'Blueprints before bricks. Draw the week before you live it.' },
+    { t: 'Beat yesterday. It is the only scoreboard worth reading.' },
+    { t: 'Every block you keep makes the next one easier to keep.' },
+    { t: 'The winning is not loud. It is Tuesday, done properly.' },
+    { t: 'You are not reacting to your life. You are designing it.' },
+    { t: 'Today gets one improvement. Tomorrow gets another.' },
+    { t: 'Structure is what freedom looks like once it grows up.' },
+    { t: 'Quiet consistency is the most underrated form of ambition.' },
+    { t: 'Leave today a little better than you found it.' },
+    { t: 'Order is not restriction. It is room to breathe.' },
+    { t: 'A life by design starts with one hour placed on purpose.' },
+    { t: 'Build the week on purpose and the year builds itself.' },
+    { t: "Habits are the compound interest of self-improvement.", by: 'James Clear' },
+    { t: "Every action you take is a vote for the type of person you wish to become.", by: 'James Clear' },
+    { t: "You do not rise to the level of your goals. You fall to the level of your systems.", by: 'James Clear' },
+    { t: "Success is the sum of small efforts, repeated day in and day out.", by: 'Robert Collier' },
+    { t: "Strive not to be a success, but rather to be of value.", by: 'Albert Einstein' },
+    { t: "You miss 100% of the shots you don\u2019t take.", by: 'Wayne Gretzky' },
+    { t: "Life isn\u2019t about getting and having, it\u2019s about giving and being.", by: 'Kevin Kruse' },
+    { t: "You will either step forward into growth or you will step back into safety.", by: 'Abraham Maslow' },
+    { t: "Go confidently in the direction of your dreams. Live the life you have imagined.", by: 'Henry David Thoreau' }
   ];
 
   /* ---------- defaults & starter seed ---------- */
@@ -5917,6 +5932,66 @@
     }
   }
 
+  /* ---------- how long a thought has been sitting there ----------
+     Park is where the vision quietly failed. A thought went in with nothing
+     but its text, nothing ever looked at it again, and a box that holds three
+     things looks exactly like a box that holds ninety. A brain you can empty
+     into something is only useful if the something gives it back.
+
+     So a thought is dated when it is parked, and anything that has sat for a
+     week gets said out loud. Not deleted, not nagged about item by item:
+     counted, once, with a way in.
+
+     Thoughts parked before any of this existed have no date at all. They are
+     stamped the first time Athena sees them, which is a small lie about when
+     they arrived and the only honest option available: guessing a date would
+     be a bigger one. They say 'from before' rather than claiming an age. */
+  const PARK_STALE = 7;
+  // Midnight to midnight, not midnight to now. Measured against the clock,
+  // anything parked after lunch aged a day early and a thought from Tuesday
+  // called itself a week old on the following Monday afternoon.
+  const parkAge = p => {
+    if (!p || !p.at) return null;                 // never counted
+    const then = new Date(p.at + 'T00:00'); then.setHours(0, 0, 0, 0);
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const d = Math.round((now - then) / 86400000);
+    return d < 0 ? 0 : d;
+  };
+  const parkStale = p => { const n = parkAge(p); return n !== null && n >= PARK_STALE; };
+
+  // Stamp anything that predates the counting, once, so it starts ageing from
+  // the day Athena first noticed it rather than never.
+  function parkStamp(){
+    let touched = 0;
+    (S.parked || []).forEach(p => {
+      if (!p.at){ p.at = dayKey(new Date()); p.before = true; touched++; }
+    });
+    return touched;
+  }
+
+  const parkStaleList = () => (S.parked || []).filter(parkStale);
+
+  function parkAgeWords(p){
+    const n = parkAge(p);
+    if (n === null) return '';
+    if (p.before) return 'parked before Athena started counting';
+    if (n === 0) return 'parked today';
+    if (n === 1) return 'parked yesterday';
+    if (n < 14) return 'parked ' + n + ' days ago';
+    if (n < 60) return 'parked ' + Math.round(n / 7) + ' weeks ago';
+    return 'parked ' + Math.round(n / 30) + ' months ago';
+  }
+
+  function parkPromptHTML(){
+    const old = parkStaleList();
+    if (!old.length) return '';
+    const n = old.length;
+    return '<div class="sitprompt"><div class="sp-row">' +
+      '<span>' + (n === 1 ? 'A thought has' : n + ' thoughts have') + ' been sitting in your scratchpad ' +
+      'for over a week. Two minutes now and none of them is lost.</span>' +
+      '<button class="go" data-parkgo>Clear them</button></div></div>';
+  }
+
   function parkHTML(dk, inPanel){
     let h = '<div class="park'+(inPanel ? ' inpanel' : '')+'"><div class="park-row">'+
       '<input id="sk" type="text" placeholder="Park a stray thought…" autocomplete="off">'+
@@ -5924,15 +5999,21 @@
     // A parked thought is not always a calendar entry. It might be a job, a
     // thing to keep, or something at a fixed time, and the arrow used to assume
     // one of those four. Asking takes one tap and gets it right every time.
+    // The oldest float up. A thought that has been ignored for three weeks is
+    // not helped by sitting under the one you had this morning.
+    const order = (S.parked||[]).map((p, i) => ({ p, i }))
+      .sort((x, y) => (parkStale(y.p) ? 1 : 0) - (parkStale(x.p) ? 1 : 0) ||
+                      String(x.p.at || '').localeCompare(String(y.p.at || '')));
     h += (S.parked||[]).length
-      ? '<ul class="parked">'+S.parked.map((p,i) => {
+      ? '<ul class="parked">'+order.map(({ p, i }) => {
           const open = parkOpen === i;
           if (parkEdit === i)
             return '<li class="editing"><input id="pk_edit" type="text" value="'+esc(p.t)+'" autocomplete="off">'+
               '<button class="parkdo on" data-parksave="'+i+'" aria-label="Save">✓</button>'+
               '<button data-parkcancel aria-label="Cancel">×</button></li>';
-          return '<li'+(open ? ' class="open"' : '')+'>'+
-            '<button class="parktext" data-parkedit="'+i+'">'+esc(p.t)+'</button>'+
+          return '<li class="'+(open ? 'open ' : '')+(parkStale(p) ? 'stale' : '')+'">'+
+            '<button class="parktext" data-parkedit="'+i+'">'+esc(p.t)+
+              (parkStale(p) ? '<em class="parkage">'+esc(parkAgeWords(p))+'</em>' : '')+'</button>'+
           (parkBusy === i ? '<em class="parkwait">reading it\u2026</em>' : '')+
           '<button class="parkdo'+(open ? ' on' : '')+'" data-parkopen="'+i+'" aria-label="Turn this into something" title="Turn this into something">'+(open ? '×' : '→')+'</button>'+
           '<button data-unpark="'+i+'" aria-label="Remove">×</button>'+
@@ -6480,7 +6561,9 @@
     // on a phone for words big enough to say what it is counting, and a ring
     // with no words is a decoration.
     h += dayProgressHTML();
-    h += '<div class="quote"><p>'+esc(LINES[doy % LINES.length])+'</p></div>';
+    const line = LINES[doy % LINES.length];
+    h += '<div class="quote"><p>'+esc(line.t)+'</p>'+
+      (line.by ? '<cite>'+esc(line.by)+'</cite>' : '')+'</div>';
 
     // Blocks are a top-level place now, not a mode hidden inside the week. Today
     // and the whole week are two views of the same calendar, so they share a tab
@@ -6513,6 +6596,7 @@
       h += rocksHTML(now);
       h += morningPromptHTML(now);
       h += sessionPromptHTML(now);
+      h += parkPromptHTML();
       // Today's check is off the day for now, at Chanel's ask: it turned up
       // unexplained and she was not sure what it was for. Nothing is lost by
       // it going. The commitments themselves are still under Grow, with the
@@ -8713,6 +8797,15 @@
       save(); render(); return;
     }
     if (t('[data-tmdone]')){ tomorrowApply(); return; }
+    if (t('[data-parkgo]')){
+      const el = document.querySelector('.park');
+      if (el){ el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      else { view = 'day'; render(); setTimeout(() => {
+        const p = document.querySelector('.park');
+        if (p) p.scrollIntoView({ block: 'center' });
+      }, 60); }
+      return;
+    }
     if ((m = t('[data-clearblock]'))){ clearOne(m.dataset.clearblock); return; }
     if ((m = t('[data-clearday]'))){ clearDay(parseDay(m.dataset.clearday)); return; }
     if (t('[data-resetopen]')){ commitSettings(); resetting = { ack: false }; render(); return; }
@@ -9122,7 +9215,7 @@
     if ((m = t('[data-delstep]'))){ markUndo('Step removed'); const [gid, sid] = m.dataset.delstep.split(':'); const g = S.goals.find(x=>x.id===gid); if (g) g.steps = g.steps.filter(s=>s.id!==sid); save(); render(); return; }
     if ((m = t('[data-delgoal]'))){ markUndo('Goal removed'); S.goals = S.goals.filter(x=>x.id!==m.dataset.delgoal); if (openGoal===m.dataset.delgoal) openGoal=null; save(); render(); return; }
 
-    if (t('[data-park]')){ const i = document.getElementById('sk'); const v = i && i.value.trim(); if (!v){ if (i) i.focus(); return; } S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const j = document.getElementById('sk'); if (j) j.focus(); return; }
+    if (t('[data-park]')){ const i = document.getElementById('sk'); const v = i && i.value.trim(); if (!v){ if (i) i.focus(); return; } S.parked.push({ t:v.slice(0,200), at:dayKey(new Date()) }); clearDraft('sk'); save(); render(); const j = document.getElementById('sk'); if (j) j.focus(); return; }
     // Opening a block's detail. An explicit empty string means "closed", which
     // is different from null: null still lets the live block open itself.
     // The whole block is the target, not just its label: a press can also be
@@ -9280,7 +9373,7 @@
     if (e.key === 'Enter' && e.target.id === 'ob_newcat'){ e.preventDefault(); obAddCustom(); return; }
     if (e.key === 'Enter' && e.target.id === 'sk'){
       e.preventDefault(); const v = e.target.value.trim();
-      if (v){ S.parked.push({ t:v.slice(0,200) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
+      if (v){ S.parked.push({ t:v.slice(0,200), at:dayKey(new Date()) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
     }
     if (e.key === 'Enter' && e.target.id === 'ask_q'){ e.preventDefault(); askAthena(); return; }
     if (e.key === 'Enter' && e.target.id === 'cm_text'){ e.preventDefault(); const b = app.querySelector('[data-cmadd]'); if (b) b.click(); return; }
@@ -9454,6 +9547,9 @@
       snapToday();         // a copy of this morning, before the day touches it
       consumeNudge();      // and anything a notification sent us here to do
       pushCheck();         // is this device set up to be nudged at all
+      // Thoughts parked before any of this was counted get a date now, so
+      // they start ageing rather than sitting outside time forever.
+      if (parkStamp()) save();
       calLoad();           // last known calendar, so the day draws complete at once
       // Coming back from Microsoft takes priority: it finishes a connection
       // the user is standing there waiting for. Otherwise just top it up.
