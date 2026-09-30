@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-30.1';
+  const BUILD = '2026-09-30.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2098,10 +2098,56 @@
     return { tasks: tasks, blocks: blocks };
   }
 
+  /* Three jobs, none of them chosen for you.
+
+     It used to arrive with Leave already lit, which made every row look
+     answered before it had been read, and Leave itself said two things at
+     once: leave it alone, or leave it behind. So the middle one is Move now,
+     meaning move it to a day you pick, and doing nothing is what you get by
+     touching nothing.
+
+     A row you have answered leaves the list. What is left on screen is
+     exactly what still needs you, which is the whole point of the ritual. */
+  const TM_PICKING = 'move';                        // chosen Move, not yet a date
+  const tmrwDone = key => {
+    const v = tmrw[key];
+    return !!v && v !== TM_PICKING;
+  };
+  const tmrwDay = key => {
+    const v = tmrw[key] || '';
+    return v.indexOf('day:') === 0 ? v.slice(4) : '';
+  };
+
   function tmrwChoiceHTML(key, opts){
-    return '<span class="tmchoice">' + opts.map(o =>
-      '<button class="tmbtn' + ((tmrw[key] || 'leave') === o[0] ? ' on' : '') + '" ' +
+    const picking = tmrw[key] === TM_PICKING;
+    let h = '<span class="tmchoice">' + opts.map(o =>
+      '<button class="tmbtn' + (tmrw[key] === o[0] ? ' on' : '') + '" ' +
       'data-tmpick="' + key + '|' + o[0] + '">' + o[1] + '</button>').join('') + '</span>';
+    if (picking){
+      const from = new Date(); from.setHours(0, 0, 0, 0); from.setDate(from.getDate() + 1);
+      h += '<input class="tmday" type="date" data-tmday="' + key + '" ' +
+        'min="' + dayKey(from) + '" aria-label="Which day">';
+    }
+    return h;
+  }
+
+  // The ones already answered, kept in a line at the bottom so a mistap is a
+  // tap to undo rather than something you have to close the whole panel over.
+  function tmrwSortedHTML(rows){
+    const done = rows.filter(r => tmrwDone(r.key));
+    if (!done.length) return '';
+    const word = key => {
+      const v = tmrw[key];
+      if (v === 'tomorrow') return 'tomorrow';
+      if (v === 'drop') return 'dropped';
+      if (v === 'letgo') return 'let go';
+      const d = tmrwDay(key);
+      return d ? goalDate(d) : 'sorted';
+    };
+    return '<div class="tmsorted">' + done.map(r =>
+      '<span class="tmsp">' + esc(r.title) + ' <em>' + esc(word(r.key)) + '</em>' +
+      '<button data-tmundo="' + esc(r.key) + '" aria-label="Put ' + esc(r.title) + ' back">\u00d7</button>' +
+      '</span>').join('') + '</div>';
   }
 
   function tomorrowHTML(){
@@ -2118,23 +2164,32 @@
     // ---- what today is leaving behind
     const anyLoose = loose.tasks.length + loose.blocks.length;
     if (anyLoose){
-      h += '<h2 class="tmh">Left over from today <span class="tcount">' + anyLoose + '</span></h2>';
-      h += '<p class="tmnote">Nothing here moves unless you say so.</p>';
-      loose.tasks.forEach(tk => {
-        const key = 'task:' + tk.id;
-        const bits = [];
-        if (tk.due) bits.push(dueLabel(tk.due, new Date(), tk.dateType).text);
-        if (tk.mins) bits.push(dur(tk.mins));
-        h += '<div class="tmrow"><span class="cd" style="background:' + catColor(tk.cat) + '"></span>' +
-          '<span class="tmt">' + esc(tk.title) + (bits.length ? '<small>' + esc(bits.join(' · ')) + '</small>' : '') + '</span>' +
-          tmrwChoiceHTML(key, [['move','Tomorrow'],['leave','Leave'],['drop','Drop']]) + '</div>';
+      const left = loose.tasks.filter(tk => !tmrwDone('task:' + tk.id)).length +
+                   loose.blocks.filter(b => !tmrwDone('block:' + b.id)).length;
+      h += '<h2 class="tmh">Left over from today' +
+        (left ? ' <span class="tcount">' + left + '</span>' : '') + '</h2>';
+      h += '<p class="tmnote">' + (left
+        ? 'Nothing moves unless you say so. Anything you do not touch stays exactly where it is.'
+        : 'All sorted.') + '</p>';
+      const rows = [];
+      loose.tasks.forEach(tk => rows.push({ key: 'task:' + tk.id, title: tk.title, tk: tk }));
+      loose.blocks.forEach(b => rows.push({ key: 'block:' + b.id, title: b.t, b: b }));
+
+      rows.filter(r => !tmrwDone(r.key)).forEach(r => {
+        if (r.tk){
+          const bits = [];
+          if (r.tk.due) bits.push(dueLabel(r.tk.due, new Date(), r.tk.dateType).text);
+          if (r.tk.mins) bits.push(dur(r.tk.mins));
+          h += '<div class="tmrow"><span class="cd" style="background:' + catColor(r.tk.cat) + '"></span>' +
+            '<span class="tmt">' + esc(r.tk.title) + (bits.length ? '<small>' + esc(bits.join(' · ')) + '</small>' : '') + '</span>' +
+            tmrwChoiceHTML(r.key, [['tomorrow','Tomorrow'],['move','Move'],['drop','Drop']]) + '</div>';
+        } else {
+          h += '<div class="tmrow"><span class="cd" style="background:' + catColor(r.b.c) + '"></span>' +
+            '<span class="tmt">' + esc(r.b.t) + '<small>' + clockOf(r.b.s) + ' · not ticked off</small></span>' +
+            tmrwChoiceHTML(r.key, [['tomorrow','Tomorrow'],['move','Move'],['letgo','Let it go']]) + '</div>';
+        }
       });
-      loose.blocks.forEach(b => {
-        const key = 'block:' + b.id;
-        h += '<div class="tmrow"><span class="cd" style="background:' + catColor(b.c) + '"></span>' +
-          '<span class="tmt">' + esc(b.t) + '<small>' + clockOf(b.s) + ' · not ticked off</small></span>' +
-          tmrwChoiceHTML(key, [['move','Tomorrow'],['leave','Let it go']]) + '</div>';
-      });
+      h += tmrwSortedHTML(rows);
     } else {
       h += '<p class="tmclean">Today has nothing left hanging. Every block was kept and nothing is overdue.</p>';
     }
@@ -2187,31 +2242,38 @@
     markUndo('Tomorrow set up');
     Object.keys(tmrw).forEach(key => {
       const choice = tmrw[key];
-      if (choice !== 'move' && choice !== 'drop') return;
+      // Move with no day on it yet, and Let it go, both mean leave the data
+      // alone. One is unfinished, the other is a decision, and neither
+      // changes anything.
+      if (choice === TM_PICKING || choice === 'letgo') return;
+      const onto = choice === 'tomorrow' ? tmk : tmrwDay(key);
+      if (choice !== 'drop' && !onto) return;
       const kind = key.slice(0, key.indexOf(':')), id = key.slice(key.indexOf(':') + 1);
       if (kind === 'task'){
         const tk = findTask(id);
         if (!tk) return;
         if (choice === 'drop'){ S.tasks = (S.tasks || []).filter(x => x.id !== id); dropped.push(tk.title); return; }
-        tk.due = tmk;
+        tk.due = onto;
         tk.pin = null;             // the block it was pinned to is in the past
         tk.hold = false;
         moved.push(tk.title);
-      } else if (kind === 'block' && choice === 'move'){
+      } else if (kind === 'block' && choice !== 'drop'){
         const ev = findEvent(id);
         if (!ev) return;
         // A one-off simply changes its date. A repeating block cannot be moved
         // to a day it does not repeat on, so tomorrow gets a copy of its own
         // and the repeat carries on untouched.
-        if (!ev.rrule) ev.date = tmk;
+        if (!ev.rrule) ev.date = onto;
         else S.events.push({ id:'ev_'+uid8(), title:ev.title, note:ev.note || '', cat:ev.cat,
-          allDay:!!ev.allDay, start:ev.start, end:ev.end, rrule:null, date:tmk, ex:{}, skip:[] });
+          allDay:!!ev.allDay, start:ev.start, end:ev.end, rrule:null, date:onto, ex:{}, skip:[] });
         moved.push(ev.title);
       }
     });
     (S.profile || (S.profile = {})).sortedFor = tmk;
     const parts = [];
-    if (moved.length) parts.push(moved.length + ' moved to tomorrow');
+    // Only say tomorrow when tomorrow is where everything actually went.
+    const toAnotherDay = Object.keys(tmrw).some(k => tmrwDay(k));
+    if (moved.length) parts.push(moved.length + (toAnotherDay ? ' moved on' : ' moved to tomorrow'));
     if (dropped.length) parts.push(dropped.length + ' dropped');
     announce(parts.length ? parts.join(', ') : 'Tomorrow is sorted');
     tomorrowOpen = false; tmrw = {};
@@ -6453,6 +6515,15 @@
     });
 
     shell.addEventListener('change', e => {
+      const key = e.target.dataset && e.target.dataset.tmday;
+      if (!key) return;
+      // Move on its own is only an intention. It becomes an answer, and the
+      // row leaves, once there is a day on it.
+      if (e.target.value) tmrw[key] = 'day:' + e.target.value; else delete tmrw[key];
+      render();
+    });
+
+    shell.addEventListener('change', e => {
       if (e.target.id !== 'tmr_on') return;
       timer.target = e.target.value;
       timerSave();
@@ -8942,8 +9013,12 @@
     if (t('[data-closetomorrow]')){ tomorrowOpen = false; tmrw = {}; render(); return; }
     if ((m = t('[data-tmpick]'))){
       const bits = m.dataset.tmpick.split('|');
-      tmrw[bits[0]] = bits[1]; render(); return;
+      // Tapping the answer you already gave takes it back, which is what a
+      // row that has just vanished from under your finger needs.
+      if (tmrw[bits[0]] === bits[1]) delete tmrw[bits[0]]; else tmrw[bits[0]] = bits[1];
+      render(); return;
     }
+    if ((m = t('[data-tmundo]'))){ delete tmrw[m.dataset.tmundo]; render(); return; }
     if (t('[data-tmplace]')){
       const tm = tomorrowDate();
       markUndo('Placing');
