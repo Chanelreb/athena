@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-29.10';
+  const BUILD = '2026-09-30.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -5740,6 +5740,9 @@
   // in particular. Kept on the device with the rest of the timer, while the
   // minutes it produces go into the account.
   let timer = { mins: 25, endsAt: null, leftMs: 25 * 60000, done: 0, doneOn: '', target: '', startedAt: null };
+  // Opened by hand, for this visit only. Not stored: a timer you unfolded on
+  // Tuesday should not still be taking up the day on Thursday.
+  let timerOpen = false;
   let timerTick = null;
 
   /* ---- what things actually took ----
@@ -5808,21 +5811,26 @@
     if (m >= 1 && timer.target) logTime(timer.target, m);
     return m;
   }
+  // Wherever the clock is actually drawn. In the rail on a wide screen, in
+  // the day on a phone, and repainting the wrong one leaves the buttons
+  // showing the state before you pressed them.
+  const timerPaint = () => { if (panelsOn()) paintPanels(); else render(); };
+
   function timerStart(){
     timer.endsAt = Date.now() + (timer.leftMs > 0 ? timer.leftMs : timer.mins * 60000);
     timer.startedAt = Date.now();
-    timerSave(); timerLoop(); paintPanels(); timerNudgeSet();
+    timerSave(); timerLoop(); timerPaint(); timerNudgeSet();
   }
   function timerPause(){
     timerBank();
     timer.leftMs = timerLeft(); timer.endsAt = null;
-    clearInterval(timerTick); timerSave(); paintPanels(); timerNudgeClear();
+    clearInterval(timerTick); timerSave(); timerPaint(); timerNudgeClear();
   }
   function timerReset(mins){
     timerBank();
     if (mins) timer.mins = mins;
     timer.endsAt = null; timer.leftMs = timer.mins * 60000;
-    clearInterval(timerTick); timerSave(); paintPanels(); timerNudgeClear();
+    clearInterval(timerTick); timerSave(); timerPaint(); timerNudgeClear();
   }
   function timerFinish(){
     timerBank();
@@ -5831,7 +5839,7 @@
     timerSave();
     try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch(_){}
     markJustDone('timer');
-    paintPanels(); timerNudgeClear();
+    timerPaint(); timerNudgeClear();
   }
   function timerLoop(){
     clearInterval(timerTick);
@@ -5904,6 +5912,23 @@
     return h + '</div>';
   }
 
+  /* Four rounds then a longer break is the half of the method everybody
+     skips, and it is impossible to skip something you cannot see. The dots
+     are the sessions finished today, in fours, so the moment to take twenty
+     minutes rather than five announces itself. */
+  function timerDotsHTML(){
+    const done = (timer.doneOn === dayKey(new Date())) ? (timer.done || 0) : 0;
+    const inSet = done % 4, sets = Math.floor(done / 4);
+    let dots = '';
+    for (let i = 0; i < 4; i++) dots += '<i class="' + (i < inSet ? 'on' : '') + '"></i>';
+    const word = !done ? 'No rounds yet today'
+      : inSet === 0 ? done + ' done \u00b7 take the long break'
+      : done + ' done today';
+    return '<div class="tmr-dots" title="' + esc(word) + '">' + dots +
+      (sets ? '<b>\u00d7' + sets + '</b>' : '') +
+      '<span>' + esc(word) + '</span></div>';
+  }
+
   function timerHTML(){
     const left = timerLeft(), running = timerRunning();
     const idle = !running && left === timer.mins * 60000;
@@ -5914,10 +5939,21 @@
       const live = targets.find(x => x.live);
       if (live) timer.target = live.id;
     }
-    let h = '<div class="panel tmr'+(running ? ' going' : '')+(justDone === 'timer' ? ' just' : '')+'">';
+    // Folded when nothing is running. A clock reading 25:00 and a row of
+    // buttons is a lot of a phone screen to spend on a thing you are not
+    // currently doing, and the one control that matters is Start.
+    const open = running || !idle || timerOpen;
+    let h = '<div class="panel tmr'+(running ? ' going' : '')+(open ? '' : ' folded')+
+      (justDone === 'timer' ? ' just' : '')+'">';
     h += '<div class="panel-h">Focus' +
       '<button class="pomo-q" data-pomo aria-label="How the focus timer works" ' +
       'title="How the focus timer works">?</button></div>';
+    if (!open){
+      h += '<div class="tmr-fold">' +
+        '<button class="go" data-timeropen>Start ' + timer.mins + ' minutes</button>' +
+        timerDotsHTML() + '</div></div>';
+      return h;
+    }
     h += timerRingHTML(left, timer.mins * 60000);
     h += '<select class="tmr-on" id="tmr_on" data-timertarget'+(running ? ' disabled' : '')+'>'+
       '<option value="">Nothing in particular</option>'+
@@ -5934,9 +5970,11 @@
       '</div>';
     const today = dayKey(new Date());
     const spentToday = Object.keys(spentDay(today)).reduce((a, k) => a + spentDay(today)[k], 0);
+    h += timerDotsHTML();
     h += '<div class="tmr-done">'+
-      (timer.done ? timer.done + ' finished today' : 'Nothing finished yet today')+
-      (spentToday ? ' · '+dur(spentToday)+' tracked' : '')+'</div>';
+      (spentToday ? dur(spentToday)+' tracked today' : 'Nothing tracked yet today')+
+      (idle && !running ? ' · <button class="linkish" data-timerfold>put it away</button>' : '')+
+      '</div>';
     h += '</div>';
     return h;
   }
@@ -6674,6 +6712,10 @@
       h += morningPromptHTML(now);
       h += sessionPromptHTML(now);
       h += parkPromptHTML();
+      // No side panel on a phone, so the clock has lived only on a laptop.
+      // A focus timer you cannot reach from the thing that is distracting you
+      // is not much of a focus timer.
+      if (!panelsOn()) h += timerHTML();
       // Today's check is off the day for now, at Chanel's ask: it turned up
       // unexplained and she was not sure what it was for. Nothing is lost by
       // it going. The commitments themselves are still under Grow, with the
@@ -8909,6 +8951,8 @@
       save(); render(); return;
     }
     if (t('[data-tmdone]')){ tomorrowApply(); return; }
+    if (t('[data-timeropen]')){ timerOpen = true; render(); return; }
+    if (t('[data-timerfold]')){ timerOpen = false; render(); return; }
     if (t('[data-pomo]')){ pomoOpen = true; render(); return; }
     if (t('[data-pomoclose]')){ pomoOpen = false; render(); return; }
     if (t('[data-pomoset]')){ pomoOpen = false; timerReset(25); timerStart(); render(); return; }

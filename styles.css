@@ -1325,19 +1325,19 @@
   /* the focus timer */
   /* The clock is a ring that empties with the digits inside it, so how much
      is left reads as a shape before it reads as a number. */
-  .ath-side .tmr-ring { position: relative; width: 140px; margin: 4px auto 16px; }
-  .ath-side .tmr-ring svg { width: 100%; height: auto; display: block; transform: rotate(-90deg); }
-  .ath-side .tmr-ring circle { fill: none; stroke-width: 6; }
-  .ath-side .tmr-ring .trbg { stroke: var(--line); }
-  .ath-side .tmr-ring .trfg {
+  :is(#soft-app, .ath-side) .tmr-ring { position: relative; width: 140px; margin: 4px auto 16px; }
+  :is(#soft-app, .ath-side) .tmr-ring svg { width: 100%; height: auto; display: block; transform: rotate(-90deg); }
+  :is(#soft-app, .ath-side) .tmr-ring circle { fill: none; stroke-width: 6; }
+  :is(#soft-app, .ath-side) .tmr-ring .trbg { stroke: var(--line); }
+  :is(#soft-app, .ath-side) .tmr-ring .trfg {
     stroke: var(--ghost); stroke-linecap: round;
     transition: stroke-dashoffset .3s linear;
   }
-  .ath-side .tmr.going .tmr-ring .trfg { stroke: #E5A87E; }
-  html[data-theme="light"] .ath-side .tmr.going .tmr-ring .trfg { stroke: #9A5B1E; }
+  :is(#soft-app, .ath-side) .tmr.going .tmr-ring .trfg { stroke: #E5A87E; }
+  html[data-theme="light"] :is(#soft-app, .ath-side) .tmr.going .tmr-ring .trfg { stroke: #9A5B1E; }
   /* A second is a second: easing it would make the last one look wrong. */
-  @media (prefers-reduced-motion: reduce) { .ath-side .tmr-ring .trfg { transition: none; } }
-  .ath-side .tmr-face {
+  @media (prefers-reduced-motion: reduce) { :is(#soft-app, .ath-side) .tmr-ring .trfg { transition: none; } }
+  :is(#soft-app, .ath-side) .tmr-face {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     font-size: 34px; line-height: 1;
     font-variant-numeric: tabular-nums; letter-spacing: .01em;
@@ -1348,44 +1348,86 @@
   /* Only this panel. To place puts a count in its heading, and turning
      every panel-h into a spread row would have shoved that count to the far
      edge of a panel nobody asked about. */
-  .ath-side .tmr .panel-h { display: flex; align-items: center; justify-content: space-between; }
-  .ath-side .pomo-q {
+  :is(#soft-app, .ath-side) .tmr .panel-h { display: flex; align-items: center; justify-content: space-between; }
+  :is(#soft-app, .ath-side) .pomo-q {
     flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%;
     background: none; border: 1px solid var(--line); color: var(--ghost);
     font: inherit; font-size: 11px; line-height: 1; letter-spacing: 0;
     cursor: pointer; padding: 0; text-transform: none;
   }
-  .ath-side .pomo-q:hover { border-color: var(--ghost); color: var(--dim); }
+  :is(#soft-app, .ath-side) .pomo-q:hover { border-color: var(--ghost); color: var(--dim); }
   /* Running gets its own colour rather than the accent, so it still reads on a
      theme whose accent is deliberately quiet. */
-  .ath-side .tmr.going .tmr-face { color: #E5A87E; }
-  html[data-theme="light"] .ath-side .tmr.going .tmr-face { color: #9A5B1E; }
-  .ath-side .tmr.just .tmr-face { animation: pop .5s ease; }
-  .ath-side .tmr-mins { display: flex; align-items: center; gap: 4px; justify-content: center; margin-bottom: 14px; flex-wrap: wrap; }
-  .ath-side .tmr-mins button {
+  :is(#soft-app, .ath-side) .tmr.going .tmr-face { color: #E5A87E; }
+  html[data-theme="light"] :is(#soft-app, .ath-side) .tmr.going .tmr-face { color: #9A5B1E; }
+  :is(#soft-app, .ath-side) .tmr.just .tmr-face { animation: pop .5s ease; }
+  :is(#soft-app, .ath-side) .tmr-mins { display: flex; align-items: center; gap: 4px; justify-content: center; margin-bottom: 14px; flex-wrap: wrap; }
+  :is(#soft-app, .ath-side) .tmr-mins button {
     width: 30px; height: 28px; border-radius: 8px; cursor: pointer; padding: 0;
     background: none; border: 1px solid var(--line); color: var(--ghost);
     font: inherit; font-size: 12px;
   }
-  .ath-side .tmr-mins button.on { border-color: var(--live); color: var(--live); }
-  .ath-side .tmr-mins span { font-size: 11px; color: var(--ghost); margin-left: 3px; }
-  .ath-side .tmr-on {
+  :is(#soft-app, .ath-side) .tmr-mins button.on { border-color: var(--live); color: var(--live); }
+  :is(#soft-app, .ath-side) .tmr-mins span { font-size: 11px; color: var(--ghost); margin-left: 3px; }
+  :is(#soft-app, .ath-side) .tmr-on {
     width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--text);
     border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 12.5px; margin-bottom: 12px;
   }
-  .ath-side .tmr-on:disabled { opacity: .7; }
-  .ath-side .tmr-act { display: flex; gap: 8px; }
-  .ath-side .tmr-act .go {
+  :is(#soft-app, .ath-side) .tmr-on:disabled { opacity: .7; }
+  :is(#soft-app, .ath-side) .tmr-act { display: flex; gap: 8px; }
+  :is(#soft-app, .ath-side) .tmr-act .go {
     flex: 1; background: var(--live); color: var(--on-live); border: 0; border-radius: 11px;
     padding: 10px; font: inherit; font-weight: 600; cursor: pointer;
   }
-  .ath-side .tmr-act .ghost {
+  :is(#soft-app, .ath-side) .tmr-act .ghost {
     flex: 0 0 auto; background: none; border: 1px solid var(--line);
     color: var(--ghost); border-radius: 11px; padding: 10px 14px; font: inherit; cursor: pointer;
   }
-  .ath-side .tmr-done { font-size: 11.5px; color: var(--ghost); text-align: center; margin-top: 12px; }
+  /* Folded: the clock is put away and the only control left is the one that
+     matters. A dial reading 25:00 is a lot of a phone screen to spend on
+     something you are not currently doing. */
+  :is(#soft-app, .ath-side) .tmr.folded .tmr-fold {
+    display: flex; flex-direction: column; gap: 10px; align-items: stretch;
+  }
+  :is(#soft-app, .ath-side) .tmr-fold .go {
+    background: var(--live); color: var(--on-live); border: 0; border-radius: 10px;
+    padding: 12px 16px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+
+  /* The rounds done today, in fours, because the long break after the
+     fourth is the half of the method everybody skips and you cannot skip
+     what you can see. */
+  :is(#soft-app, .ath-side) .tmr-dots {
+    display: flex; align-items: center; gap: 6px; justify-content: center;
+    margin-top: 12px; flex-wrap: wrap;
+  }
+  :is(#soft-app, .ath-side) .tmr-dots i {
+    display: block; width: 9px; height: 9px; border-radius: 50%;
+    border: 1px solid var(--line); background: transparent;
+  }
+  :is(#soft-app, .ath-side) .tmr-dots i.on { background: var(--live); border-color: var(--live); }
+  :is(#soft-app, .ath-side) .tmr-dots b {
+    font-size: 11px; font-weight: 600; color: var(--live); margin-left: 2px;
+  }
+  :is(#soft-app, .ath-side) .tmr-dots span {
+    font-size: 11.5px; color: var(--ghost); margin-left: 4px;
+  }
+
+  :is(#soft-app, .ath-side) .tmr-done { font-size: 11.5px; color: var(--ghost); text-align: center; margin-top: 12px; }
 
   /* the pile still to be placed */
+  /* On the day it is a card in the page rather than an item in a rail, so
+     it has to draw its own edges; in the rail the rail supplied them. */
+  #soft-app .panel.tmr {
+    background: var(--raise); border: 1px solid var(--line);
+    border-radius: 14px; padding: 16px; margin: 14px 0 4px;
+  }
+  #soft-app .panel.tmr .panel-h {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ghost); margin-bottom: 12px;
+  }
+
   .ath-side .panel-h b { float: right; font-weight: 600; color: var(--live); }
   .ath-side .plist { display: flex; flex-direction: column; gap: 6px; }
   .ath-side .ptask {
