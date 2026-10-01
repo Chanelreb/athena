@@ -663,6 +663,16 @@
   #soft-app .wdrow { display: flex; gap: 6px; }
   #soft-app .wdbtn { flex: 1; background: var(--raise); border: 1px solid var(--line); color: var(--dim); border-radius: 9px; padding: 9px 0; font: inherit; font-size: 13px; cursor: pointer; }
   #soft-app .wdbtn.on { background: var(--live-soft); border-color: var(--live); color: var(--live); }
+  /* Monday to Friday is the answer most of the time, so it is one button
+     rather than five taps. It wraps under the letters on a narrow screen
+     instead of squeezing seven day buttons into nothing. */
+  #soft-app .wdrow { flex-wrap: wrap; }
+  #soft-app .wdall {
+    flex: 1 1 100%; background: none; border: 1px dashed var(--line);
+    color: var(--dim); border-radius: 9px; padding: 8px 0;
+    font: inherit; font-size: 12.5px; cursor: pointer; margin-top: 2px;
+  }
+  #soft-app .wdall.on { border-style: solid; border-color: var(--live); color: var(--live); }
 
   /* modal actions */
   #soft-app .modal-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }

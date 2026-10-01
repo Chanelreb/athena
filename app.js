@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-09-30.2';
+  const BUILD = '2026-10-01.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1120,6 +1120,26 @@
      period, on the same completions map habits and goal steps use. */
   const PRIOS = [['high','High'], ['normal','Normal'], ['low','Low']];
   const DATEKINDS = [['by','Due by'], ['on','Do on']];
+  // Monday first, Sunday last, because that is how a week is read here.
+  const TWDAYS = [[1,'M'],[2,'T'],[3,'W'],[4,'T'],[5,'F'],[6,'S'],[0,'S']];
+  const WEEKDAYS = [1,2,3,4,5];
+  const sameDays = (a, b) => a.length === b.length && a.slice().sort().join() === b.slice().sort().join();
+
+  /* The weekday row, which the editor has had all along and the add form
+     never did: choosing Weekly there produced a repeat with no days on it,
+     so Monday to Friday was not something you could actually ask for.
+
+     Weekdays is its own button because it is the answer most of the time and
+     five taps to say a common thing is five taps too many. */
+  function weekdayRowHTML(days, attr, allAttr){
+    const on = sameDays(days, WEEKDAYS);
+    return '<div class="fld"><span>Which days</span><div class="wdrow">' +
+      TWDAYS.map(w => '<button type="button" class="wdbtn' +
+        (days.indexOf(w[0]) !== -1 ? ' on' : '') + '" data-' + attr + '="' + w[0] + '">' +
+        w[1] + '</button>').join('') +
+      '<button type="button" class="wdall' + (on ? ' on' : '') + '" data-' + allAttr + '>Weekdays</button>' +
+      '</div></div>';
+  }
   const MINOPTS = [[0,'How long?'], [10,'10 min'], [15,'15 min'], [20,'20 min'], [30,'30 min'],
     [45,'45 min'], [60,'1h'], [90,'1h 30m'], [120,'2h'], [180,'3h']];
   const prioRank = p => (p === 'high' ? 0 : p === 'low' ? 2 : 1);
@@ -5514,9 +5534,17 @@
         '<input id="tk_at" type="time" aria-label="At a set time (optional)">'+
       '</div>'+
       '<div class="frow">'+
-        '<select id="tk_rep"><option value="once" selected>One-off</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>'+
+        '<select id="tk_rep">'+['once','daily','weekly','monthly'].map(r =>
+          "<option value='"+r+"'"+(addRep===r?' selected':'')+">"+
+          ({once:'One-off',daily:'Daily',weekly:'Weekly',monthly:'Monthly'})[r]+"</option>").join('')+'</select>'+
         '<select id="tk_mins">'+MINOPTS.map(o => "<option value='"+o[0]+"'>"+o[1]+"</option>").join('')+'</select>'+
       '</div>'+
+      (addRep === 'weekly'
+        ? weekdayRowHTML(addDays, 'awd', 'awdall') +
+          '<small class="gform-hint">' + (addDays.length
+            ? 'It will turn up on those days only, and each one is its own tick.'
+            : 'Pick the days, or leave them and it repeats once a week.') + '</small>'
+        : '')+
       '<label class="fld chk taskhard"><input id="tk_hard" type="checkbox">'+
         '<span>Must not miss</span></label>'+
       '<button class="go" data-addtask>Add task</button>'+
@@ -5704,10 +5732,7 @@
       '<label><span>Priority</span><select id="te_prio">'+PRIOS.map(p=>"<option value='"+p[0]+"'"+(p[0]===e.priority?' selected':'')+">"+p[1]+"</option>").join('')+'</select></label>'+
       '<label><span>Repeat</span><select id="te_rep">'+REPS.map(r=>"<option value='"+r[0]+"'"+(r[0]===e.repeat?' selected':'')+">"+r[1]+"</option>").join('')+'</select></label></div>';
     if (e.repeat === 'weekly'){
-      const TWD = [[1,'M'],[2,'T'],[3,'W'],[4,'T'],[5,'F'],[6,'S'],[0,'S']];
-      h += '<div class="fld"><span>Which days</span><div class="wdrow">'+
-        TWD.map(w=>'<button type="button" class="wdbtn'+(e.days.indexOf(w[0])!==-1?' on':'')+'" data-twd="'+w[0]+'">'+w[1]+'</button>').join('')+
-        '</div></div>';
+      h += weekdayRowHTML(e.days, 'twd', 'twdall');
       h += '<small class="gform-hint">'+(e.days.length
         ? 'It will only turn up on those days, and each one is its own tick.'
         : 'Pick none and it means once a week, on whichever day you get to it.')+'</small>';
@@ -7355,6 +7380,10 @@
      The cost of this design, stated plainly: if nobody opens Athena for seven
      days the queue runs dry and the nudges stop until somebody does. */
   const NUDGE_DAYS = 7;
+  // What the add form is currently set to. Not stored anywhere: it is the
+  // shape of the thing being typed, and it resets once the task is added.
+  let addRep = 'once', addDays = [];
+
   const DEV_KEY = 'athena:device';
   let pushState = 'unknown';   // unknown | unsupported | homescreen | blocked | off | busy | on
   let pushErr = '';
@@ -8890,7 +8919,10 @@
         due: (document.getElementById('tk_due') || {}).value || null,
         dateType: (document.getElementById('tk_when') || {}).value || 'by',
         mins: +((document.getElementById('tk_mins') || {}).value || 0) || null,
-        repeat: rep === 'once' ? null : { freq: rep, interval: 1 },
+        repeat: rep === 'once' ? null
+          : { freq: rep, interval: 1,
+              days: (rep === 'weekly' ? addDays.slice().sort() : []),
+              monthday: 0 },
         at: null, createdAt: new Date().toISOString(), doneAt: null
       };
       nt.at = normaliseAt((document.getElementById('tk_at') || {}).value, nt);
@@ -8899,6 +8931,12 @@
       if ((document.getElementById('tk_hard') || {}).checked && hardOK(nt)) nt.hard = true;
       S.tasks.push(nt);
       lastAdded = nt.id;
+      // The repeat and its days stay put, like the category and the length
+      // already do. This form is built for dumping several things in a row,
+      // and three weekday tasks should be three titles rather than three
+      // trips through the same two dropdowns. Clearing it here while the
+      // draft kept the select on Weekly was the worst of both: the picker
+      // vanished and the select still said Weekly.
       clearDraft('tk_title'); clearDraft('tk_due'); clearDraft('tk_at'); clearDraft('tk_hard');
       save(); render();
       const i = document.getElementById('tk_title'); if (i) i.focus();   // keep dumping
@@ -9481,6 +9519,20 @@
       if (hb) taskEdit.hard = !!hb.checked;
       clearModalDrafts(); render(); return;
     }
+    if ((m = t('[data-awd]'))){
+      const d = +m.dataset.awd, at = addDays.indexOf(d);
+      if (at === -1) addDays.push(d); else addDays.splice(at, 1);
+      render(); return;
+    }
+    if (t('[data-awdall]')){
+      addDays = sameDays(addDays, WEEKDAYS) ? [] : WEEKDAYS.slice();
+      render(); return;
+    }
+    if (t('[data-twdall]')){
+      syncTaskEditor();
+      taskEdit.days = sameDays(taskEdit.days || [], WEEKDAYS) ? [] : WEEKDAYS.slice();
+      clearModalDrafts(); render(); return;
+    }
     if ((m = t('[data-twd]'))){
       syncTaskEditor();
       const d = +m.dataset.twd, at = taskEdit.days.indexOf(d);
@@ -9547,6 +9599,7 @@
     if (editing && (e.target.id === 'e_repeat' || e.target.id === 'e_allday')){ syncEditor(); render(); return; }
     // The days only exist for a weekly task, so choosing weekly has to redraw
     // or the picker never turns up.
+    if (e.target.id === 'tk_rep'){ addRep = e.target.value; render(); }
     if (taskEdit && e.target.id === 'te_rep'){ syncTaskEditor(); clearModalDrafts(); render(); }
   });
 
