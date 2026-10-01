@@ -2028,18 +2028,42 @@
   /* ---- the receipt after adding a task -------------------------------------
      Sits directly under the box it was typed into, because that is where the
      eye already is. A confirmation further down the page is no confirmation. */
+  /* The receipt now sits inside the form, directly under the field you have
+     just typed in, because that is where you are looking and where you are
+     about to type again. Below the Add button and a two line hint, which is
+     where it used to be, it is off the bottom of a phone: you added a task
+     and the screen looked like an empty form that had done nothing. */
   #soft-app .added {
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    margin: 10px 0 2px; padding: 10px 14px;
-    background: var(--raise); border: 1px solid var(--line);
-    border-left: 3px solid var(--live); border-radius: 12px;
-    animation: athSlip .28s ease;
+    display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;
+    margin: 2px 0 4px; padding: 11px 13px;
+    background: var(--live-soft); border: 1px solid var(--live);
+    border-radius: 11px; animation: athSlip .28s ease;
   }
-  #soft-app .ad-t { flex: 1; min-width: 0; font-size: 14px; }
+  #soft-app .ad-tick {
+    flex: 0 0 auto; width: 19px; height: 19px; border-radius: 50%;
+    background: var(--live); display: flex; align-items: center; justify-content: center;
+    margin-top: 1px;
+  }
+  #soft-app .ad-tick svg { width: 11px; height: 11px; display: block; }
+  #soft-app .ad-t { flex: 1 1 140px; min-width: 0; font-size: 14px; }
   #soft-app .ad-t b { font-weight: 600; }
-  #soft-app .ad-t em { display: block; font-style: normal; font-size: 12.5px; color: var(--dim); margin-top: 2px; }
-  #soft-app .added .linkish { flex: 0 0 auto; }
+  #soft-app .ad-t em {
+    display: block; font-style: normal; font-size: 12.5px;
+    color: var(--dim); margin-top: 2px;
+  }
+  #soft-app .ad-where { color: var(--live) !important; }
+  #soft-app .ad-where b { font-weight: 600; }
+  #soft-app .ad-acts { flex: 0 0 auto; display: flex; gap: 12px; }
   @keyframes athSlip { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+  /* And the row it is talking about, so the two are the same thing rather
+     than two separate claims about a task you cannot see. */
+  /* .trow carries only a bottom rule, so tinting its border would have been
+     a hairline nobody notices. The left bar is what a block already uses to
+     say this one. */
+  #soft-app .trow.fresh {
+    border-left: 2px solid var(--live); padding-left: 9px;
+  }
   @media (prefers-reduced-motion: reduce) { #soft-app .added { animation: none; } }
 
   /* ---- saying which category, and what it attracts -------------------------

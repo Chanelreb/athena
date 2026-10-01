@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-01.1';
+  const BUILD = '2026-10-01.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -5466,7 +5466,8 @@
     }
     // Inside a block a row can be dragged: to another block, or back to the
     // pile to unplace it. On the Tasks screen it is an ordinary row.
-    return '<div class="trow'+(done?' done':'')+(justDone===tk.id?' just':'')+'"'+
+    return '<div class="trow'+(done?' done':'')+(justDone===tk.id?' just':'')+
+      (lastAdded===tk.id?' fresh':'')+'"'+
       (compact ? ' draggable="true" data-dragtask="'+tk.id+'"' : '')+'>'+
       '<button class="tcheck" data-tasktoggle="'+tk.id+'|'+dayKey(d)+'" aria-label="Mark done">'+
         '<span class="mark" style="'+(done ? 'background:'+col+';border-color:'+col : 'border-color:'+col)+'">'+TICK+'</span></button>'+
@@ -5486,19 +5487,39 @@
      as a failure, so you type it again, and now you have two.
      This says what landed, where it went, and offers both ways out. */
   let lastAdded = null;
+
+  // Which heading it has just gone under, so the answer to where did it go is
+  // on screen rather than something to scroll for. Same order as the list
+  // itself, because a receipt naming a group that is not there is worse than
+  // no receipt.
+  function taskGroupOf(tk, now){
+    const today = dayKey(now);
+    if (tk.due && tk.due < today) return 'Overdue';
+    if (tk.due === today) return 'Today';
+    if (tk.due) return 'Coming up';
+    if (tk.repeat) return 'Repeating';
+    return 'Anytime';
+  }
+
   function addedHTML(){
     const tk = lastAdded && findTask(lastAdded);
     if (!tk) return '';
+    const now = new Date();
     const bits = [catOf(tk.cat).label];
-    if (tk.due) bits.push(dueLabel(tk.due, new Date(), tk.dateType).text);
+    if (tk.due) bits.push(dueLabel(tk.due, now, tk.dateType).text);
     if (tk.at) bits.push('at ' + clockOf(tk.at));
     else if (tk.mins) bits.push(dur(tk.mins));
     if (tk.repeat) bits.push(repeatLabel(tk.repeat));
     if (tk.hard && hardOK(tk)) bits.push('closes ' + clockOf(hardClose(tk)));
-    return '<div class="added"><span class="ad-t">Saved <b>' + esc(tk.title) + '</b>' +
-      '<em>' + esc(bits.join(' \u00b7 ')) + '</em></span>' +
-      '<button class="linkish" data-taskedit="' + tk.id + '">Change it</button>' +
-      '<button class="linkish" data-undoadd="' + tk.id + '">Undo</button></div>';
+    return '<div class="added">' +
+      '<span class="ad-tick">' + TICK + '</span>' +
+      '<span class="ad-t"><b>' + esc(tk.title) + '</b> added' +
+      '<em>' + esc(bits.join(' \u00b7 ')) + '</em>' +
+      '<em class="ad-where">Now in your list under <b>' + esc(taskGroupOf(tk, now)) + '</b></em></span>' +
+      '<span class="ad-acts">' +
+        '<button class="linkish" data-taskedit="' + tk.id + '">Change it</button>' +
+        '<button class="linkish" data-undoadd="' + tk.id + '">Undo</button>' +
+      '</span></div>';
   }
 
   function tasksView(now){
@@ -5524,6 +5545,7 @@
 
     h += '<div class="gform taskadd">'+
       '<input id="tk_title" type="text" placeholder="What needs doing?" autocomplete="off">'+
+      addedHTML()+
       '<div class="frow">'+
         '<select id="tk_cat">'+CATOPTS+'</select>'+
         '<select id="tk_prio">'+PRIOS.map(p => "<option value='"+p[0]+"'"+(p[0]==='normal'?' selected':'')+">"+p[1]+"</option>").join('')+'</select>'+
@@ -5550,8 +5572,6 @@
       '<button class="go" data-addtask>Add task</button>'+
       '<small class="gform-hint">Only the name is required. "Due by" stays on your list until it is done; "Do on" only turns up that day. '+
       'Add a time and it stops queueing inside a block and takes its own place in the day, like an appointment.</small></div>';
-
-    h += addedHTML();
 
     h += '<div class="dayadd" style="margin-top:14px"><button class="ai-btn" data-aiopen>✦ Dump a list with your AI</button></div>';
 
