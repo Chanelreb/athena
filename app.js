@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-01.2';
+  const BUILD = '2026-10-02.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -708,14 +708,6 @@
   // already filed under it, and nobody expects a setup wizard to do that.
   function obCommitProfile(){
     S.profile.name = (ob.name || '').trim().slice(0, 40);
-    // Setup has always asked when the day starts and ends, and has always
-    // used the answer only to decide where to put the starter blocks. It is
-    // the same question Settings asks, so it now sets the same thing and the
-    // grid arrives already drawn to the hours she just gave.
-    (() => {
-      const s = mins(ob.start || '07:00'), e = mins(ob.end || '21:00');
-      if (e > s && e - s >= DAY_MIN){ S.profile.dayStart = ob.start; S.profile.dayEnd = ob.end; }
-    })();
     if (ob.rerun){
       ob.cats.forEach(id => {
         if (S.categories.some(c => c.id === id)) return;
@@ -732,9 +724,22 @@
     }
   }
 
+  /* Setup has always asked when the day starts and ends, and has always used
+     the answer to place the starter blocks. It is the same question Settings
+     asks, so it sets the same thing and the grid arrives already drawn to the
+     hours just given. It is committed here rather than alongside the
+     categories, because the categories have to exist before a rerun can work
+     out its diff, and the window does not: holding it back is what lets a
+     rerun be cancelled without having changed anything. */
+  function obCommitWindow(){
+    const s = mins(ob.start || '07:00'), e = mins(ob.end || '21:00');
+    if (e > s && e - s >= DAY_MIN){ S.profile.dayStart = ob.start; S.profile.dayEnd = ob.end; }
+  }
+
   function obFinish(){
     obSync();
     obCommitProfile();
+    obCommitWindow();
     ob.skip = {};
     obApplyChanges(obPlanChanges(ob.start || '07:00', ob.end || '21:00'));
     obSeedHabits();
@@ -755,7 +760,8 @@
   }
 
   function obApply(){
-    markUndo('Setup changes applied');
+    markUndo('Setup changes applied');   // takes the old window with it
+    obCommitWindow();
     obApplyChanges(ob.changes || []);
     S.profile.onboarded = true;
     ob = null; view = 'blocks';        // land where they can adjust
@@ -763,6 +769,7 @@
   }
 
   function obStartRerun(){
+    const win = savedWindow();
     const plan = {};
     S.categories.forEach(c => {
       const m = obWeeklyMins(c.id), d = obWeeklyDays(c.id);
@@ -771,7 +778,7 @@
     ob = {
       step: 0, rerun: true, name: (S.profile && S.profile.name) || '',
       cats: S.categories.map(c => c.id), plan: plan, custom: [], newcat: '',
-      start: '07:00', end: '21:00', changes: [], skip: {}
+      start: win[0], end: win[1], changes: [], skip: {}
     };
     settingsOpen = false;
     render();
@@ -849,8 +856,12 @@
       const ch = ob.changes || [];
       h += '<h1>Here is what I would change</h1>';
       if (!ch.length){
-        h += '<p class="ob-sub">Nothing needs moving. Your week already matches what you asked for.</p>';
-        h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obcancel>Done</button></div>';
+        const p = S.profile || {};
+        const hoursMoved = ob.start !== (p.dayStart || ob.start) || ob.end !== (p.dayEnd || ob.end);
+        h += '<p class="ob-sub">' + (hoursMoved
+          ? 'No block needs moving. Your hours will change to ' + clockOf(ob.start) + ' to ' + clockOf(ob.end) + '.'
+          : 'Nothing needs moving. Your week already matches what you asked for.') + '</p>';
+        h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obdone>Done</button></div>';
       } else {
         h += '<p class="ob-sub">Untick anything you would rather leave alone. Nothing changes until you tap Apply, and Undo will still be there afterwards.</p>';
         h += '<div class="obdiff">';
@@ -1399,6 +1410,16 @@
     DS = ok ? s : mins(DAY_FROM);
     DE = ok ? e : mins(DAY_TO);
     SPAN = DE - DS;
+  }
+
+  // The hours actually in force, read the way the grid reads them. Setup used
+  // to assume 7am to 9pm on a rerun, which quietly overwrote whatever had been
+  // chosen in Settings. Anything asking the question now asks it here.
+  function savedWindow(){
+    const p = (S && S.profile) || {};
+    const from = p.dayStart || DAY_FROM, to = p.dayEnd || DAY_TO;
+    const s = mins(from), e = mins(to);
+    return (e > s && (e - s) >= DAY_MIN) ? [from, to] : [DAY_FROM, DAY_TO];
   }
 
   function weekTotals(tot){
@@ -8842,6 +8863,13 @@
     if (t('[data-obaddcat]')){ obAddCustom(); return; }
     if ((m = t('[data-obtoggle]'))){ const i = m.dataset.obtoggle; ob.skip[i] = !ob.skip[i]; render(); return; }
     if (t('[data-obapply]')){ obApply(); return; }
+    if (t('[data-obdone]')){
+      // Nothing to move, but the hours may still have been changed on the way
+      // here. Only take an undo point if there is something to undo.
+      const p = S.profile || {};
+      if (ob.start !== p.dayStart || ob.end !== p.dayEnd) markUndo('Your hours changed');
+      obCommitWindow(); ob = null; save(); render(); return;
+    }
     if (t('[data-obcancel]')){ ob = null; render(); return; }
     if (t('[data-obfinish]')){ obFinish(); return; }
     if (t('[data-obskip]')){ obSkip(); return; }
