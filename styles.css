@@ -1224,7 +1224,6 @@
     border-radius: 12px; padding: 13px 15px; font: inherit; cursor: pointer;
   }
   #soft-app .fldrow:hover { border-color: var(--ghost); }
-  #soft-app .fldrow.loose { border-style: dashed; }
   #soft-app .fldn { font-size: 15px; font-weight: 500; color: var(--text); }
   #soft-app .fldc { font-size: 13px; color: var(--ghost); font-variant-numeric: tabular-nums; }
   #soft-app .fldrow em {

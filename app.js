@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-04.4';
+  const BUILD = '2026-10-04.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3259,10 +3259,10 @@
      a folder buys that a tag could not, so it leads rather than hiding behind
      a filter. Unfiled notes get a row too, because a note with no home is
      still somewhere and pretending otherwise is how things get lost. */
-  function folderRowHTML(id, name, list, extra){
+  function folderRowHTML(id, name, list){
     const inIt = notesIn(id, list);
     const peek = inIt.slice(0, 3).map(n => n.title || noteHeadline(n) || 'Untitled').join(', ');
-    return '<button class="fldrow' + (extra || '') + '" data-folderopen="' + esc(id || '') + '">' +
+    return '<button class="fldrow" data-folderopen="' + esc(id) + '">' +
       '<span class="fldn">' + esc(name) + '</span>' +
       '<span class="fldc">' + inIt.length + '</span>' +
       '<em>' + (peek ? esc(peek) + (inIt.length > 3 ? ' and ' + (inIt.length - 3) + ' more' : '') : 'Empty') + '</em>' +
@@ -3271,12 +3271,11 @@
 
   function shelfHTML(live){
     let h = '';
-    const loose = notesIn(null, live);
-    h += '<div class="fldlist">';
-    foldersAll().forEach(f => { h += folderRowHTML(f.id, f.name, live); });
-    if (loose.length || !foldersAll().length)
-      h += folderRowHTML(null, 'Inbox', live, ' loose');
-    h += '</div>';
+    if (foldersAll().length){
+      h += '<div class="fldlist">';
+      foldersAll().forEach(f => { h += folderRowHTML(f.id, f.name, live); });
+      h += '</div>';
+    }
 
     if (folderEdit){
       h += '<div class="ntagedit">' +
@@ -3288,21 +3287,22 @@
           ? 'Renames it everywhere. The notes inside do not move.'
           : 'A new folder, empty until you file something in it.') + '</small>' +
         '</div>';
+      // Tags were doing a folder's job before folders existed, and retyping
+      // them would be daft. Offered here, where you have already said you
+      // want a folder, rather than sitting on the shelf forever.
+      if (!folderEdit.id){
+        const spare = tagsInUse(live)
+          .filter(t => !foldersAll().some(f => tagKey(f.name) === tagKey(t.tag)))
+          .slice(0, 6);
+        if (spare.length) h += '<p class="setnote">Or make one out of a tag you already use. Every note ' +
+          'carrying it moves in, and the tag comes off, since the folder now says it.</p>' +
+          '<div class="tagsug">' + spare.map(t =>
+            '<button data-folderfromtag="' + esc(t.tag) + '">' + esc(t.tag) + ' <span>' + t.n + '</span></button>').join('') +
+          '</div>';
+      }
     } else {
-      h += '<div class="dayadd" style="margin-top:12px"><button data-foldernew>+ New folder</button></div>';
-    }
-
-    /* The one thing worth offering unprompted: she had tags doing a folder's
-       job before folders existed, and retyping them would be daft. */
-    if (!folderEdit){
-      const spare = tagsInUse(live)
-        .filter(t => !foldersAll().some(f => tagKey(f.name) === tagKey(t.tag)))
-        .slice(0, 5);
-      if (spare.length) h += '<p class="setnote" style="margin-top:14px">Make a folder out of a tag you ' +
-        'already use. Every note carrying it moves in, and the tag comes off, since the folder now says it.</p>' +
-        '<div class="tagsug">' + spare.map(t =>
-          '<button data-folderfromtag="' + esc(t.tag) + '">' + esc(t.tag) + ' <span>' + t.n + '</span></button>').join('') +
-        '</div>';
+      h += '<div class="dayadd" style="margin:' + (foldersAll().length ? '12px 0 0' : '0') + '">' +
+        '<button data-foldernew>+ New folder</button></div>';
     }
     return h;
   }
@@ -3327,11 +3327,18 @@
       : selOn('__none') ? live.filter(n => !noteTags(n).length)
       : live.filter(n => selReal().every(t => noteHasTag(n, t)));
     const shown = inTag.filter(n => noteMatches(n, q));
-    const pinned = shown.filter(n => n.pinned);
-    const rest = shown.filter(n => !n.pinned);
     const archivedCount = notesAll().filter(n => n.archived).length;
     // The shelf is what you get when you have not asked for anything narrower.
+    // Declared before the board, which reads it: the other way round is a
+    // temporal dead zone that node --check is perfectly happy with.
     const onShelf = !inFolder && !notesArchived && !selReal().length && !selOn('__none') && !q;
+    // On the shelf the folders speak for what is in them, so the board below
+    // shows what is not in one. Pinned notes come through wherever they live,
+    // because a pin means keep this in front of me and a folder should not
+    // quietly take that away.
+    const board = onShelf ? shown.filter(n => !n.folder || n.pinned) : shown;
+    const pinned = board.filter(n => n.pinned);
+    const rest = board.filter(n => !n.pinned);
 
     let h = '';
     if (inFolder){
@@ -3361,14 +3368,12 @@
         '</div>';
     }
     if (!notesArchived) h += tagBarHTML(live);
-    if (onShelf) return h + shelfHTML(all) +
-      (archivedCount ? '<div class="dayadd" style="margin-top:18px">' +
-        '<button data-notearchiveview>Archived (' + archivedCount + ')</button></div>' : '');
+    if (onShelf) h += shelfHTML(all);
     if (notesAll().length >= 5 || q)
       h += '<div class="notesearch"><input id="nt_search" type="search" placeholder="Search notes…" '+
         'autocomplete="off" value="'+esc(noteSearch)+'"></div>';
 
-    if (!shown.length){
+    if (!board.length && !(onShelf && foldersAll().length)){
       h += '<p class="park-empty">' + (q
         ? 'Nothing matches “'+esc(noteSearch)+'”' + (selReal().length ? ' in ' + esc(selWords()) : '') + '.'
         : notesArchived
@@ -3388,7 +3393,10 @@
       h += '<div class="noteboard">'+pinned.map(noteCardHTML).join('')+'</div>';
     }
     if (rest.length){
-      if (pinned.length) h += '<h2>Everything else <span class="tcount">'+rest.length+'</span></h2>';
+      // Named only when there is something above it to be distinguished from.
+      const title = onShelf && foldersAll().length ? 'Not in a folder' : 'Everything else';
+      if (pinned.length || (onShelf && foldersAll().length))
+        h += '<h2>' + title + ' <span class="tcount">'+rest.length+'</span></h2>';
       h += '<div class="noteboard">'+rest.map(noteCardHTML).join('')+'</div>';
     }
     if (archivedCount || notesArchived){
