@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-04.1';
+  const BUILD = '2026-10-04.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2663,7 +2663,15 @@
   let noteEdit = null;        // the note being edited, or null
   let noteSearch = '';
   let notesArchived = false;  // showing the archive rather than the board
-  let noteTag = '';           // '' every note, '__none' the untagged, else a tag
+  /* Which tags the board is narrowed to. A list, not one tag, because a note
+     can carry several and the whole point of that is asking for the overlap:
+     Recipes plus Christmas 2026 is the Christmas cooking, which neither tag
+     gives you on its own. Picking more narrows, it never widens.
+
+     '__none' is the untagged pile and cannot be combined with anything,
+     since untagged and tagged at once is always empty. */
+  let tagSel = [];
+  let tagEdit = null;         // { was, name } while a tag is being renamed
   let tagDraft = '';          // what is being typed into the tag box
 
   // Named colours rather than hex, so each one can be a pale wash on stone and
@@ -2686,6 +2694,14 @@
   const cleanTag = s => String(s || '').trim().replace(/\s+/g, ' ').slice(0, TAG_MAX);
   const noteTags = n => (n && n.tags) || [];
   const noteHasTag = (n, t) => noteTags(n).some(x => tagKey(x) === tagKey(t));
+  const selOn   = t => tagSel.some(x => tagKey(x) === tagKey(t));
+  const selReal = () => tagSel.filter(t => t !== '__none');
+  // Prose for the one and the several, because "in Recipes and Christmas
+  // 2026" reads like a sentence and "in Recipes, Christmas 2026" does not.
+  function selWords(){
+    const t = selReal();
+    return t.length < 2 ? (t[0] || '') : t.slice(0, -1).join(', ') + ' and ' + t[t.length - 1];
+  }
 
   // Every tag in use, with how many notes carry it and when one was last
   // touched. Most recently used first, so something seasonal like Christmas
@@ -2713,6 +2729,55 @@
   }
   function noteDropTag(n, raw){
     n.tags = noteTags(n).filter(x => tagKey(x) !== tagKey(raw));
+  }
+
+  /* Renaming across every note that carries it. Renaming onto a tag that
+     already exists merges the two, which is the entire reason anyone renames
+     a tag: Recipies becoming Recipes. The merge has to be said out loud
+     first, because it is the one version of this that cannot be guessed
+     from the word Rename.
+
+     Order is kept and duplicates folded, so a note already carrying both
+     ends up with one. */
+  function tagRename(was, to){
+    const name = cleanTag(to);
+    if (!name) return 0;
+    let touched = 0;
+    notesAll().forEach(n => {
+      if (!noteHasTag(n, was)) return;
+      const out = [];
+      noteTags(n).forEach(t => {
+        const next = tagKey(t) === tagKey(was) ? name : t;
+        if (!out.some(x => tagKey(x) === tagKey(next))) out.push(next);
+      });
+      n.tags = out;
+      touchNote(n);
+      touched++;
+    });
+    return touched;
+  }
+
+  // Taking a tag off everything. The notes stay: a tag is a label on a thing,
+  // never the thing, and nobody removing a label expects to lose the note.
+  function tagRemove(tag){
+    let touched = 0;
+    notesAll().forEach(n => {
+      if (!noteHasTag(n, tag)) return;
+      noteDropTag(n, tag);
+      touchNote(n);
+      touched++;
+    });
+    return touched;
+  }
+
+  // Whether renaming to this would land on a tag that already exists, which
+  // is a merge rather than a rename. Changing only the case of a tag is not
+  // one: that is restyling the tag you already have.
+  function tagMergeTarget(was, to){
+    const name = cleanTag(to);
+    if (!name || tagKey(name) === tagKey(was)) return null;
+    const hit = tagsInUse().find(x => tagKey(x.tag) === tagKey(name));
+    return hit || null;
   }
 
   // A tag that names one of your categories is a far better guess than the
@@ -2758,7 +2823,7 @@
   // while looking at Recipes and finding it untagged would be daft.
   function newNoteHere(kind){
     const n = newNote(kind);
-    if (noteTag && noteTag !== '__none') noteAddTag(n, noteTag);
+    selReal().forEach(t => noteAddTag(n, t));
     return n;
   }
   const noteIsBlank = n => !n.title && !n.body && !(n.items || []).length && !(n.images || []).length;
@@ -3016,16 +3081,46 @@
     if (!tags.length) return '';
     const loose = live.filter(n => !noteTags(n).length).length;
     let h = '<div class="ntagwrap"><div class="ntagbar">';
-    h += '<button class="ntagc' + (noteTag === '' ? ' on' : '') + '" data-notetagfilter="">' +
+    h += '<button class="ntagc' + (!tagSel.length ? ' on' : '') + '" data-notetagfilter="">' +
       'All <span>' + live.length + '</span></button>';
     tags.forEach(t => {
-      h += '<button class="ntagc' + (tagKey(noteTag) === tagKey(t.tag) ? ' on' : '') + '" ' +
+      h += '<button class="ntagc' + (selOn(t.tag) ? ' on' : '') + '" ' +
         'data-notetagfilter="' + esc(t.tag) + '">' + esc(t.tag) + ' <span>' + t.n + '</span></button>';
     });
     if (loose)
-      h += '<button class="ntagc' + (noteTag === '__none' ? ' on' : '') + '" data-notetagfilter="__none">' +
+      h += '<button class="ntagc' + (selOn('__none') ? ' on' : '') + '" data-notetagfilter="__none">' +
         'Untagged <span>' + loose + '</span></button>';
-    return h + '</div></div>';
+    h += '</div></div>';
+
+    const picked = selReal();
+    if (tagEdit){
+      const merge = tagMergeTarget(tagEdit.was, tagEdit.name);
+      h += '<div class="ntagedit">' +
+        '<input id="tg_name" type="text" maxlength="' + TAG_MAX + '" autocomplete="off" value="' + esc(tagEdit.name) + '">' +
+        '<button class="go" data-tagsave>Save</button>' +
+        '<button class="linkish" data-tagcancel>Cancel</button>' +
+        (merge
+          ? '<small><b>' + esc(merge.tag) + '</b> already exists. Saving puts these notes under it, ' +
+            'and the two become one tag.</small>'
+          : '<small>Changes it on every note carrying it. Nothing else moves.</small>') +
+        '</div>';
+    } else if (picked.length === 1){
+      // Renaming and removing are about one tag, so they only appear when the
+      // board is narrowed to one. Two selected is a question about the overlap.
+      const only = picked[0];
+      const n = (tagsInUse(live).find(x => tagKey(x.tag) === tagKey(only)) || {}).n || 0;
+      // The count sits on the button rather than beside it. Nothing else here
+      // asks twice, so the label is the only place the blast radius gets
+      // said, and saying it in both places just reads as noise.
+      h += '<div class="ntagmeta"><span>' + esc(only) + '</span>' +
+        '<button class="linkish" data-tagrename="' + esc(only) + '">Rename</button>' +
+        '<button class="linkish danger" data-tagremove="' + esc(only) + '">Remove from ' +
+          n + ' note' + (n === 1 ? '' : 's') + '</button></div>';
+    } else if (picked.length > 1){
+      h += '<div class="ntagmeta"><span>Notes in ' + esc(selWords()) + '</span>' +
+        '<button class="linkish" data-notetagfilter="">Clear</button></div>';
+    }
+    return h;
   }
 
   function notesView(now){
@@ -3033,10 +3128,13 @@
     const live = notesAll().filter(n => !!n.archived === notesArchived);
     // A tag whose last note just lost it would otherwise leave the board
     // filtered to nothing with no way back that looks like a way back.
-    if (noteTag && noteTag !== '__none' && !tagsInUse(live).some(x => tagKey(x.tag) === tagKey(noteTag))) noteTag = '';
-    const inTag = noteTag === '' ? live
-      : noteTag === '__none' ? live.filter(n => !noteTags(n).length)
-      : live.filter(n => noteHasTag(n, noteTag));
+    // A tag whose last note just lost it would otherwise leave the board
+    // filtered to nothing, with no way back that looks like a way back.
+    const inUse = tagsInUse(live);
+    tagSel = tagSel.filter(t => t === '__none' || inUse.some(x => tagKey(x.tag) === tagKey(t)));
+    const inTag = !tagSel.length ? live
+      : selOn('__none') ? live.filter(n => !noteTags(n).length)
+      : live.filter(n => selReal().every(t => noteHasTag(n, t)));
     const shown = inTag.filter(n => noteMatches(n, q));
     const pinned = shown.filter(n => n.pinned);
     const rest = shown.filter(n => !n.pinned);
@@ -3046,7 +3144,7 @@
     if (!notesArchived){
       h += '<div class="notenew">'+
         '<input id="nt_quick" type="text" placeholder="' +
-          (noteTag && noteTag !== '__none' ? 'Take a note in ' + esc(noteTag) + '…' : 'Take a note…') +
+          (selReal().length ? 'Take a note in ' + esc(selWords()) + '…' : 'Take a note…') +
           '" autocomplete="off">'+
         '<button data-notequick>Add</button>'+
         '<button class="ghost" data-notenew="list" aria-label="New checklist">+ List</button>'+
@@ -3060,14 +3158,16 @@
 
     if (!shown.length){
       h += '<p class="park-empty">' + (q
-        ? 'Nothing matches “'+esc(noteSearch)+'”' + (noteTag && noteTag !== '__none' ? ' in ' + esc(noteTag) : '') + '.'
+        ? 'Nothing matches “'+esc(noteSearch)+'”' + (selReal().length ? ' in ' + esc(selWords()) : '') + '.'
         : notesArchived
           ? 'Nothing archived yet.'
-          : noteTag === '__none'
+          : selOn('__none')
             ? 'Every note has a tag on it.'
-            : noteTag
-              ? 'Nothing tagged ' + esc(noteTag) + ' yet. Anything you add here will be.'
-              : 'No notes yet. Anything worth keeping: a list, a half-formed idea, the wifi password.') + '</p>';
+            : selReal().length > 1
+              ? 'Nothing is in ' + esc(selWords()) + ' at once. Each on its own still has notes in it.'
+              : selReal().length
+                ? 'Nothing tagged ' + esc(selWords()) + ' yet. Anything you add here will be.'
+                : 'No notes yet. Anything worth keeping: a list, a half-formed idea, the wifi password.') + '</p>';
     }
     if (pinned.length){
       h += '<h2>Pinned <span class="tcount">'+pinned.length+'</span></h2>';
@@ -6805,6 +6905,14 @@
       if (el){ el.focus(); try { el.setSelectionRange(p, p); } catch(_){} }
     });
     shell.addEventListener('input', e => {
+      if (e.target.id !== 'tg_name' || !tagEdit) return;
+      tagEdit.name = e.target.value;
+      const pos = e.target.selectionStart;
+      render();
+      const el = document.getElementById('tg_name');
+      if (el){ el.focus(); try { el.setSelectionRange(pos, pos); } catch(_){} }
+    });
+    shell.addEventListener('input', e => {
       if (e.target.id !== 'ne_tag') return;
       tagDraft = e.target.value;
       const pos = e.target.selectionStart;
@@ -9512,8 +9620,44 @@
     if (t('[data-notearchiveview]')){ notesArchived = !notesArchived; noteSearch = ''; render(); return; }
     if ((m = t('[data-notetagfilter]'))){
       const want = m.dataset.notetagfilter;
-      noteTag = (want && tagKey(want) === tagKey(noteTag)) ? '' : want;   // tapping it again clears it
+      tagEdit = null;
+      if (!want) tagSel = [];                                  // All
+      else if (want === '__none') tagSel = selOn('__none') ? [] : ['__none'];
+      else if (selOn(want)) tagSel = selReal().filter(x => tagKey(x) !== tagKey(want));
+      // Untagged cannot sit alongside a tag, so picking one drops the other.
+      else tagSel = selReal().concat([want]);
       render(); return;
+    }
+    if ((m = t('[data-tagrename]'))){
+      tagEdit = { was: m.dataset.tagrename, name: m.dataset.tagrename };
+      clearDraft('tg_name'); render();
+      const f = document.getElementById('tg_name');
+      if (f){ f.focus(); f.select(); }
+      return;
+    }
+    if (t('[data-tagcancel]')){ tagEdit = null; clearDraft('tg_name'); render(); return; }
+    if (t('[data-tagsave]')){
+      if (!tagEdit) return;
+      const el = document.getElementById('tg_name');
+      if (el) tagEdit.name = el.value;
+      const name = cleanTag(tagEdit.name);
+      if (!name){ if (el) el.focus(); return; }
+      const was = tagEdit.was, merge = tagMergeTarget(was, name);
+      markUndo(merge ? 'Tags merged' : 'Tag renamed');
+      tagRename(was, merge ? merge.tag : name);   // merging adopts the spelling already in play
+      // Keep looking at what you were looking at, under its new name.
+      tagSel = [merge ? merge.tag : name];
+      tagEdit = null; clearDraft('tg_name'); save(); render(); return;
+    }
+    if ((m = t('[data-tagremove]'))){
+      // No dialog: nothing else here asks twice, and the undo bar is the
+      // answer the rest of the app gives. The button already says how many
+      // notes it touches, which is the part worth knowing beforehand.
+      const tag = m.dataset.tagremove;
+      if (!notesAll().some(x => noteHasTag(x, tag))) return;
+      markUndo('Tag removed');       // taken before the change, or Undo has nothing to restore
+      tagRemove(tag);
+      tagSel = []; tagEdit = null; save(); render(); return;
     }
     if (t('[data-notetagadd]')){
       noteSync();
@@ -9891,6 +10035,8 @@
     if (e.key === 'Enter' && e.target.id === 'cm_text'){ e.preventDefault(); const b = app.querySelector('[data-cmadd]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'tk_title'){ e.preventDefault(); const b = app.querySelector('[data-addtask]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
+    if (e.key === 'Enter' && e.target.id === 'tg_name'){ e.preventDefault(); const b = app.querySelector('[data-tagsave]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && tagEdit){ tagEdit = null; clearDraft('tg_name'); render(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_tag'){ e.preventDefault(); const b = app.querySelector('[data-notetagadd]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newitem'){ e.preventDefault(); const b = app.querySelector('[data-noteadditem]'); if (b) b.click(); return; }
     if (e.key === 'Escape' && searchOpen){ searchOpen = false; clearDraft('gs_q'); render(); return; }
