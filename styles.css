@@ -1217,6 +1217,23 @@
 
   /* The shelf. A folder is a place, so its row is a surface you go into,
      rather than another chip among the tags. */
+  /* Sits outside #soft-app on purpose: it is what gets shown when drawing
+     the app is the thing that failed. */
+  #ath-rerr {
+    position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 90;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
+    background: #2c2932; color: #ece7f0; border: 1px solid #c98b6b;
+    border-radius: 13px; padding: 13px 15px;
+    font: 400 13px/1.5 system-ui, -apple-system, sans-serif;
+    box-shadow: 0 10px 30px rgba(0,0,0,.4);
+  }
+  #ath-rerr b { flex: 1 1 100%; font-size: 14px; }
+  #ath-rerr span { flex: 1 1 200px; color: #b9b2c2; word-break: break-word; }
+  #ath-rerr button {
+    flex: 0 0 auto; background: #e5a87e; color: #2c2932; border: 0;
+    border-radius: 9px; padding: 9px 15px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+
   #soft-app .fldlist { display: flex; flex-direction: column; gap: 8px; }
   #soft-app .fldrow {
     display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline;

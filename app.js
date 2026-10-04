@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-04.6';
+  const BUILD = '2026-10-04.7';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -359,6 +359,7 @@
     if (!S.profile) S.profile = blank().profile;
     if (!S.categories || !S.categories.length) S.categories = DEFAULT_CATS.map(c => Object.assign({}, c));
     migrateNoteTags();
+    healOrphanNotes();
   }
   let tm = null;
   let savePending = false;
@@ -2759,7 +2760,10 @@
   // Unfiled is not a folder, it is the absence of one. Calling it Inbox on
   // screen is a label, not a row, so nobody can rename or delete it and find
   // their loose notes have nowhere to be.
-  const notesIn = (id, list) => (list || notesAll()).filter(n => (n.folder || null) === id);
+  // Where a note actually lives, as opposed to where it claims to. A folder
+  // that has gone is the same as no folder at all.
+  const homeOf = n => (n && n.folder && findFolder(n.folder)) ? n.folder : null;
+  const notesIn = (id, list) => (list || notesAll()).filter(n => homeOf(n) === id);
 
   function folderAdd(name){
     const nm = cleanFolder(name);
@@ -2917,9 +2921,21 @@
      existed only so a task made from the note landed somewhere sensible,
      which catFromTags now does better. Clearing cat as it goes is what stops
      this running twice and resurrecting a tag since removed. */
+  // Run on the way in, so a note cannot sit unreachable waiting for somebody
+  // to notice it is missing.
+  function healOrphanNotes(){
+    let n = 0;
+    S.notes = (S.notes || []).filter(x => x && typeof x === 'object');
+    S.folders = (S.folders || []).filter(f => f && f.id);
+    S.notes.forEach(x => {
+      if (x.folder && !findFolder(x.folder)){ x.folder = null; n++; }
+    });
+    return n;
+  }
+
   function migrateNoteTags(){
     (S.notes || []).forEach(n => {
-      if (!n.cat) return;
+      if (!n || !n.cat) return;
       const c = (S.categories || []).find(x => x.id === n.cat);
       if (c) noteAddTag(n, c.label);
       n.cat = null;
@@ -3196,7 +3212,7 @@
     // is not the same kind of fact as what it is about, and two rows of
     // identical chips would say it was. Only outside the folder, since
     // inside it every card would carry the same word.
-    const home = (!openFolder && n.folder) ? folderName(n.folder) : '';
+    const home = !openFolder ? folderName(homeOf(n)) : '';
     if (home || tg.length) h += '<div class="note-tags">' +
       (home ? '<span class="in">' + esc(home) + '</span>' : '') +
       tg.slice(0, 2).map(t => '<span>' + esc(t) + '</span>').join('') +
@@ -3337,7 +3353,7 @@
     // shows what is not in one. Pinned notes come through wherever they live,
     // because a pin means keep this in front of me and a folder should not
     // quietly take that away.
-    const board = onShelf ? shown.filter(n => !n.folder || n.pinned) : shown;
+    const board = onShelf ? shown.filter(n => !homeOf(n) || n.pinned) : shown;
     const pinned = board.filter(n => n.pinned);
     const rest = board.filter(n => !n.pinned);
 
@@ -7284,7 +7300,41 @@
       '</div></div>';
   }
 
+  let renderBroke = false;
   function render(){
+    try {
+      drawEverything();
+      if (renderBroke){ renderBroke = false; const el = document.getElementById('ath-rerr'); if (el) el.remove(); }
+    } catch(e){
+      renderBroke = true;
+      if (typeof console !== 'undefined') console.error('Athena could not draw the screen:', e);
+      showRenderError(e);
+    }
+  }
+
+  function showRenderError(e){
+    if (typeof document === 'undefined') return;
+    let el = document.getElementById('ath-rerr');
+    if (!el){
+      el = document.createElement('div');
+      el.id = 'ath-rerr';
+      document.body.appendChild(el);
+    }
+    el.textContent = '';
+    const b = document.createElement('b');
+    b.textContent = 'Athena could not draw that.';
+    const p = document.createElement('span');
+    // The message itself, because a report that says something went wrong and
+    // nothing else cannot be acted on by anybody.
+    p.textContent = 'Your data is safe and nothing has been lost. ' +
+      ((e && e.message) ? e.message : String(e));
+    const btn = document.createElement('button');
+    btn.textContent = 'Reload';
+    btn.addEventListener('click', () => location.reload());
+    el.appendChild(b); el.appendChild(p); el.appendChild(btn);
+  }
+
+  function drawEverything(){
     // Before anything is measured. S is replaced by loading, restoring,
     // undoing and resetting, and this is the one line all four pass through.
     dayWindow();
@@ -10543,10 +10593,18 @@
     } catch(e){ authBusy = false; authMsg = 'Something went wrong. Please try again.'; renderAuth(); }
   }
 
+  let bootError = '';
   function startApp(){
     if (started) return;
     started = true;
-    load().then(() => {
+    load().catch(e => {
+      // Not a failed read: that is handled inside load and has its own screen.
+      // This is load itself breaking, which used to hang on the loading line.
+      loadFailed = true;
+      bootError = (e && e.message) ? e.message : String(e);
+      loadError = bootError;
+      if (typeof console !== 'undefined') console.error('Athena load threw:', e);
+    }).then(() => {
       applyTheme();
       render();
       consumeShare();      // anything Android handed us on the way in
