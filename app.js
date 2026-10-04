@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-04.5';
+  const BUILD = '2026-10-04.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3278,7 +3278,7 @@
     }
 
     if (folderEdit){
-      h += '<div class="ntagedit">' +
+      h += '<div class="ntagedit fldedit' + (foldersAll().length ? '' : ' first') + '">' +
         '<input id="fd_name" type="text" maxlength="' + FOLDER_MAX + '" autocomplete="off" ' +
         'placeholder="Folder name" value="' + esc(folderEdit.name) + '">' +
         '<button class="go" data-foldersave>Save</button>' +
@@ -3294,14 +3294,15 @@
         const spare = tagsInUse(live)
           .filter(t => !foldersAll().some(f => tagKey(f.name) === tagKey(t.tag)))
           .slice(0, 6);
-        if (spare.length) h += '<p class="setnote">Or make one out of a tag you already use. Every note ' +
+        if (spare.length) h += '<div class="fldoffer">' +
+          '<p class="setnote">Or make one out of a tag you already use. Every note ' +
           'carrying it moves in, and the tag comes off, since the folder now says it.</p>' +
           '<div class="tagsug">' + spare.map(t =>
             '<button data-folderfromtag="' + esc(t.tag) + '">' + esc(t.tag) + ' <span>' + t.n + '</span></button>').join('') +
-          '</div>';
+          '</div></div>';
       }
     } else {
-      h += '<div class="dayadd" style="margin:' + (foldersAll().length ? '12px 0 0' : '0') + '">' +
+      h += '<div class="dayadd fldadd' + (foldersAll().length ? '' : ' first') + '">' +
         '<button data-foldernew>+ New folder</button></div>';
     }
     return h;

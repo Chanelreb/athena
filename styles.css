@@ -1224,6 +1224,19 @@
     border-radius: 12px; padding: 13px 15px; font: inherit; cursor: pointer;
   }
   #soft-app .fldrow:hover { border-color: var(--ghost); }
+  /* The add control reads as the last row of the list, so it keeps the same
+     gap the rows keep between themselves and the same padding, and carries
+     its own space underneath. .notesearch only has a bottom margin and
+     takes whatever the thing above it gives, which here was nothing. */
+  #soft-app .fldadd { margin: 8px 0 18px; }
+  #soft-app .fldadd.first { margin-top: 0; }
+  #soft-app .fldadd button { padding: 13px 15px; }
+  #soft-app .fldedit { margin: 8px 0 18px; }
+  #soft-app .fldedit.first { margin-top: 0; }
+  /* The offer follows the naming box, so it carries the space the box would
+     have had underneath it. */
+  #soft-app .fldedit + .fldoffer { margin: -10px 0 18px; }
+
   #soft-app .fldn { font-size: 15px; font-weight: 500; color: var(--text); }
   #soft-app .fldc { font-size: 13px; color: var(--ghost); font-variant-numeric: tabular-nums; }
   #soft-app .fldrow em {
