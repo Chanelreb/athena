@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-04.3';
+  const BUILD = '2026-10-04.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -261,8 +261,12 @@
     parked: [],
     // Notes are for keeping, Park is for today's scratch. A note is
     // { id, kind:'text'|'list', title, body, items:[{id,text,done}],
-    //   color, tags:[string], pinned, archived, createdAt, updatedAt }
+    //   color, folder, tags:[string], pinned, archived, createdAt, updatedAt }
+    // A folder is the one place a note lives; tags cut across all of them.
+    // folder is null for anything not filed, which the shelf calls Inbox.
     notes: [],
+    folders: [],       // { id, name }
+
     // A routine is to habits what a block is to tasks: a container that happens
     // at a time and holds an ordered set of small things.
     // { id, name, time:'HH:MM', weekdays:[0-6], cat, habits:[habitId] }
@@ -2728,13 +2732,65 @@
      since untagged and tagged at once is always empty. */
   let tagSel = [];
   let tagEdit = null;         // { was, name } while a tag is being renamed
+  let openFolder = null;      // the folder being looked inside, or null for the shelf
+  let folderEdit = null;      // { id, name } while one is being renamed, '' id for a new one
+  let folderBusy = false;     // the shelf is showing its manage controls
   let tagDraft = '';          // what is being typed into the tag box
+  let newFolder = null;       // the name being typed for a folder made from the editor
 
   // Named colours rather than hex, so each one can be a pale wash on stone and
   // a deep tint in the dark without storing two values or computing a blend.
   const NOTE_COLORS = ['none','rose','amber','sage','sky','lilac','stone'];
 
   const notesAll = () => (S.notes || []);
+
+  /* ---- folders ----
+     A folder is the one home a note has, which is the whole difference from
+     a tag: every note is in exactly one, counts add up, and nothing is in
+     two places. Kept in a list of their own rather than derived from the
+     notes, because an empty folder is a real thing you want to be able to
+     make before you have anything to put in it. Tags are the opposite and
+     are derived, which is why they are not here. */
+  const FOLDER_MAX = 32;
+  const foldersAll = () => (S.folders || (S.folders = []));
+  const findFolder = id => foldersAll().find(f => f.id === id) || null;
+  const folderName = id => (findFolder(id) || {}).name || '';
+  const cleanFolder = s => String(s || '').trim().replace(/\s+/g, ' ').slice(0, FOLDER_MAX);
+  // Unfiled is not a folder, it is the absence of one. Calling it Inbox on
+  // screen is a label, not a row, so nobody can rename or delete it and find
+  // their loose notes have nowhere to be.
+  const notesIn = (id, list) => (list || notesAll()).filter(n => (n.folder || null) === id);
+
+  function folderAdd(name){
+    const nm = cleanFolder(name);
+    if (!nm) return null;
+    const seen = foldersAll().find(f => tagKey(f.name) === tagKey(nm));
+    if (seen) return seen;                 // one spelling, same as tags
+    const f = { id: 'fd_' + uid8(), name: nm };
+    S.folders = foldersAll().concat([f]);
+    return f;
+  }
+  function folderRename(id, name){
+    const f = findFolder(id), nm = cleanFolder(name);
+    if (!f || !nm) return null;
+    const clash = foldersAll().find(x => x.id !== id && tagKey(x.name) === tagKey(nm));
+    if (clash){
+      // Renaming onto another folder merges them, the same as tags do.
+      notesIn(id).forEach(n => { n.folder = clash.id; touchNote(n); });
+      S.folders = foldersAll().filter(x => x.id !== id);
+      return clash;
+    }
+    f.name = nm;
+    return f;
+  }
+  // Losing a folder must never lose what was in it. Everything falls back to
+  // unfiled, which is where it would have been had the folder never existed.
+  function folderRemove(id){
+    const moved = notesIn(id);
+    moved.forEach(n => { n.folder = null; touchNote(n); });
+    S.folders = foldersAll().filter(f => f.id !== id);
+    return moved.length;
+  }
 
   /* ---- tags ----
      Tags live on the notes that carry them and nowhere else. There is no
@@ -2778,6 +2834,9 @@
   function noteAddTag(n, raw){
     const t = cleanTag(raw);
     if (!t || noteHasTag(n, t) || noteTags(n).length >= TAGS_PER_NOTE) return false;
+    // A note filed in Recipes does not also need tagging Recipes. Two words
+    // saying one thing is exactly the muddle that having both invites.
+    if (n.folder && tagKey(folderName(n.folder)) === tagKey(t)) return false;
     // Borrow the spelling already in play, so one tag never becomes two.
     const seen = tagsInUse().find(x => tagKey(x.tag) === tagKey(t));
     n.tags = noteTags(n).concat([seen ? seen.tag : t]);
@@ -2836,6 +2895,15 @@
     return hit || null;
   }
 
+  /* Filing a note where a tag already said it belonged drops the tag, for the
+     same reason. This runs when the folder is chosen rather than quietly in
+     the background, so the chip visibly goes as the folder is picked. */
+  function noteFile(n, folderId){
+    n.folder = folderId || null;
+    if (n.folder) noteDropTag(n, folderName(n.folder));
+    touchNote(n);
+  }
+
   // A tag that names one of your categories is a far better guess than the
   // first one in the list, and it costs nothing to look. This is the whole
   // reason a note no longer needs a category field of its own.
@@ -2861,13 +2929,14 @@
   function noteMatches(n, q){
     if (!q) return true;
     const hay = (n.title + ' ' + n.body + ' ' + noteTags(n).join(' ') + ' ' +
+      folderName(n.folder) + ' ' +
       (n.items || []).map(i => i.text).join(' ')).toLowerCase();
     return hay.indexOf(q) !== -1;
   }
   function newNote(kind){
     const n = {
       id: 'nt_' + uid8(), kind: kind === 'list' ? 'list' : 'text',
-      title: '', body: '', items: [], images: [], color: 'none', tags: [],
+      title: '', body: '', items: [], images: [], color: 'none', folder: null, tags: [],
       pinned: false, archived: false,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
@@ -2879,6 +2948,7 @@
   // while looking at Recipes and finding it untagged would be daft.
   function newNoteHere(kind){
     const n = newNote(kind);
+    if (openFolder) noteFile(n, openFolder);
     selReal().forEach(t => noteAddTag(n, t));
     return n;
   }
@@ -3122,7 +3192,13 @@
     // Two tags and a count, not six. A card is a glance, and the row of chips
     // above is where you go when you want to see everything in one.
     const tg = noteTags(n);
-    if (tg.length) h += '<div class="note-tags">' +
+    // The folder reads differently from the tags on purpose: where it lives
+    // is not the same kind of fact as what it is about, and two rows of
+    // identical chips would say it was. Only outside the folder, since
+    // inside it every card would carry the same word.
+    const home = (!openFolder && n.folder) ? folderName(n.folder) : '';
+    if (home || tg.length) h += '<div class="note-tags">' +
+      (home ? '<span class="in">' + esc(home) + '</span>' : '') +
       tg.slice(0, 2).map(t => '<span>' + esc(t) + '</span>').join('') +
       (tg.length > 2 ? '<span class="more">+' + (tg.length - 2) + '</span>' : '') + '</div>';
     h += '</div>';
@@ -3179,11 +3255,70 @@
     return h;
   }
 
+  /* The shelf: every folder, what is in it, and how much. This is the thing
+     a folder buys that a tag could not, so it leads rather than hiding behind
+     a filter. Unfiled notes get a row too, because a note with no home is
+     still somewhere and pretending otherwise is how things get lost. */
+  function folderRowHTML(id, name, list, extra){
+    const inIt = notesIn(id, list);
+    const peek = inIt.slice(0, 3).map(n => n.title || noteHeadline(n) || 'Untitled').join(', ');
+    return '<button class="fldrow' + (extra || '') + '" data-folderopen="' + esc(id || '') + '">' +
+      '<span class="fldn">' + esc(name) + '</span>' +
+      '<span class="fldc">' + inIt.length + '</span>' +
+      '<em>' + (peek ? esc(peek) + (inIt.length > 3 ? ' and ' + (inIt.length - 3) + ' more' : '') : 'Empty') + '</em>' +
+      '</button>';
+  }
+
+  function shelfHTML(live){
+    let h = '';
+    const loose = notesIn(null, live);
+    h += '<div class="fldlist">';
+    foldersAll().forEach(f => { h += folderRowHTML(f.id, f.name, live); });
+    if (loose.length || !foldersAll().length)
+      h += folderRowHTML(null, 'Inbox', live, ' loose');
+    h += '</div>';
+
+    if (folderEdit){
+      h += '<div class="ntagedit">' +
+        '<input id="fd_name" type="text" maxlength="' + FOLDER_MAX + '" autocomplete="off" ' +
+        'placeholder="Folder name" value="' + esc(folderEdit.name) + '">' +
+        '<button class="go" data-foldersave>Save</button>' +
+        '<button class="linkish" data-foldercancel>Cancel</button>' +
+        '<small>' + (folderEdit.id
+          ? 'Renames it everywhere. The notes inside do not move.'
+          : 'A new folder, empty until you file something in it.') + '</small>' +
+        '</div>';
+    } else {
+      h += '<div class="dayadd" style="margin-top:12px"><button data-foldernew>+ New folder</button></div>';
+    }
+
+    /* The one thing worth offering unprompted: she had tags doing a folder's
+       job before folders existed, and retyping them would be daft. */
+    if (!folderEdit){
+      const spare = tagsInUse(live)
+        .filter(t => !foldersAll().some(f => tagKey(f.name) === tagKey(t.tag)))
+        .slice(0, 5);
+      if (spare.length) h += '<p class="setnote" style="margin-top:14px">Make a folder out of a tag you ' +
+        'already use. Every note carrying it moves in, and the tag comes off, since the folder now says it.</p>' +
+        '<div class="tagsug">' + spare.map(t =>
+          '<button data-folderfromtag="' + esc(t.tag) + '">' + esc(t.tag) + ' <span>' + t.n + '</span></button>').join('') +
+        '</div>';
+    }
+    return h;
+  }
+
   function notesView(now){
     const q = noteSearch.trim().toLowerCase();
-    const live = notesAll().filter(n => !!n.archived === notesArchived);
-    // A tag whose last note just lost it would otherwise leave the board
-    // filtered to nothing with no way back that looks like a way back.
+    const all = notesAll().filter(n => !!n.archived === notesArchived);
+    // A folder that has been deleted from under the view, or an archive with
+    // nothing of it in, should not strand you inside a room that is not there.
+    if (openFolder && !findFolder(openFolder)) openFolder = null;
+    if (notesArchived) openFolder = null;
+    // Inside a folder, everything below works on that folder alone: the tag
+    // chips, their counts, the search. A tag is a cut across the folders when
+    // you are standing outside them, and a cut within one when you are in it.
+    const inFolder = openFolder !== null;
+    const live = inFolder ? notesIn(openFolder, all) : all;
     // A tag whose last note just lost it would otherwise leave the board
     // filtered to nothing, with no way back that looks like a way back.
     const inUse = tagsInUse(live);
@@ -3195,12 +3330,30 @@
     const pinned = shown.filter(n => n.pinned);
     const rest = shown.filter(n => !n.pinned);
     const archivedCount = notesAll().filter(n => n.archived).length;
+    // The shelf is what you get when you have not asked for anything narrower.
+    const onShelf = !inFolder && !notesArchived && !selReal().length && !selOn('__none') && !q;
 
     let h = '';
+    if (inFolder){
+      h += '<div class="fldhead"><button class="linkish" data-foldershelf>\u2190 All folders</button>' +
+        '<h2>' + esc(folderName(openFolder)) + ' <span class="tcount">' + live.length + '</span></h2>' +
+        '<div class="fldacts">' +
+          '<button class="linkish" data-folderrename="' + esc(openFolder) + '">Rename</button>' +
+          '<button class="linkish danger" data-folderdelete="' + esc(openFolder) + '">Delete folder</button>' +
+        '</div></div>';
+      if (folderEdit && folderEdit.id === openFolder)
+        h += '<div class="ntagedit">' +
+          '<input id="fd_name" type="text" maxlength="' + FOLDER_MAX + '" autocomplete="off" value="' + esc(folderEdit.name) + '">' +
+          '<button class="go" data-foldersave>Save</button>' +
+          '<button class="linkish" data-foldercancel>Cancel</button>' +
+          '<small>Renames it everywhere. The notes inside do not move.</small></div>';
+    }
     if (!notesArchived){
       h += '<div class="notenew">'+
         '<input id="nt_quick" type="text" placeholder="' +
-          (selReal().length ? 'Take a note in ' + esc(selWords()) + '…' : 'Take a note…') +
+          (inFolder ? 'Take a note in ' + esc(folderName(openFolder)) + '…'
+            : selReal().length ? 'Take a note in ' + esc(selWords()) + '…'
+            : 'Take a note…') +
           '" autocomplete="off">'+
         '<button data-notequick>Add</button>'+
         '<button class="ghost" data-notenew="list" aria-label="New checklist">+ List</button>'+
@@ -3208,6 +3361,9 @@
         '</div>';
     }
     if (!notesArchived) h += tagBarHTML(live);
+    if (onShelf) return h + shelfHTML(all) +
+      (archivedCount ? '<div class="dayadd" style="margin-top:18px">' +
+        '<button data-notearchiveview>Archived (' + archivedCount + ')</button></div>' : '');
     if (notesAll().length >= 5 || q)
       h += '<div class="notesearch"><input id="nt_search" type="search" placeholder="Search notes…" '+
         'autocomplete="off" value="'+esc(noteSearch)+'"></div>';
@@ -3222,8 +3378,10 @@
             : selReal().length > 1
               ? 'Nothing is in ' + esc(selWords()) + ' at once. Each on its own still has notes in it.'
               : selReal().length
-                ? 'Nothing tagged ' + esc(selWords()) + ' yet. Anything you add here will be.'
-                : 'No notes yet. Anything worth keeping: a list, a half-formed idea, the wifi password.') + '</p>';
+                ? 'Nothing tagged ' + esc(selWords()) + ' yet' + (inFolder ? ' in this folder' : '') + '. Anything you add here will be.'
+                : inFolder
+                  ? 'This folder is empty. Anything you add here goes straight in it.'
+                  : 'No notes yet. Anything worth keeping: a list, a half-formed idea, the wifi password.') + '</p>';
     }
     if (pinned.length){
       h += '<h2>Pinned <span class="tcount">'+pinned.length+'</span></h2>';
@@ -3277,21 +3435,38 @@
     /* Tags replaced the category this used to ask for. The category only ever
        mattered at the moment a note became a task, and catFromTags works that
        out from a tag that names one, so there is nothing left to ask. */
+    h += '<label class="fld"><span>Folder</span><select id="ne_folder">' +
+      '<option value=""' + (!n.folder ? ' selected' : '') + '>Inbox</option>' +
+      foldersAll().map(f => '<option value="' + esc(f.id) + '"' +
+        (f.id === n.folder ? ' selected' : '') + '>' + esc(f.name) + '</option>').join('') +
+      '<option value="__new">New folder\u2026</option>' +
+      '</select></label>';
+    if (newFolder !== null)
+      h += '<div class="ne-newfld"><input id="ne_newfolder" type="text" maxlength="' + FOLDER_MAX + '" ' +
+        'autocomplete="off" placeholder="What is it called?" value="' + esc(newFolder) + '">' +
+        '<button class="ghost" data-foldermake>Make it</button></div>';
+
     const tg = noteTags(n), room = tg.length < TAGS_PER_NOTE;
     h += '<div class="fld"><span>Tags</span><div class="ne-tags">' +
       tg.map(t => '<span class="ntag">' + esc(t) +
         '<button data-notetagdel="' + esc(t) + '" aria-label="Remove ' + esc(t) + '">×</button></span>').join('') +
       (room
         ? '<input id="ne_tag" type="text" maxlength="' + TAG_MAX + '" autocomplete="off" ' +
-          'placeholder="' + (tg.length ? 'Another' : 'Family, Recipes, Christmas 2026') + '" value="' + esc(tagDraft) + '">' +
+          // The example used to name real folders, which on a note filed in
+          // one of them suggested the very thing the folder already says.
+          'placeholder="' + (tg.length ? 'Another' : 'What else is it about?') + '" value="' + esc(tagDraft) + '">' +
           '<button class="ghost" data-notetagadd>Add</button>'
         : '') + '</div>';
     if (room){
       // What you already use, narrowed as you type. Tapping one is how a tag
       // stays a single tag instead of quietly becoming two spellings of one.
       const k = tagKey(tagDraft);
+      // Never suggest the folder's own name: a note in Recipes tagged Recipes
+      // is the muddle that having both systems invites, and the easiest place
+      // to create it is a suggestion sitting right there.
       const sug = tagsInUse()
-        .filter(x => !noteHasTag(n, x.tag) && (!k || tagKey(x.tag).indexOf(k) !== -1))
+        .filter(x => !noteHasTag(n, x.tag) && (!k || tagKey(x.tag).indexOf(k) !== -1) &&
+                     !(n.folder && tagKey(x.tag) === tagKey(folderName(n.folder))))
         .slice(0, 8);
       if (sug.length) h += '<div class="tagsug">' + sug.map(x =>
         '<button data-notetagpick="' + esc(x.tag) + '">' + esc(x.tag) + '</button>').join('') + '</div>';
@@ -3331,6 +3506,7 @@
     if (g('ne_title')) noteEdit.title = g('ne_title').value.slice(0, 140);
     if (g('ne_body'))  noteEdit.body  = g('ne_body').value.slice(0, 8000);
     if (g('ne_tag'))   tagDraft       = g('ne_tag').value;
+    if (g('ne_newfolder')) newFolder  = g('ne_newfolder').value;
     (noteEdit.items || []).forEach(i => {
       const el = document.querySelector('[data-noteitemtext="'+i.id+'"]');
       if (el) i.text = el.value.slice(0, 200);
@@ -6988,8 +7164,8 @@
   const clearDraft = id => { delete drafts[id]; };
   const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
     'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','te_at','te_monthday','tk_when','tk_mins',
-    'ne_title','ne_body','ne_tag','ne_newitem'];
-  const clearModalDrafts = () => { MODAL_IDS.forEach(clearDraft); tagDraft = ''; };
+    'ne_title','ne_body','ne_folder','ne_tag','ne_newfolder','ne_newitem'];
+  const clearModalDrafts = () => { MODAL_IDS.forEach(clearDraft); tagDraft = ''; newFolder = null; };
 
   function paint(h){
     // A modal keeps its own scroll, and innerHTML throws it away. Every tap on
@@ -9704,6 +9880,71 @@
       noteEdit = null; imgError = ''; clearModalDrafts(); save(); render(); return;
     }
     if (t('[data-notearchiveview]')){ notesArchived = !notesArchived; noteSearch = ''; render(); return; }
+    if ((m = t('[data-folderopen]'))){
+      openFolder = m.dataset.folderopen || null;
+      tagSel = []; folderEdit = null; noteSearch = ''; clearDraft('nt_search');
+      render(); return;
+    }
+    if (t('[data-foldershelf]')){
+      openFolder = null; tagSel = []; folderEdit = null;
+      noteSearch = ''; clearDraft('nt_search'); render(); return;
+    }
+    if (t('[data-foldernew]')){
+      folderEdit = { id: '', name: '' };
+      clearDraft('fd_name'); render();
+      const f = document.getElementById('fd_name'); if (f) f.focus();
+      return;
+    }
+    if ((m = t('[data-folderrename]'))){
+      const id = m.dataset.folderrename;
+      folderEdit = { id: id, name: folderName(id) };
+      clearDraft('fd_name'); render();
+      const f = document.getElementById('fd_name'); if (f){ f.focus(); f.select(); }
+      return;
+    }
+    if (t('[data-foldercancel]')){ folderEdit = null; clearDraft('fd_name'); render(); return; }
+    if (t('[data-foldersave]')){
+      if (!folderEdit) return;
+      const el = document.getElementById('fd_name');
+      const name = cleanFolder(el ? el.value : folderEdit.name);
+      if (!name){ if (el) el.focus(); return; }
+      markUndo(folderEdit.id ? 'Folder renamed' : 'Folder made');
+      const f = folderEdit.id ? folderRename(folderEdit.id, name) : folderAdd(name);
+      // Renaming onto another folder merges them, so follow the survivor
+      // rather than sitting inside a folder that no longer exists.
+      if (openFolder && f) openFolder = f.id;
+      folderEdit = null; clearDraft('fd_name'); save(); render(); return;
+    }
+    if ((m = t('[data-folderdelete]'))){
+      // No dialog, the same as everywhere else here. The notes are not going
+      // anywhere, which is the part worth being sure of.
+      const id = m.dataset.folderdelete;
+      if (!findFolder(id)) return;
+      markUndo('Folder deleted');
+      folderRemove(id);
+      openFolder = null; folderEdit = null; save(); render(); return;
+    }
+    if ((m = t('[data-folderfromtag]'))){
+      // The tag was already doing a folder's job. Move everything carrying it
+      // in, and drop the tag, because the folder now says it.
+      const tag = m.dataset.folderfromtag;
+      markUndo('Folder made from a tag');
+      const f = folderAdd(tag);
+      if (f) notesAll().forEach(n => { if (noteHasTag(n, tag)) noteFile(n, f.id); });
+      save(); render(); return;
+    }
+    if (t('[data-foldermake]')){
+      noteSync();
+      const name = cleanFolder(newFolder);
+      if (!name){ const el = document.getElementById('ne_newfolder'); if (el) el.focus(); return; }
+      const f = folderAdd(name);
+      if (noteEdit && f) noteFile(noteEdit, f.id);
+      // The select is still sitting on the New folder command it was put on
+      // to get here. Left as a draft it gets written straight back over the
+      // folder that was just chosen.
+      newFolder = null; clearDraft('ne_newfolder'); clearDraft('ne_folder');
+      save(); render(); return;
+    }
     if ((m = t('[data-notetagfilter]'))){
       const want = m.dataset.notetagfilter;
       tagEdit = null;
@@ -10045,6 +10286,14 @@
     if (editing && (e.target.id === 'e_repeat' || e.target.id === 'e_allday')){ syncEditor(); render(); return; }
     // The days only exist for a weekly task, so choosing weekly has to redraw
     // or the picker never turns up.
+    if (noteEdit && e.target.id === 'ne_folder'){
+      noteSync();
+      if (e.target.value === '__new'){ newFolder = ''; }
+      else { newFolder = null; noteFile(noteEdit, e.target.value || null); }
+      clearDraft('ne_folder'); save(); render();
+      const f = document.getElementById('ne_newfolder'); if (f) f.focus();
+      return;
+    }
     if (e.target.id === 'tk_rep'){ addRep = e.target.value; render(); }
     if (taskEdit && e.target.id === 'te_rep'){ syncTaskEditor(); clearModalDrafts(); render(); }
   });
@@ -10121,6 +10370,9 @@
     if (e.key === 'Enter' && e.target.id === 'cm_text'){ e.preventDefault(); const b = app.querySelector('[data-cmadd]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'tk_title'){ e.preventDefault(); const b = app.querySelector('[data-addtask]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
+    if (e.key === 'Enter' && e.target.id === 'fd_name'){ e.preventDefault(); const b = app.querySelector('[data-foldersave]'); if (b) b.click(); return; }
+    if (e.key === 'Enter' && e.target.id === 'ne_newfolder'){ e.preventDefault(); const b = app.querySelector('[data-foldermake]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && folderEdit){ folderEdit = null; clearDraft('fd_name'); render(); return; }
     if (e.key === 'Enter' && e.target.id === 'tg_name'){ e.preventDefault(); const b = app.querySelector('[data-tagsave]'); if (b) b.click(); return; }
     if (e.key === 'Escape' && tagEdit){ tagEdit = null; clearDraft('tg_name'); render(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_tag'){ e.preventDefault(); const b = app.querySelector('[data-notetagadd]'); if (b) b.click(); return; }

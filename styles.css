@@ -1215,6 +1215,49 @@
     padding: 10px 15px; font: inherit; font-size: 13.5px; cursor: pointer;
   }
 
+  /* The shelf. A folder is a place, so its row is a surface you go into,
+     rather than another chip among the tags. */
+  #soft-app .fldlist { display: flex; flex-direction: column; gap: 8px; }
+  #soft-app .fldrow {
+    display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline;
+    text-align: left; width: 100%; background: var(--raise); border: 1px solid var(--line);
+    border-radius: 12px; padding: 13px 15px; font: inherit; cursor: pointer;
+  }
+  #soft-app .fldrow:hover { border-color: var(--ghost); }
+  #soft-app .fldrow.loose { border-style: dashed; }
+  #soft-app .fldn { font-size: 15px; font-weight: 500; color: var(--text); }
+  #soft-app .fldc { font-size: 13px; color: var(--ghost); font-variant-numeric: tabular-nums; }
+  #soft-app .fldrow em {
+    grid-column: 1 / -1; font-style: normal; font-size: 12.5px; color: var(--dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* Inside one. The way back comes first, because being stuck in a room is
+     worse than taking a line to get out of it. */
+  #soft-app .fldhead { margin: 0 0 14px; }
+  #soft-app .fldhead h2 { margin: 6px 0 0; }
+  #soft-app .fldacts { display: flex; gap: 14px; margin-top: 6px; }
+  #soft-app .fldacts .danger { color: var(--danger); }
+
+  /* Making one from inside a note. */
+  #soft-app .ne-newfld { display: flex; gap: 8px; margin-top: 8px; }
+  #soft-app .ne-newfld input {
+    flex: 1 1 auto; min-width: 0; background: var(--raise); border: 1px solid var(--live);
+    color: var(--text); border-radius: 9px; padding: 9px 11px; font: inherit; font-size: 13.5px;
+  }
+  #soft-app .ne-newfld input:focus { outline: none; border-color: var(--ghost); }
+  #soft-app .ne-newfld .ghost { flex: 0 0 auto; }
+
+  /* A count on a suggestion, for turning a tag into a folder. */
+  #soft-app .tagsug button span { color: var(--ghost); font-variant-numeric: tabular-nums; }
+
+  /* Where a note lives reads differently from what it is about. Same shape,
+     filled rather than outlined, so a glance separates the two without
+     having to read either. */
+  #soft-app .note-tags .in {
+    background: var(--live-soft); border-color: var(--live); color: var(--live);
+  }
+
   #soft-app .notesearch { margin-bottom: 14px; }
   #soft-app .notesearch input {
     width: 100%; background: var(--raise); border: 1px solid var(--line); color: var(--text);
