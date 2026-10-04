@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-02.1';
+  const BUILD = '2026-10-04.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -230,7 +230,7 @@
     parked: [],
     // Notes are for keeping, Park is for today's scratch. A note is
     // { id, kind:'text'|'list', title, body, items:[{id,text,done}],
-    //   color, cat, pinned, archived, createdAt, updatedAt }
+    //   color, tags:[string], pinned, archived, createdAt, updatedAt }
     notes: [],
     // A routine is to habits what a block is to tasks: a container that happens
     // at a time and holds an ordered set of small things.
@@ -323,6 +323,7 @@
     // empty and not onboarded so setup runs. Nothing is saved until setup ends.
     if (!S.profile) S.profile = blank().profile;
     if (!S.categories || !S.categories.length) S.categories = DEFAULT_CATS.map(c => Object.assign({}, c));
+    migrateNoteTags();
   }
   let tm = null;
   let savePending = false;
@@ -2662,21 +2663,90 @@
   let noteEdit = null;        // the note being edited, or null
   let noteSearch = '';
   let notesArchived = false;  // showing the archive rather than the board
+  let noteTag = '';           // '' every note, '__none' the untagged, else a tag
+  let tagDraft = '';          // what is being typed into the tag box
 
   // Named colours rather than hex, so each one can be a pale wash on stone and
   // a deep tint in the dark without storing two values or computing a blend.
   const NOTE_COLORS = ['none','rose','amber','sage','sky','lilac','stone'];
 
   const notesAll = () => (S.notes || []);
+
+  /* ---- tags ----
+     Tags live on the notes that carry them and nowhere else. There is no
+     list of tags kept alongside, because a list like that goes stale the
+     moment the last note using one changes its mind, and then you are
+     tidying a filing system instead of writing things down.
+
+     Everything matches on a folded key, so Recipes and recipes cannot both
+     exist. That one rule is the whole difference between tags that stay
+     useful and tags that rot into near-duplicates nobody trusts. */
+  const TAG_MAX = 24, TAGS_PER_NOTE = 8;
+  const tagKey   = s => String(s || '').trim().toLowerCase();
+  const cleanTag = s => String(s || '').trim().replace(/\s+/g, ' ').slice(0, TAG_MAX);
+  const noteTags = n => (n && n.tags) || [];
+  const noteHasTag = (n, t) => noteTags(n).some(x => tagKey(x) === tagKey(t));
+
+  // Every tag in use, with how many notes carry it and when one was last
+  // touched. Most recently used first, so something seasonal like Christmas
+  // 2026 sinks on its own in January rather than needing to be tidied away.
+  function tagsInUse(list){
+    const by = {};
+    (list || notesAll()).forEach(n => noteTags(n).forEach(t => {
+      const k = tagKey(t);
+      if (!k) return;
+      if (!by[k]) by[k] = { tag: t, n: 0, last: '' };
+      by[k].n++;
+      const at = n.updatedAt || n.createdAt || '';
+      if (at > by[k].last) by[k].last = at;
+    }));
+    return Object.keys(by).map(k => by[k]).sort((x, y) => y.last < x.last ? -1 : y.last > x.last ? 1 : 0);
+  }
+
+  function noteAddTag(n, raw){
+    const t = cleanTag(raw);
+    if (!t || noteHasTag(n, t) || noteTags(n).length >= TAGS_PER_NOTE) return false;
+    // Borrow the spelling already in play, so one tag never becomes two.
+    const seen = tagsInUse().find(x => tagKey(x.tag) === tagKey(t));
+    n.tags = noteTags(n).concat([seen ? seen.tag : t]);
+    return true;
+  }
+  function noteDropTag(n, raw){
+    n.tags = noteTags(n).filter(x => tagKey(x) !== tagKey(raw));
+  }
+
+  // A tag that names one of your categories is a far better guess than the
+  // first one in the list, and it costs nothing to look. This is the whole
+  // reason a note no longer needs a category field of its own.
+  function catFromTags(n){
+    const cats = S.categories || [];
+    const hit = noteTags(n).map(t => cats.find(c => tagKey(c.label) === tagKey(t))).filter(Boolean)[0];
+    return hit ? hit.id : (cats[0] || {}).id;
+  }
+
+  /* A note used to carry a planner category. It did nothing on the board and
+     existed only so a task made from the note landed somewhere sensible,
+     which catFromTags now does better. Clearing cat as it goes is what stops
+     this running twice and resurrecting a tag since removed. */
+  function migrateNoteTags(){
+    (S.notes || []).forEach(n => {
+      if (!n.cat) return;
+      const c = (S.categories || []).find(x => x.id === n.cat);
+      if (c) noteAddTag(n, c.label);
+      n.cat = null;
+    });
+  }
+
   function noteMatches(n, q){
     if (!q) return true;
-    const hay = (n.title + ' ' + n.body + ' ' + (n.items || []).map(i => i.text).join(' ')).toLowerCase();
+    const hay = (n.title + ' ' + n.body + ' ' + noteTags(n).join(' ') + ' ' +
+      (n.items || []).map(i => i.text).join(' ')).toLowerCase();
     return hay.indexOf(q) !== -1;
   }
   function newNote(kind){
     const n = {
       id: 'nt_' + uid8(), kind: kind === 'list' ? 'list' : 'text',
-      title: '', body: '', items: [], images: [], color: 'none', cat: null,
+      title: '', body: '', items: [], images: [], color: 'none', tags: [],
       pinned: false, archived: false,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
@@ -2684,6 +2754,13 @@
     return n;
   }
   const findNote = id => notesAll().find(n => n.id === id);
+  // Whatever the board is filtered to is what you meant. Typing a recipe
+  // while looking at Recipes and finding it untagged would be daft.
+  function newNoteHere(kind){
+    const n = newNote(kind);
+    if (noteTag && noteTag !== '__none') noteAddTag(n, noteTag);
+    return n;
+  }
   const noteIsBlank = n => !n.title && !n.body && !(n.items || []).length && !(n.images || []).length;
   function touchNote(n){ n.updatedAt = new Date().toISOString(); }
 
@@ -2897,7 +2974,6 @@
 
   function noteCardHTML(n){
     const done = (n.items || []).filter(i => i.done).length;
-    const cat = n.cat ? S.categories.find(c => c.id === n.cat) : null;
     const imgs = n.images || [];
     let h = '<div class="note c-'+esc(n.color || 'none')+'" data-noteopen="'+n.id+'">';
     h += '<button class="note-pin'+(n.pinned?' on':'')+'" data-notepin="'+n.id+'" '+
@@ -2922,15 +2998,46 @@
       h += '<div class="note-b">'+esc(n.body)+'</div>';
     }
     if (!n.title && !n.body && !(n.items || []).length && !imgs.length) h += '<div class="note-b empty">Empty note</div>';
-    if (cat) h += '<div class="note-cat"><b style="background:'+catColor(cat.id)+'"></b>'+esc(cat.label)+'</div>';
+    // Two tags and a count, not six. A card is a glance, and the row of chips
+    // above is where you go when you want to see everything in one.
+    const tg = noteTags(n);
+    if (tg.length) h += '<div class="note-tags">' +
+      tg.slice(0, 2).map(t => '<span>' + esc(t) + '</span>').join('') +
+      (tg.length > 2 ? '<span class="more">+' + (tg.length - 2) + '</span>' : '') + '</div>';
     h += '</div>';
     return h;
+  }
+
+  /* The row across the top. Counts come from the whole board rather than
+     what is on screen, because a count that changes as you filter is telling
+     you about the filter instead of about your notes. */
+  function tagBarHTML(live){
+    const tags = tagsInUse(live);
+    if (!tags.length) return '';
+    const loose = live.filter(n => !noteTags(n).length).length;
+    let h = '<div class="ntagwrap"><div class="ntagbar">';
+    h += '<button class="ntagc' + (noteTag === '' ? ' on' : '') + '" data-notetagfilter="">' +
+      'All <span>' + live.length + '</span></button>';
+    tags.forEach(t => {
+      h += '<button class="ntagc' + (tagKey(noteTag) === tagKey(t.tag) ? ' on' : '') + '" ' +
+        'data-notetagfilter="' + esc(t.tag) + '">' + esc(t.tag) + ' <span>' + t.n + '</span></button>';
+    });
+    if (loose)
+      h += '<button class="ntagc' + (noteTag === '__none' ? ' on' : '') + '" data-notetagfilter="__none">' +
+        'Untagged <span>' + loose + '</span></button>';
+    return h + '</div></div>';
   }
 
   function notesView(now){
     const q = noteSearch.trim().toLowerCase();
     const live = notesAll().filter(n => !!n.archived === notesArchived);
-    const shown = live.filter(n => noteMatches(n, q));
+    // A tag whose last note just lost it would otherwise leave the board
+    // filtered to nothing with no way back that looks like a way back.
+    if (noteTag && noteTag !== '__none' && !tagsInUse(live).some(x => tagKey(x.tag) === tagKey(noteTag))) noteTag = '';
+    const inTag = noteTag === '' ? live
+      : noteTag === '__none' ? live.filter(n => !noteTags(n).length)
+      : live.filter(n => noteHasTag(n, noteTag));
+    const shown = inTag.filter(n => noteMatches(n, q));
     const pinned = shown.filter(n => n.pinned);
     const rest = shown.filter(n => !n.pinned);
     const archivedCount = notesAll().filter(n => n.archived).length;
@@ -2938,22 +3045,29 @@
     let h = '';
     if (!notesArchived){
       h += '<div class="notenew">'+
-        '<input id="nt_quick" type="text" placeholder="Take a note…" autocomplete="off">'+
+        '<input id="nt_quick" type="text" placeholder="' +
+          (noteTag && noteTag !== '__none' ? 'Take a note in ' + esc(noteTag) + '…' : 'Take a note…') +
+          '" autocomplete="off">'+
         '<button data-notequick>Add</button>'+
         '<button class="ghost" data-notenew="list" aria-label="New checklist">+ List</button>'+
         '<button class="ghost" data-notephoto aria-label="New note with a photo">+ Photo</button>'+
         '</div>';
     }
+    if (!notesArchived) h += tagBarHTML(live);
     if (notesAll().length >= 5 || q)
       h += '<div class="notesearch"><input id="nt_search" type="search" placeholder="Search notes…" '+
         'autocomplete="off" value="'+esc(noteSearch)+'"></div>';
 
     if (!shown.length){
       h += '<p class="park-empty">' + (q
-        ? 'Nothing matches “'+esc(noteSearch)+'”.'
+        ? 'Nothing matches “'+esc(noteSearch)+'”' + (noteTag && noteTag !== '__none' ? ' in ' + esc(noteTag) : '') + '.'
         : notesArchived
           ? 'Nothing archived yet.'
-          : 'No notes yet. Anything worth keeping: a list, a half-formed idea, the wifi password.') + '</p>';
+          : noteTag === '__none'
+            ? 'Every note has a tag on it.'
+            : noteTag
+              ? 'Nothing tagged ' + esc(noteTag) + ' yet. Anything you add here will be.'
+              : 'No notes yet. Anything worth keeping: a list, a half-formed idea, the wifi password.') + '</p>';
     }
     if (pinned.length){
       h += '<h2>Pinned <span class="tcount">'+pinned.length+'</span></h2>';
@@ -2972,8 +3086,6 @@
 
   function noteEditorHTML(){
     const n = noteEdit;
-    const CATOPTS = '<option value="">No category</option>' + S.categories.map(c =>
-      "<option value='"+c.id+"'"+(c.id===n.cat?' selected':'')+">"+esc(c.label)+"</option>").join('');
     let h = '<div class="modal-back" data-notecancel></div><div class="modal note-modal c-'+esc(n.color||'none')+'">';
     h += '<div class="modal-h">'+(n.kind === 'list' ? 'Checklist' : 'Note')+'</div>';
     h += '<label class="fld"><span>Title</span><input id="ne_title" type="text" value="'+esc(n.title)+'" autocomplete="off" placeholder="Optional"></label>';
@@ -3006,7 +3118,32 @@
       '</div>';
     h += '<div class="fld"><span>Colour</span><div class="ne-colors">'+NOTE_COLORS.map(c =>
       '<button class="ne-color c-'+c+(c===(n.color||'none')?' on':'')+'" data-notecolor="'+c+'" aria-label="'+c+'"></button>').join('')+'</div></div>';
-    h += '<label class="fld"><span>Category</span><select id="ne_cat">'+CATOPTS+'</select></label>';
+    /* Tags replaced the category this used to ask for. The category only ever
+       mattered at the moment a note became a task, and catFromTags works that
+       out from a tag that names one, so there is nothing left to ask. */
+    const tg = noteTags(n), room = tg.length < TAGS_PER_NOTE;
+    h += '<div class="fld"><span>Tags</span><div class="ne-tags">' +
+      tg.map(t => '<span class="ntag">' + esc(t) +
+        '<button data-notetagdel="' + esc(t) + '" aria-label="Remove ' + esc(t) + '">×</button></span>').join('') +
+      (room
+        ? '<input id="ne_tag" type="text" maxlength="' + TAG_MAX + '" autocomplete="off" ' +
+          'placeholder="' + (tg.length ? 'Another' : 'Family, Recipes, Christmas 2026') + '" value="' + esc(tagDraft) + '">' +
+          '<button class="ghost" data-notetagadd>Add</button>'
+        : '') + '</div>';
+    if (room){
+      // What you already use, narrowed as you type. Tapping one is how a tag
+      // stays a single tag instead of quietly becoming two spellings of one.
+      const k = tagKey(tagDraft);
+      const sug = tagsInUse()
+        .filter(x => !noteHasTag(n, x.tag) && (!k || tagKey(x.tag).indexOf(k) !== -1))
+        .slice(0, 8);
+      if (sug.length) h += '<div class="tagsug">' + sug.map(x =>
+        '<button data-notetagpick="' + esc(x.tag) + '">' + esc(x.tag) + '</button>').join('') + '</div>';
+    }
+    h += (tg.some(t => (S.categories || []).some(c => tagKey(c.label) === tagKey(t)))
+      ? '<small class="gform-hint">Tasks made from this note will go under ' +
+        esc((S.categories.find(c => noteHasTag(n, c.label)) || {}).label) + '.</small>'
+      : '') + '</div>';
     h += '<div class="ne-row">'+
       '<button class="ghost" data-notepin="'+n.id+'">'+(n.pinned ? 'Unpin' : 'Pin to top')+'</button>'+
       '<button class="ghost" data-notearchive="'+n.id+'">'+(n.archived ? 'Unarchive' : 'Archive')+'</button>'+
@@ -3037,7 +3174,7 @@
     const g = id => document.getElementById(id);
     if (g('ne_title')) noteEdit.title = g('ne_title').value.slice(0, 140);
     if (g('ne_body'))  noteEdit.body  = g('ne_body').value.slice(0, 8000);
-    if (g('ne_cat'))   noteEdit.cat   = g('ne_cat').value || null;
+    if (g('ne_tag'))   tagDraft       = g('ne_tag').value;
     (noteEdit.items || []).forEach(i => {
       const el = document.querySelector('[data-noteitemtext="'+i.id+'"]');
       if (el) i.text = el.value.slice(0, 200);
@@ -6668,6 +6805,14 @@
       if (el){ el.focus(); try { el.setSelectionRange(p, p); } catch(_){} }
     });
     shell.addEventListener('input', e => {
+      if (e.target.id !== 'ne_tag') return;
+      tagDraft = e.target.value;
+      const pos = e.target.selectionStart;
+      render();
+      const el = document.getElementById('ne_tag');
+      if (el){ el.focus(); try { el.setSelectionRange(pos, pos); } catch(_){} }
+    });
+    shell.addEventListener('input', e => {
       if (e.target.id !== 'nt_search') return;
       noteSearch = e.target.value;
       const pos = e.target.selectionStart;
@@ -6679,8 +6824,8 @@
   const clearDraft = id => { delete drafts[id]; };
   const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
     'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','te_at','te_monthday','tk_when','tk_mins',
-    'ne_title','ne_body','ne_cat','ne_newitem'];
-  const clearModalDrafts = () => MODAL_IDS.forEach(clearDraft);
+    'ne_title','ne_body','ne_tag','ne_newitem'];
+  const clearModalDrafts = () => { MODAL_IDS.forEach(clearDraft); tagDraft = ''; };
 
   function paint(h){
     // A modal keeps its own scroll, and innerHTML throws it away. Every tap on
@@ -7967,10 +8112,11 @@
     notesAll().forEach(n => {
       if (n.archived && !searchOld) return;
       const items = (n.items || []).map(i => i.text).join(' ');
-      if (!hit(n.title, n.body, items, catName(n.cat))) return;
+      if (!hit(n.title, n.body, items, noteTags(n).join(' '))) return;
       const body = (n.body || items || '').replace(/\s+/g, ' ').trim();
-      notes.push({ act: 'note:' + n.id, c: n.cat, t: n.title || 'Untitled note',
-        sub: body.slice(0, 90), meta: n.archived ? 'Archived' : '' });
+      notes.push({ act: 'note:' + n.id, c: '', t: n.title || 'Untitled note',
+        sub: body.slice(0, 90),
+        meta: [n.archived ? 'Archived' : '', noteTags(n).join(' · ')].filter(Boolean).join(' · ') });
     });
     add('Notes', notes);
 
@@ -9254,7 +9400,7 @@
       const i = document.getElementById('nt_quick');
       const v = ((i && i.value) || '').trim();
       if (!v) { if (i) i.focus(); return; }
-      const n = newNote('text'); n.title = v.slice(0, 140);
+      const n = newNoteHere('text'); n.title = v.slice(0, 140);
       clearDraft('nt_quick'); save(); render();
       const f = document.getElementById('nt_quick'); if (f) f.focus();   // keep capturing
       return;
@@ -9262,7 +9408,7 @@
     if ((m = t('[data-notenew]'))){
       const i = document.getElementById('nt_quick');
       const v = ((i && i.value) || '').trim();
-      const n = newNote(m.dataset.notenew);
+      const n = newNoteHere(m.dataset.notenew);
       if (v) n.title = v.slice(0, 140);
       clearDraft('nt_quick');
       noteEdit = n; save(); render(); return;
@@ -9274,7 +9420,7 @@
       if (!cloud || !session){ alert('Photos need an account, so they are stored safely and reach your other devices. Sign in first.'); return; }
       const i = document.getElementById('nt_quick');
       const v = ((i && i.value) || '').trim();
-      const n = newNote('text');
+      const n = newNoteHere('text');
       if (v) n.title = v.slice(0, 140);
       clearDraft('nt_quick');
       noteEdit = n; save(); render();
@@ -9364,6 +9510,28 @@
       noteEdit = null; imgError = ''; clearModalDrafts(); save(); render(); return;
     }
     if (t('[data-notearchiveview]')){ notesArchived = !notesArchived; noteSearch = ''; render(); return; }
+    if ((m = t('[data-notetagfilter]'))){
+      const want = m.dataset.notetagfilter;
+      noteTag = (want && tagKey(want) === tagKey(noteTag)) ? '' : want;   // tapping it again clears it
+      render(); return;
+    }
+    if (t('[data-notetagadd]')){
+      noteSync();
+      if (noteEdit && noteAddTag(noteEdit, tagDraft)) touchNote(noteEdit);
+      tagDraft = ''; clearDraft('ne_tag'); render();
+      const f = document.getElementById('ne_tag'); if (f) f.focus();   // keep going
+      return;
+    }
+    if ((m = t('[data-notetagpick]'))){
+      noteSync();
+      if (noteEdit && noteAddTag(noteEdit, m.dataset.notetagpick)) touchNote(noteEdit);
+      tagDraft = ''; clearDraft('ne_tag'); render(); return;
+    }
+    if ((m = t('[data-notetagdel]'))){
+      noteSync();
+      if (noteEdit){ noteDropTag(noteEdit, m.dataset.notetagdel); touchNote(noteEdit); }
+      render(); return;
+    }
     if ((m = t('[data-notemaketask]'))){
       noteSync();
       const n = findNote(m.dataset.notemaketask);
@@ -9373,7 +9541,7 @@
       const stamp = new Date().toISOString();
       S.tasks = (S.tasks || []).concat(titles.map(title => ({
         id: 'tk_' + uid8(), title: title, note: '',
-        cat: n.cat || (S.categories[0] || {}).id, priority: 'normal',
+        cat: catFromTags(n), priority: 'normal',
         due: null, dateType: 'by', mins: null, repeat: null, at: null,
         createdAt: stamp, doneAt: null
       })));
@@ -9388,7 +9556,7 @@
       // Hand it to the block editor rather than inventing a time: when a block
       // sits is the whole question, and only the person knows the answer.
       noteEdit = null; clearModalDrafts();
-      openEditor({ date: dayKey(viewDate()), title: head, cat: n.cat || undefined,
+      openEditor({ date: dayKey(viewDate()), title: head, cat: catFromTags(n) || undefined,
                    note: n.kind === 'list' ? (n.items || []).map(i => i.text).join(', ').slice(0, 200) : '' });
       return;
     }
@@ -9723,6 +9891,7 @@
     if (e.key === 'Enter' && e.target.id === 'cm_text'){ e.preventDefault(); const b = app.querySelector('[data-cmadd]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'tk_title'){ e.preventDefault(); const b = app.querySelector('[data-addtask]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
+    if (e.key === 'Enter' && e.target.id === 'ne_tag'){ e.preventDefault(); const b = app.querySelector('[data-notetagadd]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newitem'){ e.preventDefault(); const b = app.querySelector('[data-noteadditem]'); if (b) b.click(); return; }
     if (e.key === 'Escape' && searchOpen){ searchOpen = false; clearDraft('gs_q'); render(); return; }
     if (e.key === 'Escape' && tomorrowOpen){ tomorrowOpen = false; tmrw = {}; render(); return; }

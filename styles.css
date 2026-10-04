@@ -1140,6 +1140,31 @@
   #soft-app .notenew { flex-wrap: wrap; }
   #soft-app .notenew input { flex: 1 1 100%; }
   @media (min-width: 480px) { #soft-app .notenew input { flex: 1 1 auto; } }
+  /* The tag row. It scrolls sideways rather than wrapping to three lines,
+     because on a phone the notes themselves should still be the first thing
+     under the add box, not a wall of chips. */
+  /* #soft-app is a flex item of the shell, so it defaults to min-width:auto
+     and will not shrink below its own content. Left alone, a long row of
+     chips becomes the width of the whole app and the page scrolls sideways
+     instead of the row scrolling. A grid column that is allowed to shrink to
+     nothing stops that width ever reaching the shell, and keeps the fix to
+     this row rather than loosening the shell for everything. */
+  #soft-app .ntagwrap { display: grid; grid-template-columns: minmax(0, 1fr); }
+  #soft-app .ntagbar {
+    display: flex; gap: 7px; margin: 0 0 13px; padding-bottom: 3px;
+    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  #soft-app .ntagbar::-webkit-scrollbar { display: none; }
+  #soft-app .ntagc {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+    background: var(--raise); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 999px; padding: 7px 13px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  #soft-app .ntagc span { font-size: 11.5px; color: var(--ghost); font-variant-numeric: tabular-nums; }
+  #soft-app .ntagc:hover { border-color: var(--ghost); }
+  #soft-app .ntagc.on { background: var(--live-soft); border-color: var(--live); color: var(--text); }
+  #soft-app .ntagc.on span { color: var(--live); }
+
   #soft-app .notesearch { margin-bottom: 14px; }
   #soft-app .notesearch input {
     width: 100%; background: var(--raise); border: 1px solid var(--line); color: var(--text);
@@ -1219,8 +1244,13 @@
   #soft-app.dropping .noteboard .note { pointer-events: none; }
 
   #soft-app .note-more, #soft-app .note-meta { font-size: 11.5px; color: var(--ghost); margin-top: 6px; }
-  #soft-app .note-cat { display: flex; align-items: center; gap: 6px; margin-top: 9px; font-size: 11.5px; color: var(--ghost); }
-  #soft-app .note-cat b { width: 8px; height: 8px; border-radius: 50%; display: block; }
+  #soft-app .note-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+  #soft-app .note-tags span {
+    font-size: 11px; color: var(--ghost); background: var(--raise);
+    border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #soft-app .note-tags .more { border-style: dashed; }
 
   /* Note colours are named, so each theme can answer for itself rather than
      storing two hexes or blending one at runtime. */
@@ -1259,6 +1289,33 @@
     border-radius: 9px; padding: 9px 11px; font: inherit; font-size: 14.5px;
   }
   #soft-app .ne-add .ghost { flex: 0 0 auto; }
+  #soft-app .ne-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+  #soft-app .ne-tags input {
+    flex: 1 1 120px; min-width: 0; background: var(--raise); border: 1px solid var(--line);
+    color: var(--text); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 13.5px;
+  }
+  #soft-app .ne-tags input:focus { outline: none; border-color: var(--ghost); }
+  #soft-app .ne-tags .ghost { flex: 0 0 auto; }
+  #soft-app .ntag {
+    display: inline-flex; align-items: center; gap: 2px;
+    background: var(--live-soft); border: 1px solid var(--live); color: var(--text);
+    border-radius: 999px; padding: 5px 5px 5px 11px; font-size: 12.5px;
+  }
+  #soft-app .ntag button {
+    background: none; border: 0; color: var(--ghost); font: inherit; font-size: 15px;
+    line-height: 1; padding: 0 5px; cursor: pointer;
+  }
+  #soft-app .ntag button:hover { color: var(--text); }
+
+  /* Ones you already use. Tapping beats typing, and typing is how a tag
+     quietly becomes two spellings of itself. */
+  #soft-app .tagsug { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  #soft-app .tagsug button {
+    background: none; border: 1px dashed var(--line); color: var(--ghost);
+    border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  #soft-app .tagsug button:hover { border-style: solid; border-color: var(--ghost); color: var(--text); }
+
   #soft-app .ne-colors { display: flex; gap: 7px; flex-wrap: wrap; }
   #soft-app .ne-color {
     width: 30px; height: 30px; border-radius: 9px; cursor: pointer; padding: 0;
