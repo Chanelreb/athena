@@ -1196,6 +1196,25 @@
   }
   #soft-app .ntagedit small b { color: var(--live); font-weight: 600; }
 
+  /* A clash between two devices. Warn-coloured rather than danger: nothing
+     has gone wrong yet, which is the entire point of it being here. */
+  #soft-app .clash {
+    display: flex; flex-direction: column; gap: 4px;
+    margin: 0 0 18px; padding: 13px 15px;
+    background: var(--raise); border: 1px solid var(--warn); border-radius: 13px;
+  }
+  #soft-app .clash b { font-size: 14.5px; font-weight: 600; color: var(--text); }
+  #soft-app .clash > span { font-size: 13px; color: var(--dim); line-height: 1.5; }
+  #soft-app .clash-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  #soft-app .clash-acts .go {
+    background: var(--live); color: var(--on-live); border: 0; border-radius: 10px;
+    padding: 10px 15px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  }
+  #soft-app .clash-acts .ghost {
+    background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 10px;
+    padding: 10px 15px; font: inherit; font-size: 13.5px; cursor: pointer;
+  }
+
   #soft-app .notesearch { margin-bottom: 14px; }
   #soft-app .notesearch input {
     width: 100%; background: var(--raise); border: 1px solid var(--line); color: var(--text);

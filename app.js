@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-04.2';
+  const BUILD = '2026-10-04.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -73,7 +73,16 @@
       const v = lsGet(KEY);
       return { value: v, updatedAt: null, remote: false };
     },
-    set: async (blob) => {
+    /* One row per account holds everything, so a write is a wholesale
+       replacement. That makes the question of what it is replacing the whole
+       ballgame: a device sitting on an older copy used to be able to put it
+       straight over newer work from another device, and the newer work was
+       simply gone. No warning, nothing to restore.
+
+       So the row may only be replaced by a device still holding the copy it
+       read. If anything has written since, the update matches no row and
+       comes back empty, and the caller is told rather than obeyed. */
+    set: async (blob, force) => {
       lsSet(KEY, blob);                       // write-through offline cache
       if (cloud){
         if (!session) throw new Error('not signed in');
@@ -81,10 +90,32 @@
         // session: we would be writing on top of who knows what.
         if (!cloudLoaded) throw new Error('cloud not loaded');
         const stamp = new Date().toISOString();
-        const { error } = await sb.from('dashboards')
-          .upsert({ user_id: session.user.id, data: JSON.parse(blob), updated_at: stamp });
-        if (error) throw error;
-        lastRemoteAt = stamp;                 // this device is now the latest writer
+        const row = { user_id: session.user.id, data: JSON.parse(blob), updated_at: stamp };
+        let got;
+        if (lastRemoteAt && !force){
+          const q = await sb.from('dashboards').update(row)
+            .eq('user_id', session.user.id)
+            .eq('updated_at', lastRemoteAt)
+            .select('updated_at');
+          if (q.error) throw q.error;
+          if (!q.data || !q.data.length){
+            const e = new Error('another device has written since this one last looked');
+            e.code = 'stale';
+            throw e;
+          }
+          got = q.data[0];
+        } else {
+          // Either there is no row yet, or the person has looked at the
+          // clash and said to keep what is on their screen.
+          const q = await sb.from('dashboards').upsert(row).select('updated_at');
+          if (q.error) throw q.error;
+          got = (q.data || [])[0];
+        }
+        // Take the stamp back from the database rather than trusting the one
+        // we sent. Postgres renders a timestamp its own way, and comparing
+        // our spelling of it against theirs reads as a change that never
+        // happened.
+        lastRemoteAt = (got && got.updated_at) || stamp;
       }
       return { ok: true };
     }
@@ -327,15 +358,28 @@
   }
   let tm = null;
   let savePending = false;
-  function save(){
+  // Set when the cloud refused a write because another device got there
+  // first. Neither copy is thrown away while this is true: the screen says so
+  // and the choice is the person's.
+  let clash = false;
+  function save(force){
     clearTimeout(tm);
     savePending = true;
     // What is queued to be said about this week is part of the week. Its own
     // debounce is longer, and it does nothing at all when nothing moved.
     pushQueueSync(false);
     tm = setTimeout(async () => {
-      try { await store.set(JSON.stringify(S)); ok = true; }
-      catch(e){ ok = false; }
+      try {
+        await store.set(JSON.stringify(S), force);
+        ok = true;
+        if (clash){ clash = false; savePending = false; render(); return; }
+      }
+      catch(e){
+        ok = false;
+        // A refusal is not a failure to be swallowed. It means this screen
+        // and the cloud disagree, and somebody has to say which one wins.
+        if (e && e.code === 'stale' && !clash){ clash = true; savePending = false; render(); return; }
+      }
       finally { savePending = false; }
     }, 250);
   }
@@ -346,14 +390,26 @@
   // copy whenever this device comes back to life (and periodically while open),
   // so it's current before you touch anything.
   let syncing = false;
-  async function syncFromCloud(){
-    if (!cloud || !session || syncing || savePending) return;
-    if (typeof document !== 'undefined' && document.hidden) return;
-    if (userBusy()) return;                       // never yank the UI mid-edit
+  async function syncFromCloud(force){
+    if (!cloud || !session || syncing) return;
+    // Every one of these is a reason not to pull behind somebody's back. None
+    // of them is a reason to ignore them asking for it: a forced pull is the
+    // answer to a question already on screen, and the first version of this
+    // kept all three, so pressing the button while the cursor still sat in a
+    // text box did nothing at all.
+    if (!force){
+      if (savePending) return;
+      // While a clash is up this device holds work the cloud has not got.
+      // Pulling quietly would answer the question for her, in the direction
+      // that loses it.
+      if (clash) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (userBusy()) return;                     // never yank the UI mid-edit
+    }
     syncing = true;
     try {
       const r = await store.get();
-      if (r && r.value && r.updatedAt && r.updatedAt !== lastRemoteAt){
+      if (r && r.value && r.updatedAt && (force || r.updatedAt !== lastRemoteAt)){
         S = Object.assign(blank(), JSON.parse(r.value));
         lastRemoteAt = r.updatedAt;
         lsSet(KEY, r.value);
@@ -7029,6 +7085,20 @@
       '<div class="buildline">Version '+BUILD+(session ? ' · signed in as '+esc(session.user.email || '') : ' · not signed in')+'</div></div>';
   }
 
+  /* Shown when the cloud refused a write. Both copies still exist at this
+     point and neither is going anywhere until she says which one she wants,
+     because guessing is what caused the bug this guards against. */
+  function clashHTML(){
+    return '<div class="clash">' +
+      '<b>This was changed on another device</b>' +
+      '<span>Your other device saved something while this screen was open, so Athena has not ' +
+      'written over it. Nothing is lost either way yet.</span>' +
+      '<div class="clash-acts">' +
+        '<button class="go" data-clashtake>Take the other version</button>' +
+        '<button class="ghost" data-clashkeep>Keep what is on this screen</button>' +
+      '</div></div>';
+  }
+
   function render(){
     // Before anything is measured. S is replaced by loading, restoring,
     // undoing and resetting, and this is the one line all four pass through.
@@ -7047,11 +7117,14 @@
     const now = new Date();
     const vd = viewDate();
     const hr = now.getHours();
+    // Above the greeting, because everything under it may be about to change.
+    const clashBar = clash ? clashHTML() : '';
     const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
     const name = (S.profile && S.profile.name) ? ', ' + esc(S.profile.name) : '';
     const doy = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
     let h = '';
 
+    h += clashBar;
     // The daily drawing now sits with the greeting where it belongs, and the
     // settings control is a cog that looks like what it does.
     h += '<div class="greet"><div class="gtxt"><h1>'+greet+name+
@@ -9175,6 +9248,19 @@
     // editor / settings dismissal
     if (t('[data-closeeditor]')){ editing = null; clearModalDrafts(); render(); return; }
     if (t('[data-saveevent]')){ commitEvent(); return; }
+    if (t('[data-clashtake]')){
+      // Their copy wins. Pull and take it, without ever leaving this device
+      // without a guard: forgetting the stamp to make the pull fire would
+      // also let an unprotected write through in the gap before it lands.
+      clash = false; render();
+      syncFromCloud(true);
+      return;
+    }
+    if (t('[data-clashkeep]')){
+      // This screen wins, and now it is a decision rather than an accident.
+      save(true);
+      return;
+    }
     if (t('[data-retryload]')){ load().then(() => { applyTheme(); render(); }); return; }
     if (t('[data-worklocal]')){ workLocal = true; applyTheme(); render(); return; }
     if (t('[data-undo]')){ doUndo(); return; }
