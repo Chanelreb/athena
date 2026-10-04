@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-04.7';
+  const BUILD = '2026-10-04.8';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3047,7 +3047,12 @@
     }
     if (!cloud || !session){ imgError = 'Not signed in on this device, so there is nowhere safe to put a photo.'; render(); return; }
     const n = note || noteEdit;
-    if (!n) return;
+    // The one way a photo could fail without a word: no note to attach it to.
+    // Everything else in here reports, so this reports too.
+    if (!n){
+      imgError = 'The note was not open any more, so there was nowhere to put it. Open the note and try again. · v' + BUILD;
+      render(); return;
+    }
     const room = IMG_PER_NOTE - (n.images || []).length;
     if (room <= 0){ imgError = 'That is already ' + IMG_PER_NOTE + ' photos, which is plenty for one note.'; render(); return; }
     const take = list.slice(0, room);
