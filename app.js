@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-05.6';
+  const BUILD = '2026-10-05.7';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3450,11 +3450,15 @@
 
     let h = '';
     if (inFolder){
-      h += '<div class="fldhead"><button class="linkish" data-foldershelf>\u2190 All folders</button>' +
-        '<h2>' + esc(folderName(openFolder)) + ' <span class="tcount">' + live.length + '</span></h2>' +
-        '<div class="fldacts">' +
-          '<button class="linkish" data-folderrename="' + esc(openFolder) + '">Rename</button>' +
-          '<button class="linkish danger" data-folderdelete="' + esc(openFolder) + '">Delete folder</button>' +
+      h += '<div class="fldhead">' +
+        '<button class="fldback" data-foldershelf>\u2190 All folders</button>' +
+        '<div class="fldtop">' +
+          '<span class="fldname">' + esc(folderName(openFolder)) +
+            ' <span class="tcount">' + live.length + '</span></span>' +
+          '<span class="fldacts">' +
+            '<button data-folderrename="' + esc(openFolder) + '">Rename</button>' +
+            '<button class="danger" data-folderdelete="' + esc(openFolder) + '">Delete</button>' +
+          '</span>' +
         '</div></div>';
       if (folderEdit && folderEdit.id === openFolder)
         h += '<div class="ntagedit">' +
@@ -8857,6 +8861,12 @@
     h += row('A save is waiting', savePending ? 'yes' : 'no');
     h += row('Two devices disagreeing', clash ? 'YES' : 'no');
     h += row('Knows the copy it holds', lastRemoteAt ? 'yes' : 'NO');
+    const rk = (S0.coach && S0.coach.rocks) || {};
+    const today = dayKey(new Date());
+    const y = new Date(); y.setDate(y.getDate() - 1);
+    h += row('Rocks set for today', (rk[today] || []).length + (rk[today] ? '' : ' (none set)'));
+    h += row('Rocks set yesterday', (rk[dayKey(y)] || []).length);
+    h += row('Days that have rocks on them', Object.keys(rk).length);
     h += row('Notes', notes.length);
     h += row('Folders', (S0.folders || []).length);
     h += row('Notes with a photo on them', withPics.length);
@@ -10801,8 +10811,13 @@
     return !!(editing || settingsOpen || aiOpen || goalAI || ob || taskEdit || noteEdit || habEdit || restoring || searchOpen || tomorrowOpen || !!askChanges || !!sitting || !!morning ||
       (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')));
   }
-  function applyUpdate(){
+  function applyUpdate(tries){
     if (reloadingForUpdate) return;
+    // Never reload over a save that has not reached the account. The local
+    // copy is written first, but the next load prefers the account and puts
+    // it straight over the top, so the change is simply gone.
+    const n = tries || 0;
+    if (savePending && n < 40){ setTimeout(() => applyUpdate(n + 1), 250); return; }
     reloadingForUpdate = true;
     window.location.reload();
   }
@@ -10834,6 +10849,6 @@
     checkForUpdate();                              // record the baseline now
     setInterval(checkForUpdate, 5 * 60 * 1000);    // and watch every 5 minutes
     // If a deferred update is pending, apply it as soon as the user goes idle.
-    setInterval(() => { if (updatePending && !userBusy()) applyUpdate(); }, 15 * 1000);
+    setInterval(() => { if (updatePending && !userBusy() && !savePending) applyUpdate(); }, 15 * 1000);
   }
 })();

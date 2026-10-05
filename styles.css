@@ -1284,10 +1284,31 @@
 
   /* Inside one. The way back comes first, because being stuck in a room is
      worse than taking a line to get out of it. */
-  #soft-app .fldhead { margin: 0 0 14px; }
-  #soft-app .fldhead h2 { margin: 6px 0 0; }
-  #soft-app .fldacts { display: flex; gap: 14px; margin-top: 6px; }
-  #soft-app .fldacts .danger { color: var(--danger); }
+  /* Inside a folder. The name is the only thing here worth reading at a
+     glance, so it is the only thing that looks like it. */
+  #soft-app .fldhead { margin: 0 0 16px; }
+  #soft-app .fldback {
+    background: none; border: 0; padding: 0; cursor: pointer;
+    font: inherit; font-size: 13px; color: var(--dim);
+  }
+  #soft-app .fldback:hover { color: var(--text); }
+  #soft-app .fldtop {
+    display: flex; align-items: baseline; justify-content: space-between;
+    flex-wrap: wrap; gap: 4px 14px; margin-top: 8px;
+  }
+  #soft-app .fldname {
+    font-size: 18px; font-weight: 500; color: var(--text);
+    letter-spacing: normal; text-transform: none;
+  }
+  #soft-app .fldname .tcount { margin-left: 4px; }
+  /* Quiet until wanted: these are housekeeping, not the point of the page. */
+  #soft-app .fldacts { display: flex; gap: 14px; }
+  #soft-app .fldacts button {
+    background: none; border: 0; padding: 0; cursor: pointer;
+    font: inherit; font-size: 13px; color: var(--ghost);
+  }
+  #soft-app .fldacts button:hover { color: var(--text); }
+  #soft-app .fldacts .danger:hover { color: var(--danger); }
 
   /* Making one from inside a note. */
   #soft-app .ne-newfld { display: flex; gap: 8px; margin-top: 8px; }
