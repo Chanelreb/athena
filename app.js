@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-05.5';
+  const BUILD = '2026-10-05.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3088,9 +3088,22 @@
         const { error } = await sb.storage.from('note-images')
           .upload(path, shrunk.blob, { contentType: 'image/jpeg', upsert: false });
         if (error) throw error;
-        n.images = (n.images || []).concat([{ id: id, path: path, w: shrunk.w, h: shrunk.h }]);
+        // Look the note up again: this is the far side of two waits, and the
+        // object held since before them may no longer be the one in S.
+        const live = findNote(n.id);
+        if (!live){
+          logPhoto('note ' + n.id + ' vanished while the photo uploaded');
+          imgError = 'The note disappeared while the photo was uploading, so there was nowhere to ' +
+            'put it. The photo is safe, open the note and add it again. \u00b7 v' + BUILD;
+          break;
+        }
+        if (live !== n) logPhoto('note was replaced mid-upload, attached to the current one');
+        live.images = (live.images || []).concat([{ id: id, path: path, w: shrunk.w, h: shrunk.h }]);
+        // And the editor has to be shown the one that is really in the data,
+        // or it carries on drawing a copy that nothing will ever save.
+        if (noteEdit && noteEdit.id === live.id) noteEdit = live;
         logPhoto('uploaded and attached ' + id + '.jpg (' + Math.round(shrunk.blob.size / 1024) + 'KB)');
-        touchNote(n); save();
+        touchNote(live); save();
       } catch (e){
         const p = photoProblem(e);
         const f = take[i];
@@ -3109,7 +3122,8 @@
     // kept alive only because of it. If the photo never arrived there is
     // genuinely nothing in it, so let it go now rather than leaving an empty
     // note behind as a souvenir of a failure.
-    if (noteEdit !== n && noteIsBlank(n)) S.notes = notesAll().filter(x => x.id !== n.id);
+    const after = findNote(n.id);
+    if (after && noteEdit !== after && noteIsBlank(after)) S.notes = notesAll().filter(x => x.id !== after.id);
     imgBusy = ''; save(); render();
   }
   const addNoteImage = file => addNoteImages([file]);
