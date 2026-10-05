@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-05.10';
+  const BUILD = '2026-10-05.11';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -7421,7 +7421,16 @@
       if (el){ el.focus(); try { el.setSelectionRange(pos, pos); } catch(_){} }
     });
   }
-  const clearDraft = id => { delete drafts[id]; };
+  const clearDraft = id => {
+    delete drafts[id];
+    if (typeof document === 'undefined') return;
+    const el = document.getElementById(id);
+    // Only things that hold typed text. A select's value is a choice rather
+    // than a draft, and a checkbox and a file input cannot be blanked this way.
+    if (!el || el.tagName === 'SELECT') return;
+    if (el.type === 'file' || el.type === 'checkbox') return;
+    try { el.value = ''; } catch(_){}
+  };
   const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
     'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','te_at','te_monthday','tk_when','tk_mins',
     'ne_title','ne_body','ne_folder','ne_tag','ne_newfolder','ne_newitem'];
