@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-05.2';
+  const BUILD = '2026-10-05.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2969,6 +2969,9 @@
     return n;
   }
   const noteIsBlank = n => !n.title && !n.body && !(n.items || []).length && !(n.images || []).length;
+  // The note a photo is currently being uploaded for, if any.
+  let imgFor = null;
+  const safeToDrop = n => !!n && noteIsBlank(n) && imgFor !== n.id;
   function touchNote(n){ n.updatedAt = new Date().toISOString(); }
 
   /* ---- photos on notes ----
@@ -2988,6 +2991,7 @@
   // cannot be screenshotted on a phone, and by the time anyone asks "what did
   // it say" the answer is gone. This sits on the screen until it is fixed.
   let imgError = '';
+  let diagOpen = false;
   const imgUrls = {};            // path -> { url, exp } signed-URL cache
 
   // Turn whatever came back into something a person can act on, and keep the
@@ -3058,6 +3062,7 @@
     const room = IMG_PER_NOTE - (n.images || []).length;
     if (room <= 0){ imgError = 'That is already ' + IMG_PER_NOTE + ' photos, which is plenty for one note.'; render(); return; }
     const take = list.slice(0, room);
+    imgFor = n.id;          // keep this note alive until the photo is on it
     for (let i = 0; i < take.length; i++){
       imgBusy = take.length > 1 ? ('Adding ' + (i + 1) + ' of ' + take.length + '…') : 'Adding photo…';
       render();
@@ -3083,7 +3088,13 @@
       }
     }
     if (!imgError && list.length > room) imgError = 'Added ' + room + '. A note holds ' + IMG_PER_NOTE + ' photos.';
-    imgBusy = ''; render();
+    imgFor = null;
+    // The editor may have been closed while this was running, and the note
+    // kept alive only because of it. If the photo never arrived there is
+    // genuinely nothing in it, so let it go now rather than leaving an empty
+    // note behind as a souvenir of a failure.
+    if (noteEdit !== n && noteIsBlank(n)) S.notes = notesAll().filter(x => x.id !== n.id);
+    imgBusy = ''; save(); render();
   }
   const addNoteImage = file => addNoteImages([file]);
 
@@ -8778,17 +8789,47 @@
     save(); render();
   }
 
+  function diagHTML(){
+    const S0 = S || {};
+    const notes = S0.notes || [];
+    const withPics = notes.filter(n => n && (n.images || []).length);
+    const pics = withPics.reduce((t, n) => t + n.images.length, 0);
+    const row = (k, v) => '<div class="dgrow"><span>' + esc(k) + '</span><b>' + esc(String(v)) + '</b></div>';
+    let h = '<div class="diag">';
+    h += row('Version', BUILD);
+    h += row('Signed in', (cloud && session) ? ('yes, ' + ((session.user && session.user.email) || 'no address')) : 'NO');
+    h += row('Read your account at startup', cloudLoaded ? (loadFailed ? 'NO' : 'yes') : 'NO');
+    h += row('Last save to your account', ok ? 'worked' : 'FAILED');
+    h += row('A save is waiting', savePending ? 'yes' : 'no');
+    h += row('Two devices disagreeing', clash ? 'YES' : 'no');
+    h += row('Knows the copy it holds', lastRemoteAt ? 'yes' : 'NO');
+    h += row('Notes', notes.length);
+    h += row('Folders', (S0.folders || []).length);
+    h += row('Notes with a photo on them', withPics.length);
+    h += row('Photos recorded in all', pics);
+    if (pics) h += row('Most recent photo', withPics[withPics.length - 1].images.slice(-1)[0].path);
+    h += row('Last photo going in', imgError || 'nothing to report');
+    h += row('Last photo coming back', imgReadError || 'nothing to report');
+    h += row('Last trouble reading your account', loadError || 'nothing to report');
+    h += '</div>';
+    h += '<p class="setnote">Nothing here leaves your device. Screenshot it and send it over if ' +
+      'something is not behaving.</p>';
+    return h;
+  }
+
   function restoreSettingsHTML(){
     // The three sit in a list of their own. A button shrinks to fit its words
     // and a label does not, so left alone they came out three different
     // widths, which looks like a mistake because it is one.
     let h = '<div class="datalist">';
     h += '<button class="ghost" data-export>Download a backup</button>';
+    h += '<button class="ghost" data-diag>' + (diagOpen ? 'Hide the details' : 'Something is wrong, show me the details') + '</button>';
     h += '<label class="ghost filebtn">Restore from a file' +
       '<input id="rs_file" type="file" accept="application/json,.json"></label>';
     h += '<button class="ghost" data-snaplist'+(snapBusy ? ' disabled' : '')+'>'+
       (snapBusy ? 'Looking…' : 'Restore to an earlier day')+'</button>';
     h += '</div>';
+    if (diagOpen) h += diagHTML();
     if (snapErr) h += '<p class="setnote">'+esc(snapErr)+'</p>';
     if (snaps && snaps.length){
       h += '<div class="snaplist">' + snaps.map(s =>
@@ -9426,6 +9467,7 @@
     if (t('[data-verifycode]')){ verifyCode(); return; }
     if (t('[data-authback]')){ authStep = 'email'; authMsg = ''; renderAuth(); return; }
     if (t('[data-signout]')){ if (sb) sb.auth.signOut().catch(()=>{}); settingsOpen = false; return; }
+    if (t('[data-diag]')){ diagOpen = !diagOpen; render(); return; }
     if (t('[data-export]')){ exportBackup(); return; }
     if (t('[data-snaplist]')){ snapFetchList(); return; }
     if ((m = t('[data-snapopen]'))){ snapOpen(m.dataset.snapopen); return; }
@@ -9956,13 +9998,13 @@
       noteSync();
       const n = noteEdit;
       // An untouched blank note is a slip, not a thing to keep. A photo counts.
-      if (n && noteIsBlank(n)) S.notes = notesAll().filter(x => x.id !== n.id);
+      if (safeToDrop(n)) S.notes = notesAll().filter(x => x.id !== n.id);
       else if (n) touchNote(n);
       noteEdit = null; imgError = ''; clearModalDrafts(); save(); render(); return;
     }
     if (t('[data-notecancel]')){
       const n = noteEdit;
-      if (n && noteIsBlank(n)) S.notes = notesAll().filter(x => x.id !== n.id);
+      if (safeToDrop(n)) S.notes = notesAll().filter(x => x.id !== n.id);
       noteEdit = null; imgError = ''; clearModalDrafts(); save(); render(); return;
     }
     if (t('[data-notearchiveview]')){ notesArchived = !notesArchived; noteSearch = ''; render(); return; }

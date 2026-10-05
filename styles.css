@@ -1234,6 +1234,23 @@
     border-radius: 9px; padding: 9px 15px; font: inherit; font-weight: 600; cursor: pointer;
   }
 
+  /* The details block. Meant to be screenshotted and sent, so it wraps
+     rather than truncating: a cut-off error string is no use to anybody. */
+  #soft-app .diag {
+    margin: 10px 0 4px; border: 1px solid var(--line); border-radius: 11px;
+    overflow: hidden; background: var(--raise);
+  }
+  #soft-app .dgrow {
+    display: flex; flex-wrap: wrap; gap: 2px 12px; justify-content: space-between;
+    padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px;
+  }
+  #soft-app .dgrow:last-child { border-bottom: 0; }
+  #soft-app .dgrow span { color: var(--dim); }
+  #soft-app .dgrow b {
+    font-weight: 500; color: var(--text); text-align: right;
+    word-break: break-word; max-width: 100%;
+  }
+
   #soft-app .fldlist { display: flex; flex-direction: column; gap: 8px; }
   #soft-app .fldrow {
     display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline;
