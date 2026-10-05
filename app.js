@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-04.8';
+  const BUILD = '2026-10-05.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3452,7 +3452,7 @@
         '<button class="del" data-noteimgdel="'+n.id+':'+im.id+'" aria-label="Remove photo">×</button></div>').join('')+
       ((n.images || []).length < IMG_PER_NOTE
         ? '<label class="ne-imgadd'+(imgBusy?' busy':'')+'">'+(imgBusy || '+ Photo')+
-          '<input id="ne_file" type="file" accept="image/*" hidden></label>'
+          '<input id="ne_file" type="file" accept="image/*"></label>'
         : '')+
       '</div>'+
       (imgError ? '<div class="errdetail"><b>Photo did not go</b><span>'+esc(imgError)+'</span></div>' : '')+
