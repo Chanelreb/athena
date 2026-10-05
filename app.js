@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-05.1';
+  const BUILD = '2026-10-05.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2998,7 +2998,9 @@
     if (/bucket not found|does not exist/i.test(msg))
       plain = 'The photo store has not been created in Supabase yet. The storage part of the setup SQL did not take.';
     else if (/row-level security|violates|not authorized|403|unauthorized/i.test(msg))
-      plain = 'Supabase refused the upload. The bucket exists but its three permission rules are missing or wrong.';
+      plain = 'Supabase refused it. The bucket exists but its three permission rules are missing or wrong.';
+    else if (/not.?found|NoSuchKey/i.test(msg))
+      plain = 'The file is not in the photo store. The note remembers it, but it never arrived or has since been removed.';
     else if (/unreadable/i.test(msg))
       plain = 'This device could not read that image file.';
     else if (/encode/i.test(msg))
@@ -3094,22 +3096,39 @@
     try { if (cloud && session) await sb.storage.from('note-images').remove([img.path]); } catch(_){}
   }
 
+  // Why the last photo could not be fetched, in the same words the upload
+  // uses, so one line explains either direction.
+  let imgReadError = '';
   async function signedUrl(path){
     const hit = imgUrls[path];
     if (hit && hit.exp > Date.now()) return hit.url;
-    if (!cloud || !session) return null;
+    if (!cloud || !session){
+      imgReadError = 'Not signed in on this device, so Athena cannot fetch your photos.';
+      return null;
+    }
     try {
       const { data, error } = await sb.storage.from('note-images').createSignedUrl(path, 3600);
-      if (error || !data) return null;
+      if (error || !data){
+        const p = photoProblem(error || new Error('no url came back'));
+        imgReadError = (p.plain ? p.plain + ' ' : '') + '[' + p.raw + '] \u00b7 reading ' + path + ' \u00b7 v' + BUILD;
+        if (typeof console !== 'undefined') console.error('Athena photo read failed:', error, path);
+        return null;
+      }
       imgUrls[path] = { url: data.signedUrl, exp: Date.now() + 50 * 60 * 1000 };
       return data.signedUrl;
-    } catch(_){ return null; }
+    } catch(e){
+      const p = photoProblem(e);
+      imgReadError = (p.plain ? p.plain + ' ' : '') + '[' + p.raw + '] \u00b7 reading ' + path + ' \u00b7 v' + BUILD;
+      return null;
+    }
   }
 
   // Images are fetched after the page is drawn, so a signed URL round trip never
   // holds up a render. Each <img> asks for its own and fills itself in.
   async function hydrateImages(){
     const els = app.querySelectorAll('img[data-imgpath]:not([data-loaded])');
+    if (!els.length) return;
+    let said = imgReadError;
     for (let i = 0; i < els.length; i++){
       const el = els[i];
       el.setAttribute('data-loaded', '1');
@@ -3117,6 +3136,8 @@
       if (url) el.src = url;
       else el.replaceWith(Object.assign(document.createElement('div'), { className: 'note-img missing', textContent: 'Photo unavailable' }));
     }
+    // Only redraw if something new went wrong, or this loops forever.
+    if (imgReadError && imgReadError !== said && noteEdit) render();
   }
 
   /* ---- arriving from an Android share ----
@@ -3456,6 +3477,7 @@
         : '')+
       '</div>'+
       (imgError ? '<div class="errdetail"><b>Photo did not go</b><span>'+esc(imgError)+'</span></div>' : '')+
+      (!imgError && imgReadError ? '<div class="errdetail"><b>Photo would not come back</b><span>'+esc(imgReadError)+'</span></div>' : '')+
       (!cloud || !session
         ? '<small class="gform-hint">Photos need an account, so they are stored safely and reach your other devices.</small>'
         : '<small class="gform-hint">On a computer you can also paste a picture straight in, or drag one onto this note.</small>')+
