@@ -1286,6 +1286,20 @@
      worse than taking a line to get out of it. */
   /* Inside a folder. The name is the only thing here worth reading at a
      glance, so it is the only thing that looks like it. */
+  /* Yesterday, under the prompt for today. Quieter than the prompt, because
+     it is an offer rather than the thing being asked. */
+  #soft-app .sp-carry {
+    flex: 1 1 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
+    margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--line);
+    font-size: 13px; color: var(--dim); line-height: 1.5;
+  }
+  #soft-app .sp-carry > span { flex: 1 1 180px; min-width: 0; }
+  #soft-app .sp-carry .ghost {
+    flex: 0 0 auto; background: none; border: 1px solid var(--line); color: var(--dim);
+    border-radius: 10px; padding: 8px 13px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  #soft-app .sp-carry .ghost:hover { border-color: var(--ghost); color: var(--text); }
+
   #soft-app .fldhead { margin: 0 0 16px; }
   #soft-app .fldback {
     background: none; border: 0; padding: 0; cursor: pointer;

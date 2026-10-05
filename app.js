@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-05.7';
+  const BUILD = '2026-10-05.8';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -5918,11 +5918,31 @@
     return h + '</div>' + jarHTML(list.length, kept) + '</div>';
   }
 
+  // What was set yesterday and not finished. Yesterday is read as yesterday
+  // was, so a rock ticked off then stays ticked off.
+  function rocksLeftYesterday(now){
+    const y = new Date(now); y.setDate(y.getDate() - 1);
+    const was = rocksOn(dayKey(y)) || [];
+    return was.filter(r => !rockDone(r, y));
+  }
+
   function morningPromptHTML(now){
     if (!morningDue(now)) return '';
-    return '<div class="sitprompt"><div class="sp-row">' +
+    const left = rocksLeftYesterday(now);
+    // The card is .sp-row. Anything hung outside one floats loose on the
+    // page looking like it belongs to whatever is underneath it.
+    let h = '<div class="sitprompt"><div class="sp-row sp-rocks">' +
       '<span>Three rocks for today. Five minutes, and the day stops deciding for you.</span>' +
-      '<button class="go" data-mopen>Set the day</button></div></div>';
+      '<button class="go" data-mopen>Set the day</button>';
+    if (left.length){
+      // Said plainly, because the first question when today looks empty is
+      // whether yesterday is still there.
+      h += '<div class="sp-carry"><span>Yesterday you set ' +
+        (left.length === 1 ? 'one that is still open' : left.length + ' that are still open') + ': ' +
+        esc(left.map(r => r.text).join(', ')) + '</span>' +
+        '<button class="ghost" data-mcarry>Carry ' + (left.length === 1 ? 'it' : 'them') + ' over</button></div>';
+    }
+    return h + '</div></div>';
   }
 
   /* ---------- parked thoughts ---------- */
@@ -9718,6 +9738,19 @@
     if (t('[data-mclose]')){ morning = null; clearDraft('rk_own'); render(); return; }
     if (t('[data-mnext]')){ morning.step = 'rocks'; render(); return; }
     if (t('[data-mback]')){ morning.step = 'day'; render(); return; }
+    if (t('[data-mcarry]')){
+      const now = new Date();
+      const left = rocksLeftYesterday(now);
+      if (!left.length) return;
+      markUndo('Yesterday\u2019s rocks carried over');
+      // New ids: these are today's rocks now, not a second view of yesterday's.
+      rocksAll()[dayKey(now)] = left.map(r => ({
+        id: 'rk_' + uid8(), text: r.text, why: r.why || '', kind: r.kind,
+        ref: r.ref || '', block: '', doneAt: null
+      }));
+      announce(left.length === 1 ? 'Carried over' : left.length + ' carried over');
+      save(); render(); return;
+    }
     if (t('[data-mnone]')){ rocksAll()[today] = []; morning = null; save(); render(); return; }
     if (t('[data-mdone]')){ morningFinish(now); return; }
     if ((m = t('[data-rockadd]'))){
