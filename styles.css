@@ -2406,6 +2406,15 @@
     border-radius: 14px; background: var(--raise); padding: 12px 14px;
   }
   #soft-app .sp-row + .sp-row { margin-top: 8px; }
+  /* An answered day. Nothing is being asked, so it does not wear the accent
+     edge that means something wants doing. */
+  #soft-app .sp-row.quiet { border-left-color: var(--line); }
+  #soft-app .sp-row.quiet > span { color: var(--dim); }
+  #soft-app .sp-row.quiet .ghost {
+    flex: 0 0 auto; background: none; border: 1px solid var(--line); color: var(--dim);
+    border-radius: 10px; padding: 8px 14px; font: inherit; font-size: 13.5px; cursor: pointer;
+  }
+  #soft-app .sp-row.quiet .ghost:hover { border-color: var(--ghost); color: var(--text); }
   #soft-app .sp-row span { flex: 1; min-width: 180px; font-size: 14px; line-height: 1.5; }
   #soft-app .sp-row .go {
     flex: 0 0 auto; background: var(--live); color: var(--on-live); border: 0;

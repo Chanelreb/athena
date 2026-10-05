@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-05.8';
+  const BUILD = '2026-10-05.9';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -5927,13 +5927,19 @@
   }
 
   function morningPromptHTML(now){
-    if (!morningDue(now)) return '';
+    const set = rocksOn(dayKey(now));
+    // Answered with nothing. Still an answer, so it does not nag, but it has
+    // to leave a door open or the day is simply over for rocks.
+    const saidNone = !!set && !set.length;
+    if (!saidNone && !morningDue(now)) return '';
     const left = rocksLeftYesterday(now);
     // The card is .sp-row. Anything hung outside one floats loose on the
     // page looking like it belongs to whatever is underneath it.
-    let h = '<div class="sitprompt"><div class="sp-row sp-rocks">' +
-      '<span>Three rocks for today. Five minutes, and the day stops deciding for you.</span>' +
-      '<button class="go" data-mopen>Set the day</button>';
+    let h = '<div class="sitprompt"><div class="sp-row sp-rocks' + (saidNone ? ' quiet' : '') + '">' +
+      (saidNone
+        ? '<span>No rocks today.</span><button class="ghost" data-mopen>Set some after all</button>'
+        : '<span>Three rocks for today. Five minutes, and the day stops deciding for you.</span>' +
+          '<button class="go" data-mopen>Set the day</button>');
     if (left.length){
       // Said plainly, because the first question when today looks empty is
       // whether yesterday is still there.
