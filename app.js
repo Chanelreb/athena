@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-05.11';
+  const BUILD = '2026-10-06.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -5900,6 +5900,24 @@
       '</svg>';
   }
 
+  // { i } while a rock is being reworded, { i: -1 } while one is being added.
+  let rockEdit = null;
+  const ROCKS_MAX = 3;
+
+  function rockEditHTML(dk, list){
+    const adding = rockEdit.i < 0;
+    const r = adding ? null : list[rockEdit.i];
+    if (!adding && !r) return '';
+    return '<div class="rk-edit">' +
+      '<input id="rk_edit" type="text" maxlength="120" autocomplete="off" ' +
+      'placeholder="' + (adding ? 'What else would make today good?' : 'The rock') + '" ' +
+      'value="' + esc(adding ? '' : r.text) + '">' +
+      '<button class="go" data-rocksave="' + esc(dk) + '">' + (adding ? 'Add it' : 'Save') + '</button>' +
+      '<button class="linkish" data-rockcancel>Cancel</button>' +
+      (adding ? '' : '<button class="linkish danger" data-rockgone="' + esc(dk) + '|' + rockEdit.i + '">Remove</button>') +
+      '</div>';
+  }
+
   function rocksHTML(now){
     const dk = dayKey(now);
     const list = rocksOn(dk);
@@ -5915,10 +5933,14 @@
       h += '<div class="rkrow' + (done ? ' done' : '') + '">' +
         '<button class="rk-tick" data-rocktick="' + dk + '|' + i + '" aria-label="Tick off ' + esc(r.text) + '">' +
           (done ? TICK : (i + 1)) + '</button>' +
-        '<span class="rk-t"><b>' + esc(r.text) + '</b>' +
+        '<button class="rk-t" data-rockedit="' + i + '" aria-label="Change ' + esc(r.text) + '">' +
+        '<b>' + esc(r.text) + '</b>' +
         (where ? '<em>in ' + esc(where) + '</em>' : (r.why ? '<em>' + esc(r.why) + '</em>' : '')) +
-        '</span></div>';
+        '</button></div>';
     });
+    if (rockEdit) h += rockEditHTML(dk, list);
+    else if (list.length < ROCKS_MAX)
+      h += '<button class="rk-add" data-rocknew>+ Add a rock</button>';
     return h + '</div>' + jarHTML(list.length, kept) + '</div>';
   }
 
@@ -7433,7 +7455,7 @@
   };
   const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
     'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','te_at','te_monthday','tk_when','tk_mins',
-    'ne_title','ne_body','ne_folder','ne_tag','ne_newfolder','ne_newitem'];
+    'ne_title','ne_body','ne_folder','ne_tag','ne_newfolder','ne_newitem','rk_edit'];
   const clearModalDrafts = () => { MODAL_IDS.forEach(clearDraft); tagDraft = ''; newFolder = null; };
 
   function paint(h){
@@ -9890,7 +9912,10 @@
       if (c && morning.picks.length < 3) morning.picks.push(Object.assign({ block: '' }, c));
       render(); return;
     }
-    if ((m = t('[data-rockdrop]'))){ morning.picks.splice(+m.dataset.rockdrop, 1); render(); return; }
+    if ((m = t('[data-rockdrop]'))){
+      if (!morning) return;          // only means anything inside the check-in
+      morning.picks.splice(+m.dataset.rockdrop, 1); render(); return;
+    }
     if (t('[data-rockown]')){
       const el = document.getElementById('rk_own');
       const v = ((el || {}).value || '').trim();
@@ -9898,6 +9923,48 @@
       if (morning.picks.length < 3)
         morning.picks.push({ key: 'own:' + uid8(), text: v.slice(0, 120), why: '', kind: 'free', ref: '', block: '' });
       clearDraft('rk_own'); render(); return;
+    }
+    if ((m = t('[data-rockedit]'))){
+      rockEdit = { i: +m.dataset.rockedit };
+      clearDraft('rk_edit'); render();
+      const f = document.getElementById('rk_edit'); if (f){ f.focus(); f.select(); }
+      return;
+    }
+    if (t('[data-rocknew]')){
+      rockEdit = { i: -1 };
+      clearDraft('rk_edit'); render();
+      const f = document.getElementById('rk_edit'); if (f) f.focus();
+      return;
+    }
+    if (t('[data-rockcancel]')){ rockEdit = null; clearDraft('rk_edit'); render(); return; }
+    if ((m = t('[data-rocksave]'))){
+      if (!rockEdit) return;
+      const dk = m.dataset.rocksave;
+      const el = document.getElementById('rk_edit');
+      const v = ((el || {}).value || '').trim();
+      if (!v){ if (el) el.focus(); return; }
+      const list = rocksAll()[dk] || (rocksAll()[dk] = []);
+      if (rockEdit.i < 0){
+        if (list.length >= ROCKS_MAX) { rockEdit = null; render(); return; }
+        markUndo('Rock added');
+        list.push({ id: 'rk_' + uid8(), text: v.slice(0, 120), why: '', kind: 'free',
+                    ref: '', block: '', doneAt: null });
+      } else if (list[rockEdit.i]){
+        markUndo('Rock reworded');
+        // Only the words. What it stands for, and whether it is done, are
+        // not what you came here to change.
+        list[rockEdit.i].text = v.slice(0, 120);
+      }
+      rockEdit = null; clearDraft('rk_edit'); save(); render(); return;
+    }
+    if ((m = t('[data-rockgone]'))){
+      const [dk, i] = m.dataset.rockgone.split('|');
+      const list = rocksAll()[dk] || [];
+      if (list[+i]){
+        markUndo('Rock removed');
+        list.splice(+i, 1);
+      }
+      rockEdit = null; clearDraft('rk_edit'); save(); render(); return;
     }
     if ((m = t('[data-rocktick]'))){
       const [dk, i] = m.dataset.rocktick.split('|');
@@ -10741,6 +10808,12 @@
     if (e.key === 'Enter' && e.target.id === 'auth_code'){ e.preventDefault(); verifyCode(); return; }
     if (e.key === 'Enter' && e.target.id === 'ob_name'){ e.preventDefault(); obSync(); ob.step = 1; render(); return; }
     if (e.key === 'Enter' && e.target.id === 'ob_newcat'){ e.preventDefault(); obAddCustom(); return; }
+    if (e.key === 'Enter' && e.target.id === 'rk_edit'){
+      e.preventDefault();
+      const b = app.querySelector('[data-rocksave]'); if (b) b.click();
+      return;
+    }
+    if (e.key === 'Escape' && rockEdit){ rockEdit = null; clearDraft('rk_edit'); render(); return; }
     if (e.key === 'Enter' && e.target.id === 'sk'){
       e.preventDefault(); const v = e.target.value.trim();
       if (v){ S.parked.push({ t:v.slice(0,200), at:dayKey(new Date()) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }

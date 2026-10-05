@@ -2631,7 +2631,35 @@
   #soft-app .rk-tick svg { width: 15px; height: 15px; display: block; }
   #soft-app .rkrow.done .rk-tick { background: var(--live); border-color: var(--live); color: var(--on-live); }
   #soft-app .rkrow.done .rk-t b { text-decoration: line-through; opacity: .7; }
-  #soft-app .rk-t { flex: 1; min-width: 0; }
+  /* The words are the way in to changing them, so the element is a button
+     now. It must not look like one: nothing on this card should read as
+     something to press except the tick. */
+  #soft-app .rk-t {
+    flex: 1; min-width: 0; background: none; border: 0; padding: 0;
+    font: inherit; color: inherit; text-align: left; cursor: pointer;
+  }
+  #soft-app .rk-t:hover b { text-decoration: underline; text-decoration-color: var(--ghost); }
+
+  /* Adding one, and changing one, after the morning has gone. */
+  #soft-app .rk-add {
+    display: block; margin-top: 10px; background: none; border: 0; padding: 0;
+    font: inherit; font-size: 13px; color: var(--ghost); cursor: pointer;
+  }
+  #soft-app .rk-add:hover { color: var(--text); }
+  #soft-app .rk-edit {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
+    margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--line);
+  }
+  #soft-app .rk-edit input {
+    flex: 1 1 150px; min-width: 0; background: var(--bg); border: 1px solid var(--line);
+    color: var(--text); border-radius: 9px; padding: 9px 11px; font: inherit; font-size: 14px;
+  }
+  #soft-app .rk-edit input:focus { outline: none; border-color: var(--ghost); }
+  #soft-app .rk-edit .go {
+    flex: 0 0 auto; background: var(--live); color: var(--on-live); border: 0;
+    border-radius: 9px; padding: 9px 15px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  #soft-app .rk-edit .danger { color: var(--danger); }
   #soft-app .rk-t b { display: block; font-weight: 600; font-size: 15px; }
   #soft-app .rk-t em { display: block; font-style: normal; font-size: 12.5px; color: var(--dim); margin-top: 1px; }
 
