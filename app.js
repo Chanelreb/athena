@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-05.4';
+  const BUILD = '2026-10-05.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2992,11 +2992,16 @@
   // it say" the answer is gone. This sits on the screen until it is fixed.
   let imgError = '';
   let diagOpen = false;
-  const photoLog = [];
+  const PLOG_KEY = 'athena:photolog';
+  let photoLog = [];
+  try { photoLog = JSON.parse(lsGet(PLOG_KEY) || '[]') || []; } catch(_){ photoLog = []; }
+  if (!Array.isArray(photoLog)) photoLog = [];
   function logPhoto(what){
     const t = new Date();
-    photoLog.push(pad(t.getHours()) + ':' + pad(t.getMinutes()) + ':' + pad(t.getSeconds()) + '  ' + what);
-    if (photoLog.length > 10) photoLog.shift();
+    photoLog.push(DAY3[t.getDay()] + ' ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) +
+      ':' + pad(t.getSeconds()) + '  ' + what);
+    while (photoLog.length > 14) photoLog.shift();
+    try { lsSet(PLOG_KEY, JSON.stringify(photoLog)); } catch(_){}
   }
   const imgUrls = {};            // path -> { url, exp } signed-URL cache
 
@@ -8851,8 +8856,10 @@
     h += '<div class="dgrow"><span>What the photos have done</span></div>';
     h += photoLog.length
       ? photoLog.slice().reverse().map(l => '<div class="dgrow"><b>' + esc(l) + '</b></div>').join('')
-      : '<div class="dgrow"><b>Nothing since this page opened</b></div>';
+      : '<div class="dgrow"><b>Nothing recorded yet. Try adding a photo, then look again.</b></div>';
     h += '</div>';
+    if (photoLog.length) h += '<div class="dayadd" style="margin-top:10px">' +
+      '<button data-plogclear>Clear this log</button></div>';
     h += '<p class="setnote">Nothing here leaves your device. Screenshot it and send it over if ' +
       'something is not behaving.</p>';
     return h;
@@ -9509,6 +9516,11 @@
     if (t('[data-authback]')){ authStep = 'email'; authMsg = ''; renderAuth(); return; }
     if (t('[data-signout]')){ if (sb) sb.auth.signOut().catch(()=>{}); settingsOpen = false; return; }
     if (t('[data-diag]')){ diagOpen = !diagOpen; render(); return; }
+    if (t('[data-plogclear]')){
+      photoLog = [];
+      try { lsSet(PLOG_KEY, '[]'); } catch(_){}
+      render(); return;
+    }
     if (t('[data-export]')){ exportBackup(); return; }
     if (t('[data-snaplist]')){ snapFetchList(); return; }
     if ((m = t('[data-snapopen]'))){ snapOpen(m.dataset.snapopen); return; }
