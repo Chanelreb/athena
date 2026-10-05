@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-05.9';
+  const BUILD = '2026-10-05.10';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2057,7 +2057,9 @@
       // Habits sit with the ring they count toward. Only today's: a tick here
       // always lands on today, so offering them on another day would mislead.
       // A habit inside a routine is ticked in its routine's block instead.
-      if (looseHabits().some(x => !x.w)) h += '<h2 class="dayhab-h">Every day</h2>' + chipsHTML(now, false);
+      if (looseHabits().some(x => !x.w)) h += '<h2 class="dayhab-h">Every day' +
+        '<button class="pomo-q" data-why="habits" aria-label="How the habits work" ' +
+        'title="How the habits work">?</button></h2>' + chipsHTML(now, false);
       // Beneath them, and only on the day you are actually on. A weekly chip
       // is the same tick all week, so it belongs with today rather than with
       // a Thursday you are merely looking at.
@@ -5904,7 +5906,9 @@
     if (!list || !list.length) return '';
     const evOf = id => { const e = findEvent(id); return e ? e.title : ''; };
     const kept = list.filter(r => rockDone(r, now)).length;
-    let h = '<div class="rocks"><div class="rk-main"><div class="rk-h">Today’s rocks</div>';
+    let h = '<div class="rocks"><div class="rk-main"><div class="rk-h">Today’s rocks' +
+      '<button class="pomo-q" data-why="rocks" aria-label="Why three rocks" title="Why three rocks">?</button>' +
+      '</div>';
     list.forEach((r, i) => {
       const done = rockDone(r, now);
       const where = r.block ? evOf(r.block) : '';
@@ -6622,6 +6626,115 @@
      reads twice, and it is honest about where Athena departs from the recipe
      instead of pretending to follow it. */
   let pomoOpen = false;
+  // Which explainer is open, if any: 'rocks' | 'habits' | 'beliefs'.
+  let whyOpen = '';
+
+  function whyPanel(title, intro, steps, foot, footTitle){
+    let h = '<div class="modal-back" data-whyclose></div>';
+    h += '<div class="modal sit"><div class="modal-h">' + esc(title) + '</div>';
+    h += '<p class="ai-intro">' + intro + '</p>';
+    h += '<div class="pomo">';
+    steps.forEach((s, i) => {
+      h += '<div class="pomo-s"><span class="pomo-n">' + (i + 1) + '</span>' +
+        '<div><b>' + esc(s[0]) + '</b><p>' + s[1] + '</p></div></div>';
+    });
+    h += '</div>';
+    if (foot){
+      h += '<div class="rvbar-h">' + esc(footTitle || 'Where Athena differs') + '</div>';
+      h += '<p class="setnote">' + foot + '</p>';
+    }
+    h += '<div class="modal-actions"><span style="flex:1"></span>' +
+      '<button class="go" data-whyclose>Close</button></div>';
+    return h + '</div>';
+  }
+
+  function rocksWhyHTML(){
+    return whyPanel('Why three rocks',
+      'The jar is Stephen Covey\u2019s. Fill it with sand and pebbles first and the big rocks ' +
+      'will not go in afterwards. Put the big rocks in first and the sand pours in around them.',
+      [
+        ['Three, not ten', 'Three is small enough to actually hold in your head all day, and ' +
+          'big enough that a day with all three done was a good day. A list of ten is a list. ' +
+          'Three is a decision.'],
+        ['Decided in the morning', 'Before the day has opinions. The whole point is that the ' +
+          'choosing happens while you are calm, so that four o\u2019clock does not get to choose ' +
+          'for you when you are tired and out of time.'],
+        ['If it happens, today was good', 'That is the test. Not whether it was urgent, not ' +
+          'whether somebody asked for it. Whether its happening would make the day count.'],
+        ['The sand still gets in', 'Everything else still exists and still gets done. It just ' +
+          'fits around the rocks rather than crowding them out.']
+      ],
+      'The jar on your day is the real one: a stone for each rock you set, filling from the ' +
+      'bottom as you tick them. Two rocks is a two stone jar, so it is never showing you a ' +
+      'gap you did not create. And Athena pins a rock that is a task into the block it belongs ' +
+      'to, so it has somewhere to actually happen rather than just sitting at the top looking ' +
+      'important.');
+  }
+
+  function habitsWhyHTML(){
+    return whyPanel('How the habits work',
+      'Most of this is James Clear\u2019s, from Atomic Habits. The useful part of that book is ' +
+      'not the encouragement, it is a handful of specific rules about what to do on a bad day.',
+      [
+        ['Never miss twice', 'One missed day is an accident. Two is the start of being somebody ' +
+          'who does not do this. So Athena says nothing after one, and speaks up after two. ' +
+          'That is the only moment it pushes you about a habit.'],
+        ['Go for the floor, not the thing', 'When you have missed, it does not ask for the whole ' +
+          'habit. It asks for <b>just once, however badly</b>. A floor you can clear on your ' +
+          'worst day is what keeps the run alive, and the run is the thing that is actually ' +
+          'doing the work.'],
+        ['Every action is a vote', 'Clear\u2019s line is that each one is a vote for the kind of ' +
+          'person you are becoming. Athena counts them literally: habits kept and rocks carried ' +
+          'are votes, tallied per side of your life.'],
+        ['Systems over goals', 'You do not rise to the level of your goals, you fall to the ' +
+          'level of your systems. Which is why the day is built out of blocks and habits ' +
+          'rather than a list of intentions.']
+      ],
+      'The streak is drawn as the last fourteen days rather than a single number, because ' +
+      'one number cannot tell the difference between a bad fortnight and a bad Tuesday. ' +
+      'And you can set your own floor per habit, since <i>just once</i> means something ' +
+      'different for a run than it does for a glass of water.');
+  }
+
+  function beliefsHTML(){
+    let h = '<div class="modal-back" data-whyclose></div>';
+    h += '<div class="modal sit"><div class="modal-h">What Athena believes</div>';
+    h += '<p class="ai-intro">Three ideas, from three people, and one thread running through ' +
+      'all of them. None of it is original and all of it is credited here, because a nudge ' +
+      'is easier to obey when you know where it came from.</p>';
+    h += '<div class="pomo">';
+    [
+      ['The jar', 'Stephen Covey', 'Big rocks first, or the sand fills the jar and they never ' +
+        'fit. Three things a day, chosen in the morning. <button class="linkish" ' +
+        'data-why="rocks">More on this</button>'],
+      ['Atomic Habits', 'James Clear', 'Never miss twice. Go for the floor on a bad day. Every ' +
+        'action is a vote for who you are becoming. Systems, not intentions. ' +
+        '<button class="linkish" data-why="habits">More on this</button>'],
+      ['The Pomodoro technique', 'Francesco Cirillo', 'A short fixed commitment is far easier ' +
+        'to start than an open ended one, and starting is the hard part. ' +
+        '<button class="linkish" data-why="pomo">More on this</button>']
+    ].forEach(x => {
+      h += '<div class="belief"><b>' + esc(x[0]) + '</b><em>' + esc(x[1]) + '</em>' +
+        '<p>' + x[2] + '</p></div>';
+    });
+    h += '</div>';
+    h += '<div class="rvbar-h">The thread</div>';
+    h += '<p class="setnote">All three are the same move: decide in advance, so the moment ' +
+      'does not get to decide for you. Covey decides the day before the day starts. Clear ' +
+      'decides who you are and what the worst acceptable version of a habit is, before the ' +
+      'bad day arrives. Cirillo decides the next twenty five minutes, so there is nothing ' +
+      'left to negotiate once the clock is running.</p>';
+    h += '<p class="setnote">Athena is built the same way, which is why it is so insistent ' +
+      'about not moving things on its own. Setting up tomorrow makes you answer for every ' +
+      'leftover rather than quietly rolling it over. Clearing the park asks before it cuts. ' +
+      'When two devices disagree it refuses to pick and asks you. The app is not trying to ' +
+      'remember things for you. It is trying to hold you to what you decided when you were ' +
+      'thinking clearly.</p>';
+    h += '<div class="modal-actions"><span style="flex:1"></span>' +
+      '<button class="go" data-whyclose>Close</button></div>';
+    return h + '</div>';
+  }
+
   function pomodoroHTML(){
     let h = '<div class="modal-back" data-pomoclose></div>';
     h += '<div class="modal sit"><div class="modal-h">Why twenty five minutes</div>';
@@ -7600,6 +7713,9 @@
     // and must not end up behind the panel that opened it.
     if (resetting) h += resetHTML();
     if (pomoOpen) h += pomodoroHTML();
+    if (whyOpen === 'rocks')   h += rocksWhyHTML();
+    if (whyOpen === 'habits')  h += habitsWhyHTML();
+    if (whyOpen === 'beliefs') h += beliefsHTML();
 
     paint(h);
   }
@@ -8920,6 +9036,7 @@
     // and a label does not, so left alone they came out three different
     // widths, which looks like a mistake because it is one.
     let h = '<div class="datalist">';
+    h += '<button class="ghost" data-why="beliefs">What Athena believes</button>';
     h += '<button class="ghost" data-export>Download a backup</button>';
     h += '<button class="ghost" data-diag>' + (diagOpen ? 'Hide the details' : 'Something is wrong, show me the details') + '</button>';
     h += '<label class="ghost filebtn">Restore from a file' +
@@ -9874,6 +9991,15 @@
     if (t('[data-tmdone]')){ tomorrowApply(); return; }
     if (t('[data-timeropen]')){ timerOpen = true; render(); return; }
     if (t('[data-timerfold]')){ timerOpen = false; render(); return; }
+    if ((m = t('[data-why]'))){
+      const which = m.dataset.why;
+      // The spine page links out to each one, and the timer's own panel is
+      // the existing modal rather than a new copy of it.
+      if (which === 'pomo'){ whyOpen = ''; pomoOpen = true; }
+      else whyOpen = which;
+      render(); return;
+    }
+    if (t('[data-whyclose]')){ whyOpen = ''; render(); return; }
     if (t('[data-pomo]')){ pomoOpen = true; render(); return; }
     if (t('[data-pomoclose]')){ pomoOpen = false; render(); return; }
     if (t('[data-pomoset]')){ pomoOpen = false; timerReset(25); timerStart(); render(); return; }
@@ -10616,6 +10742,7 @@
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'fd_name'){ e.preventDefault(); const b = app.querySelector('[data-foldersave]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newfolder'){ e.preventDefault(); const b = app.querySelector('[data-foldermake]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && whyOpen){ whyOpen = ''; render(); return; }
     if (e.key === 'Escape' && folderEdit){ folderEdit = null; clearDraft('fd_name'); render(); return; }
     if (e.key === 'Enter' && e.target.id === 'tg_name'){ e.preventDefault(); const b = app.querySelector('[data-tagsave]'); if (b) b.click(); return; }
     if (e.key === 'Escape' && tagEdit){ tagEdit = null; clearDraft('tg_name'); render(); return; }
