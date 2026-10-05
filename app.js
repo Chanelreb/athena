@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-05.3';
+  const BUILD = '2026-10-05.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2992,6 +2992,12 @@
   // it say" the answer is gone. This sits on the screen until it is fixed.
   let imgError = '';
   let diagOpen = false;
+  const photoLog = [];
+  function logPhoto(what){
+    const t = new Date();
+    photoLog.push(pad(t.getHours()) + ':' + pad(t.getMinutes()) + ':' + pad(t.getSeconds()) + '  ' + what);
+    if (photoLog.length > 10) photoLog.shift();
+  }
   const imgUrls = {};            // path -> { url, exp } signed-URL cache
 
   // Turn whatever came back into something a person can act on, and keep the
@@ -3043,6 +3049,8 @@
     // Some phones hand back a file with no MIME type at all. Trusting the type
     // alone means the file is silently dropped and nothing whatever happens,
     // which is the worst kind of failure: there is nothing to report.
+    all.forEach(f => logPhoto('chose ' + (f.name || 'no name') + ', ' +
+      (f.type || 'no type') + ', ' + Math.round((f.size || 0) / 1024) + 'KB'));
     const list = all.filter(f => /^image\//.test(f.type || '') ||
       /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp)$/i.test(f.name || ''));
     if (!list.length){
@@ -3056,6 +3064,7 @@
     // The one way a photo could fail without a word: no note to attach it to.
     // Everything else in here reports, so this reports too.
     if (!n){
+      logPhoto('no note to attach it to');
       imgError = 'The note was not open any more, so there was nowhere to put it. Open the note and try again. · v' + BUILD;
       render(); return;
     }
@@ -3075,6 +3084,7 @@
           .upload(path, shrunk.blob, { contentType: 'image/jpeg', upsert: false });
         if (error) throw error;
         n.images = (n.images || []).concat([{ id: id, path: path, w: shrunk.w, h: shrunk.h }]);
+        logPhoto('uploaded and attached ' + id + '.jpg (' + Math.round(shrunk.blob.size / 1024) + 'KB)');
         touchNote(n); save();
       } catch (e){
         const p = photoProblem(e);
@@ -3083,6 +3093,7 @@
         // line: the plain reason, the exact wording, and what was being sent.
         imgError = (p.plain ? p.plain + ' ' : '') + '[' + p.raw + '] · ' +
           Math.round((f.size || 0) / 1024) + 'KB ' + (f.type || 'unknown type') + ' · v' + BUILD;
+        logPhoto('upload failed: ' + p.raw);
         if (typeof console !== 'undefined') console.error('Athena photo failed:', e, f && f.type, f && f.size);
         break;                       // one clear failure beats six identical ones
       }
@@ -3122,6 +3133,7 @@
       if (error || !data){
         const p = photoProblem(error || new Error('no url came back'));
         imgReadError = (p.plain ? p.plain + ' ' : '') + '[' + p.raw + '] \u00b7 reading ' + path + ' \u00b7 v' + BUILD;
+        logPhoto('no link for ' + path + ': ' + p.raw);
         if (typeof console !== 'undefined') console.error('Athena photo read failed:', error, path);
         return null;
       }
@@ -3136,6 +3148,11 @@
 
   // Images are fetched after the page is drawn, so a signed URL round trip never
   // holds up a render. Each <img> asks for its own and fills itself in.
+  const imgDead = {};          // paths whose picture would not load, reported once
+  const imgShown = {};         // and the ones that have, so the log says it once
+  const gone = el => el.replaceWith(Object.assign(document.createElement('div'),
+    { className: 'note-img missing', textContent: 'Photo unavailable' }));
+
   async function hydrateImages(){
     const els = app.querySelectorAll('img[data-imgpath]:not([data-loaded])');
     if (!els.length) return;
@@ -3143,8 +3160,26 @@
     for (let i = 0; i < els.length; i++){
       const el = els[i];
       el.setAttribute('data-loaded', '1');
-      const url = await signedUrl(el.dataset.imgpath);
-      if (url) el.src = url;
+      const p = el.dataset.imgpath;
+      // Known bad: draw it as such and ask for nothing. Fetching a link for
+      // it again would fail again and ask for another redraw, forever.
+      if (imgDead[p]){ gone(el); continue; }
+      const url = await signedUrl(p);
+      if (url){
+        el.addEventListener('error', () => {
+          if (imgDead[p]){ gone(el); return; }
+          imgDead[p] = 1;
+          logPhoto('link worked but the picture would not load: ' + p);
+          imgReadError = 'The link to the photo worked but the picture behind it would not load. ' +
+            'The file is probably not in the photo store. [image did not load] \u00b7 ' + p + ' \u00b7 v' + BUILD;
+          gone(el);
+          if (noteEdit) render();
+        }, { once: true });
+        el.addEventListener('load', () => {
+          if (!imgShown[p]){ imgShown[p] = 1; logPhoto('showed ' + p); }
+        }, { once: true });
+        el.src = url;
+      }
       else el.replaceWith(Object.assign(document.createElement('div'), { className: 'note-img missing', textContent: 'Photo unavailable' }));
     }
     // Only redraw if something new went wrong, or this loops forever.
@@ -8811,6 +8846,12 @@
     h += row('Last photo going in', imgError || 'nothing to report');
     h += row('Last photo coming back', imgReadError || 'nothing to report');
     h += row('Last trouble reading your account', loadError || 'nothing to report');
+    h += '</div>';
+    h += '<div class="diag plog">';
+    h += '<div class="dgrow"><span>What the photos have done</span></div>';
+    h += photoLog.length
+      ? photoLog.slice().reverse().map(l => '<div class="dgrow"><b>' + esc(l) + '</b></div>').join('')
+      : '<div class="dgrow"><b>Nothing since this page opened</b></div>';
     h += '</div>';
     h += '<p class="setnote">Nothing here leaves your device. Screenshot it and send it over if ' +
       'something is not behaving.</p>';

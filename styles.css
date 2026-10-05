@@ -1245,6 +1245,10 @@
     padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px;
   }
   #soft-app .dgrow:last-child { border-bottom: 0; }
+  /* The log reads as a list of lines rather than label and value pairs. */
+  #soft-app .plog .dgrow { display: block; }
+  #soft-app .plog .dgrow b { display: block; text-align: left; font-weight: 400; font-variant-numeric: tabular-nums; }
+  #soft-app .plog .dgrow:first-child span { font-weight: 500; color: var(--text); }
   #soft-app .dgrow span { color: var(--dim); }
   #soft-app .dgrow b {
     font-weight: 500; color: var(--text); text-align: right;
