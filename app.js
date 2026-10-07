@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-06.1';
+  const BUILD = '2026-10-07.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -9040,6 +9040,10 @@
     h += row('Rocks set for today', (rk[today] || []).length + (rk[today] ? '' : ' (none set)'));
     h += row('Rocks set yesterday', (rk[dayKey(y)] || []).length);
     h += row('Days that have rocks on them', Object.keys(rk).length);
+    const tasks = S0.tasks || [];
+    const reps = tasks.filter(t => t && t.repeat);
+    h += row('Tasks', tasks.length);
+    h += row('Tasks set to repeat', reps.length);
     h += row('Notes', notes.length);
     h += row('Folders', (S0.folders || []).length);
     h += row('Notes with a photo on them', withPics.length);
@@ -9049,6 +9053,26 @@
     h += row('Last photo coming back', imgReadError || 'nothing to report');
     h += row('Last trouble reading your account', loadError || 'nothing to report');
     h += '</div>';
+    // Spelled out rather than counted: which fields a repeating task carries
+    // is the whole question when one will not come back.
+    h += '<div class="diag plog">';
+    h += '<div class="dgrow"><span>Every task set to repeat</span></div>';
+    h += reps.length
+      ? reps.map(t => {
+          const r = t.repeat || {};
+          const parts = [r.freq || '?'];
+          if ((r.days || []).length) parts.push('days ' + r.days.join(','));
+          if (r.monthday) parts.push('on the ' + r.monthday);
+          parts.push(t.due ? (t.dateType === 'on' ? 'do on ' : 'due by ') + t.due : 'no date');
+          if (t.at) parts.push('at ' + t.at);
+          if (t.doneAt) parts.push('ONE-OFF TICK STILL ON IT: ' + t.doneAt);
+          if (t.hold) parts.push('held');
+          if (t.pin) parts.push('pinned to ' + t.pin.b + ' on ' + t.pin.d);
+          return '<div class="dgrow"><b>' + esc(t.title) + '</b><b>' + esc(parts.join(' \u00b7 ')) + '</b></div>';
+        }).join('')
+      : '<div class="dgrow"><b>None. Every task you have is a one-off.</b></div>';
+    h += '</div>';
+
     h += '<div class="diag plog">';
     h += '<div class="dgrow"><span>What the photos have done</span></div>';
     h += photoLog.length
