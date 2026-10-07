@@ -1049,7 +1049,9 @@
     #soft-app .item.just .dot, #soft-app .chip.just, #soft-app .chip.just .mark,
     :is(#soft-app, .ath-side) .trow.just .tcheck .mark, #soft-app .item.just .dot::after,
     :is(#soft-app, .ath-side) .trow.just .tcheck .mark::after, #soft-app .item.just .dot svg path,
-    :is(#soft-app, .ath-side) .trow.just .tcheck .mark svg path, #soft-app .celebrate { animation: none; }
+    :is(#soft-app, .ath-side) .trow.just .tcheck .mark svg path, #soft-app .celebrate,
+    #soft-app .jar.cheer .jst.on, #soft-app .jar.cheer .jbody, #soft-app .rk-all,
+    #soft-app .rkrow.just .rk-tick, #soft-app .rkrow.just .rk-tick svg path { animation: none; }
     #soft-app .hpr .rfg { transition: none; }
   }
 
@@ -1258,6 +1260,69 @@
   /* One idea per block on the spine page: what it is, whose it is, what it
      says. The name sits under the title rather than beside it, so a long
      one cannot push the credit off the line. */
+  /* ---- the real moon ---- */
+  /* The disc is the unlit part and has to read as a shape without being as
+     loud as the lit part, so it is a wash of the text colour rather than a
+     line. The ring closes it off on a pale page. */
+  /* Not decoration, so not at the motifs' three tenths. It takes the accent
+     like everything else beside the name, and the unlit half has to stay
+     visible or a crescent reads as a smear rather than a moon. */
+  #soft-app .namemotif.moon { opacity: .85; }
+  #soft-app .moonph { width: 100%; height: 100%; display: block; }
+  #soft-app .moonph .mdisc { fill: currentColor; opacity: .09; }
+  #soft-app .moonph .mlit  { fill: currentColor; opacity: .9; }
+  #soft-app .moonph .mring { fill: none; stroke: currentColor; stroke-width: 2.6; opacity: .5; }
+
+  /* ---- the line that knows something ---- */
+  /* Same slot and same size as the daily aphorism, so nothing moves when it
+     takes over. The mark is what says this one is about you. */
+  #soft-app .quote.knows { position: relative; padding-left: 40px; }
+  #soft-app .quote.knows p {
+    font-family: inherit; font-size: 15px; line-height: 1.5; font-weight: 500;
+    color: var(--text);
+  }
+  #soft-app .quote.knows p::before, #soft-app .quote.knows p::after { content: none; }
+  #soft-app .quote.knows::before {
+    content: ""; position: absolute; left: 22px; top: 25px; width: 6px; height: 6px;
+    border-radius: 50%; background: var(--live);
+  }
+
+  /* ---- the jar when it fills ---- */
+  /* The stones settle in sequence rather than all at once, because three
+     things landing together reads as a glitch and three things landing one
+     after another reads as weight. */
+  #soft-app .jar.full .jbody { fill: color-mix(in srgb, var(--live) 11%, transparent); transition: fill .5s; }
+  #soft-app .jar.cheer .jst.on { animation: athSettle .5s cubic-bezier(.33,1.5,.6,1) both; }
+  #soft-app .jar.cheer .jst.on:nth-of-type(2) { animation-delay: .07s; }
+  #soft-app .jar.cheer .jst.on:nth-of-type(3) { animation-delay: .14s; }
+  #soft-app .jar.cheer .jbody { animation: athWarm 1.2s ease both; }
+  @keyframes athSettle {
+    from { transform: translateY(-7px) scale(.86); opacity: .35; }
+    to   { transform: none; opacity: 1; }
+  }
+  @keyframes athWarm { 0%, 100% { filter: none; } 40% { filter: brightness(1.09); } }
+  /* The one sentence the day has earned. */
+  #soft-app .rk-all {
+    margin: 9px 0 0; font-size: 12.5px; font-weight: 600; color: var(--live);
+    animation: athRose .45s ease both;
+  }
+  @keyframes athRose { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+  /* ---- a rock being ticked ---- */
+  /* markJustDone was already being called for rocks and nothing was reading
+     it, so they were the one tick in the app that felt like nothing. */
+  #soft-app .rk-tick svg path { stroke: currentColor; }
+  #soft-app .rkrow.just .rk-tick { animation: athPop .42s cubic-bezier(.34,1.56,.64,1); }
+  #soft-app .rkrow.just .rk-tick svg path {
+    stroke-dasharray: 14; animation: athDraw .34s ease .06s both;
+  }
+  #soft-app .rkrow.just .rk-t b { color: var(--ghost); transition: color .3s; }
+
+  /* ---- the beliefs during setup ---- */
+  #soft-app .ob-beliefs { margin: 4px 0 14px; text-align: left; }
+  #soft-app .ob-foot { margin: 12px 0 0; font-size: 12px; color: var(--dim); line-height: 1.5; }
+  #soft-app .ob-foot b { font-weight: 600; color: var(--text); }
+
   #soft-app .belief { padding: 11px 0; border-bottom: 1px solid var(--line); }
   #soft-app .belief:last-child { border-bottom: 0; }
   #soft-app .belief b { display: block; font-size: 14.5px; color: var(--text); font-weight: 600; }

@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-07.2';
+  const BUILD = '2026-10-07.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -159,6 +159,46 @@
     /* cup */    SVG0 + '<path d="M16 26h28v12a10 10 0 0 1-10 10H26a10 10 0 0 1-10-10Z"/><path d="M44 30h5a5 5 0 0 1 0 10h-5"/><path d="M24 14c-2 3 2 5 0 8M32 12c-2 3 2 5 0 8"/></svg>'
   ];
   const MOON = SVG0 + '<path d="M44 38A14 14 0 1 1 30 24A11 11 0 1 0 44 38Z"/><path d="M13 17v6M10 20h6M50 12v5M47.5 14.5h5M17 47v5M14.5 49.5h5"/></svg>';
+  /* The phase from the mean synodic month against a known new moon. A few
+     hours out at worst, and nobody is navigating by this. */
+  const SYNODIC = 29.530588853;
+  function moonPhase(d){
+    const ref = Date.UTC(2000, 0, 6, 18, 14);
+    let age = ((d.getTime() - ref) / 86400000) % SYNODIC;
+    if (age < 0) age += SYNODIC;
+    return age / SYNODIC;            // 0 new, .25 first quarter, .5 full
+  }
+  const MOON_NAMES = ['New moon','Waxing crescent','First quarter','Waxing gibbous',
+                      'Full moon','Waning gibbous','Last quarter','Waning crescent'];
+  const moonName = p => MOON_NAMES[Math.round(p * 8) % 8];
+  // Full and new are worth showing in daylight. About two days a month each,
+  // which is rare enough to still feel like something.
+  const moonNotable = p => p < 0.02 || p > 0.98 || Math.abs(p - 0.5) < 0.02;
+  const SOUTH_TZ = /^(Australia\/|Antarctica\/|Indian\/|Pacific\/(Auckland|Chatham|Fiji|Norfolk|Noumea|Port_Moresby|Tongatapu|Apia|Guadalcanal|Efate)|America\/(Argentina\/|Sao_Paulo|Santiago|Montevideo|Asuncion|La_Paz|Lima|Punta_Arenas|Recife|Bahia|Fortaleza|Campo_Grande|Cuiaba)|Africa\/(Johannesburg|Windhoek|Harare|Maputo|Lusaka|Gaborone|Luanda|Dar_es_Salaam|Antananarivo|Blantyre|Mbabane|Maseru))/;
+  function southernSky(){
+    try { return SOUTH_TZ.test(Intl.DateTimeFormat().resolvedOptions().timeZone || ''); }
+    catch(_){ return false; }
+  }
+  function moonSVG(p){
+    const r = 19, cx = 32, cy = 32;
+    const limb = p < 0.5 ? 1 : 0;                      // waxing lights the right
+    const cres = p < 0.25 || p >= 0.75;
+    const term = cres ? 1 - limb : limb;
+    const rx = Math.max(0.01, Math.abs(Math.cos(2 * Math.PI * p)) * r);
+    const lit = 'M' + cx + ' ' + (cy - r) +
+      'A' + r + ' ' + r + ' 0 0 ' + limb + ' ' + cx + ' ' + (cy + r) +
+      'A' + rx.toFixed(2) + ' ' + r + ' 0 0 ' + term + ' ' + cx + ' ' + (cy - r) + 'Z';
+    const said = moonName(p);
+    // Mirrored about the centre of the disc below the equator, which is the
+    // whole difference between the two skies.
+    const flip = southernSky() ? ' transform="translate(64,0) scale(-1,1)"' : '';
+    return '<svg class="moonph" viewBox="0 0 64 64" fill="none" role="img" aria-label="' +
+      esc(said) + '"><title>' + esc(said) + '</title>' +
+      '<circle class="mdisc" cx="' + cx + '" cy="' + cy + '" r="' + r + '"/>' +
+      '<path class="mlit" d="' + lit + '"' + flip + '/>' +
+      '<circle class="mring" cx="' + cx + '" cy="' + cy + '" r="' + r + '"/></svg>';
+  }
+
   const PIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+
     '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6Z"/></svg>';
   // A settings control should look like a settings control. The daily drawing is
@@ -857,6 +897,33 @@
 
   const DAY3 = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
+  /* The three ideas Athena is built on, credited, in one place. The setup
+     screen and the Settings panel both read from here. */
+  const BELIEFS = [
+    ['The jar', 'Stephen Covey',
+      'Big rocks first, or the sand fills the jar and they never fit. Three things ' +
+      'a day, chosen in the morning while you are still calm.', 'rocks'],
+    ['Atomic Habits', 'James Clear',
+      'Never miss twice. Go for the floor on a bad day. Every action is a vote for ' +
+      'who you are becoming. Systems, not intentions.', 'habits'],
+    ['The Pomodoro technique', 'Francesco Cirillo',
+      'A short fixed commitment is far easier to start than an open ended one, and ' +
+      'starting is the hard part.', 'pomo']
+  ];
+  const BELIEF_THREAD = 'All three are the same move: decide in advance, so the ' +
+    'moment does not get to decide for you.';
+
+  /* The order the screens come in, named by step id, so one can be slotted in
+     without renumbering every branch that names a step. A rerun has read the
+     ideas already and ends on its own review instead. */
+  const OB_ORDER = [0, 6, 1, 2, 3, 4];
+  const obOrder = () => (ob && ob.rerun) ? OB_ORDER.filter(s => s !== 6) : OB_ORDER;
+  function obStepBy(from, by){
+    const o = obOrder(), i = o.indexOf(from);
+    if (i === -1) return from;
+    return o[Math.max(0, Math.min(o.length - 1, i + by))];
+  }
+
   function onboardingHTML(){
     if (!ob) ob = { step:0, rerun:false, name:(S.profile && S.profile.name) || '', cats:[], plan:{},
                     custom:[], newcat:'', start:'07:00', end:'21:00', changes:[], skip:{} };
@@ -870,6 +937,24 @@
       h += '<div class="ob-actions"><span style="flex:1"></span><button class="go" data-obnext>Next</button></div>';
       h += ob.rerun ? '<button class="linkish ob-skip" data-obcancel>Cancel</button>'
                     : '<button class="linkish ob-skip" data-obskip>Skip, just set me up</button>';
+    } else if (ob.step === 6){
+      // Before the questions, because what Athena is asking for only makes
+      // sense once you know why it is asking.
+      h += '<h1>What Athena believes</h1>';
+      h += '<p class="ob-sub">Three ideas, from three people. None of it is ours and ' +
+        'all of it is credited, because a nudge is easier to take when you know where ' +
+        'it came from.</p>';
+      h += '<div class="ob-beliefs">' + BELIEFS.map(b =>
+        '<div class="belief"><b>' + esc(b[0]) + '</b><em>' + esc(b[1]) + '</em>' +
+        '<p>' + esc(b[2]) + '</p></div>').join('') + '</div>';
+      h += '<div class="ob-callout"><b>The thread</b><span>' + esc(BELIEF_THREAD) +
+        ' Which is why Athena asks rather than quietly moving things for you. It is not ' +
+        'trying to remember your life. It is trying to hold you to what you decided when ' +
+        'you were thinking clearly.</span></div>';
+      h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button>' +
+        '<span style="flex:1"></span><button class="go" data-obnext>Makes sense</button></div>';
+      h += '<p class="ob-foot">All of this is in Settings under <b>What Athena ' +
+        'believes</b> whenever you want it again.</p>';
     } else if (ob.step === 1){
       h += '<h1>What are your days about?</h1>';
       h += '<p class="ob-sub">'+(ob.rerun
@@ -1127,6 +1212,14 @@
      treatment, a ring shows the day closing, and finishing the lot earns a
      moment. All of it respects prefers-reduced-motion via CSS. */
   let justDone = null, justDoneTimer = null;
+  // Set only on the tick that completes the set, so the jar settles once
+  // rather than on every render for the rest of the day.
+  let rockCheer = null, rockCheerTimer = null;
+  function cheerJar(dk){
+    rockCheer = dk;
+    clearTimeout(rockCheerTimer);
+    rockCheerTimer = setTimeout(() => { rockCheer = null; render(); }, 1400);
+  }
   let celebrate = null, celebrateTimer = null, celebratedFor = null;
 
   function buzz(ms){
@@ -1187,6 +1280,38 @@
       '</div>';
   }
   // Called after any tick. Fires once per day, only on the transition to done.
+  /* Only ever returns something it can stand behind. Ordered by how much the
+     line earns the space, and silent when nothing qualifies. */
+  function knownLine(now){
+    const dk = dayKey(now), hr = now.getHours(), nowM = hr * 60 + now.getMinutes();
+    const rocks = rocksOn(dk) || [];
+    const kept = rocks.filter(r => rockDone(r, now)).length;
+    if (rocks.length && kept === rocks.length) return 'Every rock down. The rest of today is yours.';
+    if (rocks.length && hr < 9) return 'Rocks set before nine. That is the whole trick.';
+    // The longest live run across the daily habits, counted back from
+    // yesterday so that today being untouched does not read as a break.
+    let best = null;
+    looseHabits().filter(d => !d.w).forEach(d => {
+      let n = 0;
+      for (let i = 1; i < 90; i++){
+        const dd = new Date(now); dd.setDate(dd.getDate() - i);
+        if (isDone(d.id, dayKey(dd), d.target)) n++; else break;
+      }
+      if (isDone(d.id, dk, d.target)) n++;
+      if (n >= 5 && (!best || n > best.n)) best = { n: n, l: d.l };
+    });
+    if (best) return best.n + ' days straight on ' + best.l + '. Do not be the one who breaks it.';
+    // A clear stretch is only worth mentioning while it is still ahead.
+    const todo = blocksForDate(now).filter(b => !b.allDay && b.s);
+    const next = todo.find(b => mins(b.s) > nowM);
+    if (next && hr >= 6 && hr < 18){
+      const gap = mins(next.s) - nowM;
+      if (gap >= 75) return 'Nothing until ' + clockOf(next.s) + '. That is ' + dur(gap) + ' of your own.';
+    }
+    if (todo.length && !next && hr >= 17) return 'Nothing left on the calendar. The day is done asking.';
+    return '';
+  }
+
   function maybeCelebrate(){
     const p = dayProgress();
     const dk = dayKey(new Date());
@@ -5891,7 +6016,7 @@
 
      Ellipses at slight angles rather than hand drawn paths: they read as
      stones, and they render the same everywhere. */
-  function jarHTML(total, done){
+  function jarHTML(total, done, cheer){
     const STONES = [
       { cx:22,   cy:47,   rx:12, ry:7.5, rot:-6 },
       { cx:20.5, cy:35.5, rx:10, ry:6.5, rot:9 },
@@ -5904,7 +6029,9 @@
     // is mostly empty glass, and it doubles the height of a box with one row
     // in it.
     const W = [46, 56, 64][STONES.length - 1], H = [63, 77, 88][STONES.length - 1];
-    return '<svg class="jar" viewBox="0 0 44 60" width="'+W+'" height="'+H+'" aria-hidden="true">' +
+    const full = total > 0 && done >= total;
+    return '<svg class="jar'+(full ? ' full' : '')+(cheer ? ' cheer' : '')+'" ' +
+      'viewBox="0 0 44 60" width="'+W+'" height="'+H+'" aria-hidden="true">' +
       '<path class="jrim" d="M13.5 4 h17 a2 2 0 0 1 2 2 v3.5 h-21 V6 a2 2 0 0 1 2 -2 z"/>' +
       '<path class="jbody" d="M9 14 q0 -4 4.5 -4.5 h17 Q35 10 35 14 v35 q0 6.5 -6.5 6.5 h-13 Q9 55.5 9 49 z"/>' +
       stones +
@@ -5941,7 +6068,7 @@
     list.forEach((r, i) => {
       const done = rockDone(r, now);
       const where = r.block ? evOf(r.block) : '';
-      h += '<div class="rkrow' + (done ? ' done' : '') + '">' +
+      h += '<div class="rkrow' + (done ? ' done' : '') + (justDone === r.id ? ' just' : '') + '">' +
         '<button class="rk-tick" data-rocktick="' + dk + '|' + i + '" aria-label="Tick off ' + esc(r.text) + '">' +
           (done ? TICK : (i + 1)) + '</button>' +
         '<button class="rk-t" data-rockedit="' + i + '" aria-label="Change ' + esc(r.text) + '">' +
@@ -5949,10 +6076,15 @@
         (where ? '<em>in ' + esc(where) + '</em>' : (r.why ? '<em>' + esc(r.why) + '</em>' : '')) +
         '</button></div>';
     });
+    // The one moment in the day that has actually earned a sentence.
+    if (kept && kept === list.length){
+      h += '<div class="rk-all">' + (list.length === 1 ? 'That was the one thing.'
+        : list.length === 2 ? 'Both of them.' : 'All three.') + ' Today counted.</div>';
+    }
     if (rockEdit) h += rockEditHTML(dk, list);
     else if (list.length < ROCKS_MAX)
       h += '<button class="rk-add" data-rocknew>+ Add a rock</button>';
-    return h + '</div>' + jarHTML(list.length, kept) + '</div>';
+    return h + '</div>' + jarHTML(list.length, kept, rockCheer === dk) + '</div>';
   }
 
   // What was set yesterday and not finished. Yesterday is read as yesterday
@@ -6736,24 +6868,14 @@
       'all of them. None of it is original and all of it is credited here, because a nudge ' +
       'is easier to obey when you know where it came from.</p>';
     h += '<div class="pomo">';
-    [
-      ['The jar', 'Stephen Covey', 'Big rocks first, or the sand fills the jar and they never ' +
-        'fit. Three things a day, chosen in the morning. <button class="linkish" ' +
-        'data-why="rocks">More on this</button>'],
-      ['Atomic Habits', 'James Clear', 'Never miss twice. Go for the floor on a bad day. Every ' +
-        'action is a vote for who you are becoming. Systems, not intentions. ' +
-        '<button class="linkish" data-why="habits">More on this</button>'],
-      ['The Pomodoro technique', 'Francesco Cirillo', 'A short fixed commitment is far easier ' +
-        'to start than an open ended one, and starting is the hard part. ' +
-        '<button class="linkish" data-why="pomo">More on this</button>']
-    ].forEach(x => {
+    BELIEFS.forEach(x => {
       h += '<div class="belief"><b>' + esc(x[0]) + '</b><em>' + esc(x[1]) + '</em>' +
-        '<p>' + x[2] + '</p></div>';
+        '<p>' + esc(x[2]) + ' <button class="linkish" data-why="' + x[3] +
+        '">More on this</button></p></div>';
     });
     h += '</div>';
     h += '<div class="rvbar-h">The thread</div>';
-    h += '<p class="setnote">All three are the same move: decide in advance, so the moment ' +
-      'does not get to decide for you. Covey decides the day before the day starts. Clear ' +
+    h += '<p class="setnote">' + BELIEF_THREAD + ' Covey decides the day before the day starts. Clear ' +
       'decides who you are and what the worst acceptable version of a habit is, before the ' +
       'bad day arrives. Cirillo decides the next twenty five minutes, so there is nothing ' +
       'left to negotiate once the clock is running.</p>';
@@ -7640,7 +7762,12 @@
     // The daily drawing now sits with the greeting where it belongs, and the
     // settings control is a cog that looks like what it does.
     h += '<div class="greet"><div class="gtxt"><h1>'+greet+name+
-      '<span class="namemotif" aria-hidden="true">'+(hr >= 20 || hr < 5 ? MOON : MOTIFS[doy % MOTIFS.length])+'</span></h1>'+
+      (function(){
+        const ph = moonPhase(now);
+        return (hr >= 20 || hr < 5 || moonNotable(ph))
+          ? '<span class="namemotif moon">' + moonSVG(ph) + '</span>'
+          : '<span class="namemotif" aria-hidden="true">' + MOTIFS[doy % MOTIFS.length] + '</span>';
+      })()+'</h1>'+
       '<p>'+DAYS[now.getDay()]+' '+now.getDate()+' '+MON[now.getMonth()]+' · '+
       clockOf(pad(now.getHours())+':'+pad(now.getMinutes()))+'</p></div>'+
       '<div class="greetbtns">'+
@@ -7651,9 +7778,15 @@
     // on a phone for words big enough to say what it is counting, and a ring
     // with no words is a decoration.
     h += dayProgressHTML();
-    const line = LINES[doy % LINES.length];
-    h += '<div class="quote"><p>'+esc(line.t)+'</p>'+
-      (line.by ? '<cite>'+esc(line.by)+'</cite>' : '')+'</div>';
+    // Something true beats something wise. The aphorism is the fallback.
+    const known = knownLine(now);
+    if (known){
+      h += '<div class="quote knows"><p>'+esc(known)+'</p></div>';
+    } else {
+      const line = LINES[doy % LINES.length];
+      h += '<div class="quote"><p>'+esc(line.t)+'</p>'+
+        (line.by ? '<cite>'+esc(line.by)+'</cite>' : '')+'</div>';
+    }
 
     // Blocks are a top-level place now, not a mode hidden inside the week. Today
     // and the whole week are two views of the same calendar, so they share a tab
@@ -9762,15 +9895,16 @@
     if (t('[data-forceupdate]')){ forceUpdate(); return; }
 
     // onboarding
-    // A first run ends on the explainer (step 4) and builds. A rerun skips the
-    // explainer, having read it once, and ends on the review (step 5).
+    // OB_ORDER holds the sequence. A first run ends on the explainer (step 4)
+    // and builds. A rerun skips the beliefs and the explainer, having read both,
+    // and ends on the review (step 5).
     if (t('[data-obrerun]')){ obStartRerun(); return; }
     if (t('[data-obnext]')){
       obSync();
       if (ob.rerun && ob.step === 3){ obReview(); return; }
-      ob.step = Math.min(4, ob.step + 1); render(); return;
+      ob.step = obStepBy(ob.step, 1); render(); return;
     }
-    if (t('[data-obback]')){ obSync(); ob.step = ob.step === 5 ? 3 : Math.max(0, ob.step - 1); render(); return; }
+    if (t('[data-obback]')){ obSync(); ob.step = ob.step === 5 ? 3 : obStepBy(ob.step, -1); render(); return; }
     if ((m = t('[data-obcat]'))){
       obSync(); const id = m.dataset.obcat; const i = ob.cats.indexOf(id);
       if (i === -1){ ob.cats.push(id); if (!ob.plan[id]) ob.plan[id] = obPlanDefault(id); }
@@ -10012,6 +10146,11 @@
         else if (r.kind === 'commitment'){ answerCommit(r.ref, 'done'); }
         else r.doneAt = r.doneAt ? null : dk;
         markJustDone(r.id); buzz(12);
+        // Read the list back, because ticking a rock that stands for a task
+        // changed the task, not the rock.
+        const after = rocksOn(dk) || [];
+        const kept = after.filter(x => rockDone(x, now)).length;
+        if (after.length && kept === after.length){ cheerJar(dk); buzz([12, 40, 18]); }
       }
       save(); maybeCelebrate(); render(); return;
     }
@@ -10841,7 +10980,7 @@
   shell.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target.id === 'auth_email'){ e.preventDefault(); sendCode(); return; }
     if (e.key === 'Enter' && e.target.id === 'auth_code'){ e.preventDefault(); verifyCode(); return; }
-    if (e.key === 'Enter' && e.target.id === 'ob_name'){ e.preventDefault(); obSync(); ob.step = 1; render(); return; }
+    if (e.key === 'Enter' && e.target.id === 'ob_name'){ e.preventDefault(); obSync(); ob.step = obStepBy(0, 1); render(); return; }
     if (e.key === 'Enter' && e.target.id === 'ob_newcat'){ e.preventDefault(); obAddCustom(); return; }
     if (e.key === 'Enter' && e.target.id === 'rk_edit'){
       e.preventDefault();
