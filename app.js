@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-07.1';
+  const BUILD = '2026-10-07.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1064,12 +1064,23 @@
     if (!tk.at) return false;
     const dk = dayKey(D);
     if (!tk.repeat) return tk.due === dk;
+    // A date on a repeating task is the earliest it applies from, and nothing
+    // more. It used to also decide which days, which is what broke this.
+    if (tk.due && dk < tk.due) return false;
+    // Named days win whenever they are there. Weekdays means those five,
+    // whatever date happens to be attached to the task.
+    const days = repDays(tk);
+    if (days) return days.indexOf(D.getDay()) !== -1;
+    const md = repMonthday(tk);
+    if (md) return D.getDate() === monthDayOn(md, D);
     const f = tk.repeat.freq;
-    if (f === 'daily') return !tk.due || dk >= tk.due;
-    if (!tk.due || dk < tk.due) return false;
+    if (f === 'daily') return true;
+    // Weekly or monthly that named nothing has only the date to go on, and
+    // without one there is no answer to give.
+    if (!tk.due) return false;
     const due = parseDay(tk.due);
     if (f === 'weekly') return D.getDay() === due.getDay();
-    return D.getDate() === due.getDate();          // monthly
+    return D.getDate() === due.getDate();
   }
   function taskBlocksOnDate(D){
     const dk = dayKey(D), out = [];
