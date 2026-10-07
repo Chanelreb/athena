@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-07.4';
+  const BUILD = '2026-10-07.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -263,7 +263,7 @@
   // A light, generic starter week for a fresh install (Phase B replaces this
   // with a guided setup). Everything here is ordinary and editable/deletable.
   function seedEvents(){
-    const from = weekKey(new Date());
+    const from = weekKey(clock());
     const wd = [1,2,3,4,5];
     const every = [0,1,2,3,4,5,6];
     const ev = (o) => Object.assign({ id:'ev_'+uid8(), note:'', allDay:false, ex:{}, skip:[] }, o);
@@ -323,6 +323,75 @@
   });
 
   let S = blank();
+
+  const deviceTZ = () => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+    catch(_){ return 'UTC'; }
+  };
+  const tzValid = tz => {
+    if (!tz) return false;
+    try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; }
+    catch(_){ return false; }
+  };
+  // Empty unless it has been pinned to something this browser actually knows.
+  // A zone that was valid on the phone it was set on and is not recognised
+  // here should fall back to this device rather than throwing all day.
+  const pinnedTZ = () => {
+    const p = (S && S.profile && S.profile.tzPin) || '';
+    return tzValid(p) ? p : '';
+  };
+  const appTZ = () => pinnedTZ() || deviceTZ();
+
+  /* The wall clock in a zone, as a Date whose LOCAL getters read that zone.
+     It is not a real instant and must never be treated as one: only
+     getFullYear, getMonth, getDate, getDay, getHours and getMinutes on it
+     mean anything. instantOfWall is how you go back the other way. */
+  const tzFmts = {};
+  function tzFmt(tz){
+    return tzFmts[tz] || (tzFmts[tz] = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }));
+  }
+  function wallIn(instant, tz){
+    const p = {};
+    tzFmt(tz).formatToParts(instant).forEach(x => { p[x.type] = x.value; });
+    // Some engines render midnight as hour 24 rather than 00.
+    const d = new Date(+p.year, +p.month - 1, +p.day, (+p.hour) % 24, +p.minute, +p.second, 0);
+    // Years under 100 are shifted into the 1900s by the Date constructor.
+    if (+p.year < 100) d.setFullYear(+p.year);
+    return d;
+  }
+
+  // How far ahead of UTC a zone is at a given instant, in milliseconds.
+  function tzOffsetMs(instant, tz){
+    const w = wallIn(new Date(instant), tz);
+    return Date.UTC(w.getFullYear(), w.getMonth(), w.getDate(),
+                    w.getHours(), w.getMinutes(), w.getSeconds()) - instant;
+  }
+
+  /* The real moment a wall clock reading in a zone lands on. Two passes,
+     because the offset depends on the instant and the instant is the thing
+     being worked out: guess with the offset at the naive point, then correct
+     with the offset at the guess. That settles every case except the hour
+     that happens twice when the clocks go back, where it picks one of them. */
+  function instantOfWall(wall, tz){
+    if (!tz) return new Date(wall.getTime());
+    const naive = Date.UTC(wall.getFullYear(), wall.getMonth(), wall.getDate(),
+                           wall.getHours(), wall.getMinutes(), wall.getSeconds());
+    let t = naive - tzOffsetMs(naive, tz);
+    t = naive - tzOffsetMs(t, tz);
+    return new Date(t);
+  }
+
+  /* What time is it. Every bit of day logic in here goes through this, so
+     pinning a zone moves all of it together. Unpinned it is new Date(),
+     exactly as before. */
+  function clock(){
+    const tz = pinnedTZ();
+    return tz ? wallIn(new Date(), tz) : new Date();
+  }
   let ok = true;
   let view = 'day';
   let openDay = null;                 // week strips: which day is expanded
@@ -339,7 +408,7 @@
   // Which day/week you're looking at, as an offset in days from today. Day view
   // steps by 1, Week view by 7 (so the weekday stays put when you change week).
   let dayShift = 0;
-  const viewDate = () => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() + dayShift); return d; };
+  const viewDate = () => { const d = clock(); d.setHours(0,0,0,0); d.setDate(d.getDate() + dayShift); return d; };
   // The full 7-column grid needs real width; below this we always show strips.
   const canGrid = () => (typeof window !== 'undefined' && window.innerWidth >= 700);
   const gridShown = () => expanded && canGrid();
@@ -726,7 +795,7 @@
   }
 
   function obApplyChanges(changes){
-    const from = weekKey(new Date());
+    const from = weekKey(clock());
     const byDay = {};
     changes.forEach((c, i) => {
       if (ob.skip[i] || c.kind !== 'add') return;
@@ -1140,7 +1209,7 @@
   function normaliseAt(value, tk){
     const at = /^\d{1,2}:\d{2}$/.test(value || '') ? value : null;
     if (!at) return null;
-    if (!tk.due && !tk.repeat) tk.due = dayKey(new Date());
+    if (!tk.due && !tk.repeat) tk.due = dayKey(clock());
     tk.dateType = 'on';
     return at;
   }
@@ -1236,7 +1305,7 @@
   // Tasks are deliberately excluded, an open task list never empties and a ring
   // that can't fill is discouraging rather than motivating.
   function dayProgress(){
-    const now = new Date(), dk = dayKey(now);
+    const now = clock(), dk = dayKey(now);
     let total = 0, done = 0;
     blocksForDate(now).filter(b => !b.allDay).forEach(b => {
       total++;
@@ -1314,7 +1383,7 @@
 
   function maybeCelebrate(){
     const p = dayProgress();
-    const dk = dayKey(new Date());
+    const dk = dayKey(clock());
     if (p.total > 0 && p.done === p.total && celebratedFor !== dk){
       celebratedFor = dk;
       celebrate = 'That is the day, kept.';
@@ -1525,8 +1594,8 @@
   const placeable = tk => !tk.repeat && !tk.at && !tk.doneAt;
 
   function placeByCapacity(list, from){
-    const start = new Date(from || new Date()); start.setHours(0, 0, 0, 0);
-    const now = new Date(), todayK = dayKey(now), nowM = now.getHours() * 60 + now.getMinutes();
+    const start = new Date(from || clock()); start.setHours(0, 0, 0, 0);
+    const now = clock(), todayK = dayKey(now), nowM = now.getHours() * 60 + now.getMinutes();
     const startK = dayKey(start);
     const ids = {}; list.forEach(tk => { ids[tk.id] = 1; });
     const used = {};
@@ -2310,7 +2379,7 @@
     const h = parseInt(String(n.eveningAt || '').slice(0, 2), 10);
     return (h >= 0 && h <= 23) ? h : 20;
   };
-  const tomorrowDate = () => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() + 1); return d; };
+  const tomorrowDate = () => { const d = clock(); d.setHours(0,0,0,0); d.setDate(d.getDate() + 1); return d; };
   // Whether tonight's tomorrow has already been dealt with, so the button can
   // stop asking once it has been answered.
   const tomorrowSorted = () => ((S.profile || {}).sortedFor === dayKey(tomorrowDate()));
@@ -2319,7 +2388,7 @@
      different answers: a task can be moved, left or dropped, while a block that
      has already been and gone can only be put on tomorrow or let go. */
   function looseEnds(){
-    const now = new Date(), today = new Date(); today.setHours(0,0,0,0);
+    const now = clock(), today = clock(); today.setHours(0,0,0,0);
     const dk = dayKey(today), nowM = now.getHours() * 60 + now.getMinutes();
 
     const tasks = (S.tasks || []).filter(tk => {
@@ -2365,7 +2434,7 @@
       '<button class="tmbtn' + (tmrw[key] === o[0] ? ' on' : '') + '" ' +
       'data-tmpick="' + key + '|' + o[0] + '">' + o[1] + '</button>').join('') + '</span>';
     if (picking){
-      const from = new Date(); from.setHours(0, 0, 0, 0); from.setDate(from.getDate() + 1);
+      const from = clock(); from.setHours(0, 0, 0, 0); from.setDate(from.getDate() + 1);
       h += '<input class="tmday" type="date" data-tmday="' + key + '" ' +
         'min="' + dayKey(from) + '" aria-label="Which day">';
     }
@@ -2419,7 +2488,7 @@
       rows.filter(r => !tmrwDone(r.key)).forEach(r => {
         if (r.tk){
           const bits = [];
-          if (r.tk.due) bits.push(dueLabel(r.tk.due, new Date(), r.tk.dateType).text);
+          if (r.tk.due) bits.push(dueLabel(r.tk.due, clock(), r.tk.dateType).text);
           if (r.tk.mins) bits.push(dur(r.tk.mins));
           h += '<div class="tmrow"><span class="cd" style="background:' + catColor(r.tk.cat) + '"></span>' +
             '<span class="tmt">' + esc(r.tk.title) + (bits.length ? '<small>' + esc(bits.join(' · ')) + '</small>' : '') + '</span>' +
@@ -2818,7 +2887,7 @@
   function slipFloorDo(spec){
     const bits = String(spec).split('|');
     const id = bits[0], dk = bits[1];
-    const h = activeHabits(new Date()).find(x => x.id === id);
+    const h = activeHabits(clock()).find(x => x.id === id);
     if (!h) return;
     markUndo('Small version');
     const m = S.completions[dk] || (S.completions[dk] = {});
@@ -3135,7 +3204,7 @@
   try { photoLog = JSON.parse(lsGet(PLOG_KEY) || '[]') || []; } catch(_){ photoLog = []; }
   if (!Array.isArray(photoLog)) photoLog = [];
   function logPhoto(what){
-    const t = new Date();
+    const t = clock();
     photoLog.push(DAY3[t.getDay()] + ' ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) +
       ':' + pad(t.getSeconds()) + '  ' + what);
     while (photoLog.length > 14) photoLog.shift();
@@ -3965,7 +4034,7 @@
     if (ms.length) return ms.filter(x => x.doneAt).length / ms.length;
     const steps = g.steps || [];
     if (!steps.length) return 0;
-    return steps.filter(st => stepDone(st, now || new Date())).length / steps.length;
+    return steps.filter(st => stepDone(st, now || clock())).length / steps.length;
   }
   // The next thing that would actually move it, so a card says what to do
   // rather than only how far along you are.
@@ -4188,7 +4257,7 @@
       headers: { 'content-type':'application/json', Authorization:'Bearer ' + token },
       body: JSON.stringify(Object.assign({
         categories: S.categories.map(c => c.label).join(', '),
-        today: dayKey(new Date())
+        today: dayKey(clock())
       }, extra))
     });
     let j = {};
@@ -4253,7 +4322,7 @@
      morning routine is at half six, so it can put the running somewhere that
      actually exists. */
   function goalAIWeek(){
-    const now = new Date(), out = [];
+    const now = clock(), out = [];
     const byCat = {};
     for (let i = 0; i < 7; i++){
       const d = new Date(now); d.setDate(now.getDate() + i);
@@ -4285,7 +4354,7 @@
     if (goalAI.extra) lines.push('They added: ' + goalAI.extra);
     const week = goalAIWeek();
     if (week.length) lines.push('', 'The week this has to fit into:', week.join(' '));
-    lines.push('', 'Today is ' + dayKey(new Date()) + ', a ' + DAYS[new Date().getDay()] + '.');
+    lines.push('', 'Today is ' + dayKey(clock()) + ', a ' + DAYS[clock().getDay()] + '.');
     return lines.join('\n');
   }
 
@@ -4508,7 +4577,7 @@
 
   function newCommit(text, by, track){
     const c = { id: 'cm_' + uid8(), text: String(text).slice(0, 160), by: by || '',
-      track: (track === 'work' ? 'work' : 'life'), madeAt: dayKey(new Date()),
+      track: (track === 'work' ? 'work' : 'life'), madeAt: dayKey(clock()),
       state: 'live', closedAt: null, reason: '', asked: {} };
     commitments().push(c);
     return c;
@@ -4517,7 +4586,7 @@
   function answerCommit(id, how){
     const c = findCommit(id);
     if (!c) return;
-    const today = dayKey(new Date());
+    const today = dayKey(clock());
     c.asked = c.asked || {};
     if (how === 'done'){ c.state = 'done'; c.closedAt = today; markJustDone(c.id); }
     else if (how === 'let go'){ c.state = 'let go'; c.closedAt = today; }
@@ -4573,7 +4642,7 @@
   let commitTrack = 'work';
   function commitRow(c, closed){
     const bits = [trackName(c.track)];
-    if (c.by) bits.push(closed ? '' : dueLabel(c.by, new Date(), 'by').text);
+    if (c.by) bits.push(closed ? '' : dueLabel(c.by, clock(), 'by').text);
     if (closed && c.closedAt) bits.push((c.state === 'done' ? 'Done ' : 'Let go ') + goalDate(c.closedAt));
     const n = notYets(c);
     if (!closed && n) bits.push('not yet, ' + n + (n === 1 ? ' time' : ' times'));
@@ -5095,7 +5164,7 @@
     // Never twice. A model told the same thing two weeks running will write it
     // down twice unless something stops it.
     if (list.some(n => n.text.toLowerCase() === t.toLowerCase())) return null;
-    const n = { id: 'nt_' + uid8(), text: t, at: dayKey(new Date()), by: by === 'you' ? 'you' : 'athena' };
+    const n = { id: 'nt_' + uid8(), text: t, at: dayKey(clock()), by: by === 'you' ? 'you' : 'athena' };
     list.push(n);
     // Forty sharp observations are a coach. Four hundred are noise, and they
     // would crowd out the brief they are meant to sharpen.
@@ -5223,7 +5292,7 @@
       headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify(Object.assign({
         categories: S.categories.map(c => c.label).join(', '),
-        today: dayKey(new Date())
+        today: dayKey(clock())
       }, body))
     });
     let j = {};
@@ -5249,7 +5318,7 @@
     sitting.busy = 'talk'; sitting.error = ''; render();
     try {
       const out = await coachCall({ mode: 'coach', track: sitting.track, ask: 'weekly sitting',
-        week: coachBrief(sitting.track, new Date()) });
+        week: coachBrief(sitting.track, clock()) });
       sitting.notice = String(out.notice || '');
       sitting.questions = (out.questions || []).slice(0, 5);
       sitting.answers = sitting.questions.map(() => '');
@@ -5413,11 +5482,7 @@
   // than leaving a day looking wrong until the next refresh.
   const CAL_KEY = 'athena:cal2', CAL_STATE = 'athena:msstate';
   const CAL_STALE = 10 * 60 * 1000;      // refetch at most every ten minutes
-  const deviceTZ = () => {
-    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
-    catch(_){ return 'UTC'; }
-  };
-  let cal = { accounts: [], events: [], at: 0, err: '', busy: false, tz: deviceTZ() };
+  let cal = { accounts: [], events: [], at: 0, err: '', busy: false, tz: appTZ() };
 
   function calLoad(){
     // The first cache held times with no zone on them. It is not read any
@@ -5430,7 +5495,7 @@
         cal.tz = j.tz || 'UTC';
         // Fly to Sydney and every clock in here is two hours out. Throwing the
         // cache away is cheaper than reasoning about it.
-        if (cal.tz !== deviceTZ()){ cal.events = []; cal.at = 0; }
+        if (cal.tz !== appTZ()){ cal.events = []; cal.at = 0; }
       }
     } catch(_){}
   }
@@ -5469,10 +5534,10 @@
     if (!force && Date.now() - cal.at < CAL_STALE) return;
     cal.busy = true; if (force) render();
     try {
-      const from = new Date(); from.setHours(0, 0, 0, 0);
+      const from = clock(); from.setHours(0, 0, 0, 0);
       const to = new Date(from); to.setDate(to.getDate() + 8);
       const j = await calPost({
-        action: 'events', from: from.toISOString(), to: to.toISOString(), tz: deviceTZ()
+        action: 'events', from: from.toISOString(), to: to.toISOString(), tz: appTZ()
       });
       cal.events = j.events || []; cal.at = Date.now(); cal.tz = j.tz || 'UTC';
       // One calendar failing should not take the other one down with it, so
@@ -5918,7 +5983,7 @@
   // Turn a gap into a real block on the day, and hand it the first rock that
   // has nowhere to be. Undoable like everything else that changes the week.
   function gapBlock(spec){
-    const now = new Date(), dk = dayKey(now);
+    const now = clock(), dk = dayKey(now);
     const bits = String(spec).split('-');
     const s = +bits[0], e = +bits[1];
     if (!(e > s)) return;
@@ -6197,7 +6262,7 @@
     if (appt){
       tk.dateType = 'on';
       if (!tk.due) tk.due = dk;
-      if (!tk.at){ const n = new Date(); tk.at = pad(Math.min(23, n.getHours() + 1)) + ':00'; }
+      if (!tk.at){ const n = clock(); tk.at = pad(Math.min(23, n.getHours() + 1)) + ':00'; }
       if (!tk.mins) tk.mins = 30;
       tk.at = normaliseAt(tk.at, tk);
     }
@@ -6311,7 +6376,7 @@
   function addedHTML(){
     const tk = lastAdded && findTask(lastAdded);
     if (!tk) return '';
-    const now = new Date();
+    const now = clock();
     const bits = [catOf(tk.cat).label];
     if (tk.due) bits.push(dueLabel(tk.due, now, tk.dateType).text);
     if (tk.at) bits.push('at ' + clockOf(tk.at));
@@ -6666,7 +6731,7 @@
   const spentAll = () => (S.spent || (S.spent = {}));
   function logTime(ref, m){
     if (!ref || m < 1) return;
-    const dk = dayKey(new Date());
+    const dk = dayKey(clock());
     const day = spentAll()[dk] || (spentAll()[dk] = {});
     day[ref] = (day[ref] || 0) + m;
     save();
@@ -6682,7 +6747,7 @@
 
   function timerLoad(){
     try { const raw = lsGet(TIMER_KEY); if (raw) timer = Object.assign(timer, JSON.parse(raw)); } catch(_){}
-    const today = dayKey(new Date());
+    const today = dayKey(clock());
     if (timer.doneOn !== today){ timer.done = 0; timer.doneOn = today; }
     if (timerRunning() && timerLeft() <= 0){ timer.endsAt = null; timer.leftMs = timer.mins * 60000; }
   }
@@ -6749,7 +6814,7 @@
   function timerFinish(){
     timerBank();
     timer.endsAt = null; timer.leftMs = timer.mins * 60000;
-    timer.done = (timer.done || 0) + 1; timer.doneOn = dayKey(new Date());
+    timer.done = (timer.done || 0) + 1; timer.doneOn = dayKey(clock());
     timerSave();
     try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch(_){}
     markJustDone('timer');
@@ -6773,7 +6838,7 @@
   // What the clock could be counting for. The block you are in comes first,
   // because nine times in ten that is the answer.
   function timerTargets(){
-    const now = new Date(), vd = viewDate(), dk = dayKey(vd);
+    const now = clock(), vd = viewDate(), dk = dayKey(vd);
     const t = dayKey(now) === dk ? (now.getHours() * 60 + now.getMinutes()) : -1;
     const out = [];
     blocksForDate(vd).filter(b => !b.allDay).forEach(b => {
@@ -6930,7 +6995,7 @@
      are the sessions finished today, in fours, so the moment to take twenty
      minutes rather than five announces itself. */
   function timerDotsHTML(){
-    const done = (timer.doneOn === dayKey(new Date())) ? (timer.done || 0) : 0;
+    const done = (timer.doneOn === dayKey(clock())) ? (timer.done || 0) : 0;
     const inSet = done % 4, sets = Math.floor(done / 4);
     let dots = '';
     for (let i = 0; i < 4; i++) dots += '<i class="' + (i < inSet ? 'on' : '') + '"></i>';
@@ -6981,7 +7046,7 @@
                : '<button class="go" data-timerstart>'+(idle ? 'Start' : 'Resume')+'</button>')+
       (idle ? '' : '<button class="ghost" data-timerreset>Reset</button>')+
       '</div>';
-    const today = dayKey(new Date());
+    const today = dayKey(clock());
     const spentToday = Object.keys(spentDay(today)).reduce((a, k) => a + spentDay(today)[k], 0);
     h += timerDotsHTML();
     h += '<div class="tmr-done">'+
@@ -7043,7 +7108,7 @@
     // there is no panel, and it opens under the grid instead.
     let blk = '';
     if (dayOn){
-      const det = dayDetailHTML(vd, new Date(), upcomingHomes(vd));
+      const det = dayDetailHTML(vd, clock(), upcomingHomes(vd));
       blk = '<div class="panel blk"><div class="panel-h">In this block</div>'+
         (det || '<p class="blk-empty">Click a block on the day to see what is waiting in it.</p>')+'</div>';
     }
@@ -7081,7 +7146,7 @@
   const parkAge = p => {
     if (!p || !p.at) return null;                 // never counted
     const then = new Date(p.at + 'T00:00'); then.setHours(0, 0, 0, 0);
-    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const now = clock(); now.setHours(0, 0, 0, 0);
     const d = Math.round((now - then) / 86400000);
     return d < 0 ? 0 : d;
   };
@@ -7092,7 +7157,7 @@
   function parkStamp(){
     let touched = 0;
     (S.parked || []).forEach(p => {
-      if (!p.at){ p.at = dayKey(new Date()); p.before = true; touched++; }
+      if (!p.at){ p.at = dayKey(clock()); p.before = true; touched++; }
     });
     return touched;
   }
@@ -7162,7 +7227,7 @@
   function openEditor(opts){
     // opts: { id?, date? }  — editing an event, and/or a default date for a new one
     clearModalDrafts();
-    const dk = opts.date || dayKey(new Date());
+    const dk = opts.date || dayKey(clock());
     if (opts.id){
       const e = findEvent(opts.id);
       if (!e) return;
@@ -7475,6 +7540,11 @@
     });
 
     shell.addEventListener('change', e => {
+      if (e.target.id !== 's_tz') return;
+      tzSet(e.target.value);
+    });
+
+    shell.addEventListener('change', e => {
       if (e.target.id !== 'tmr_on') return;
       timer.target = e.target.value;
       timerSave();
@@ -7525,7 +7595,7 @@
       // and the repeat is left exactly as it was.
       const mv = e.target && e.target.dataset && e.target.dataset.mvblock;
       if (mv){
-        const ev = findEvent(mv), dk = dayKey(new Date());
+        const ev = findEvent(mv), dk = dayKey(clock());
         if (ev){
           const o = (ev.ex && ev.ex[dk]) || {};
           const was = o.start != null ? o.start : ev.start;
@@ -7589,7 +7659,7 @@
   };
   const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
     'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','te_at','te_monthday','tk_when','tk_mins',
-    'ne_title','ne_body','ne_folder','ne_tag','ne_newfolder','ne_newitem','rk_edit'];
+    'ne_title','ne_body','ne_folder','ne_tag','ne_newfolder','ne_newitem','rk_edit','s_tz'];
   const clearModalDrafts = () => { MODAL_IDS.forEach(clearDraft); tagDraft = ''; newFolder = null; };
 
   function paint(h){
@@ -7749,7 +7819,7 @@
         : ''));
       return;
     }
-    const now = new Date();
+    const now = clock();
     const vd = viewDate();
     const hr = now.getHours();
     // Above the greeting, because everything under it may be about to change.
@@ -7917,7 +7987,7 @@
     if (typeof location === 'undefined') return;
     if (/[?&]n=morning/.test(location.search)){
       try { history.replaceState({}, '', location.pathname); } catch(_){}
-      openMorning(new Date()); return;
+      openMorning(clock()); return;
     }
     if (!/[?&]n=tomorrow/.test(location.search)) return;
     tomorrowOpen = true; tmrw = {};
@@ -7933,7 +8003,7 @@
      is what frees a device still serving a build from before sign-in existed. */
   function exportBackup(){
     try {
-      const stamp = new Date().toISOString().slice(0, 10);
+      const stamp = dayKey(clock());
       const blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -8004,7 +8074,7 @@
      a change can point at exactly one of them. This is the biggest thing Athena
      sends anywhere, and it is the reason the box can be useful at all. */
   function weekBrief(){
-    const now = new Date();
+    const now = clock();
     const L = [];
     const cat = id => { const c = (S.categories || []).find(x => x.id === id); return c ? c.label : 'none'; };
     L.push('Their categories: ' + (S.categories || []).map(c => c.label).join(', ') + '.');
@@ -8244,7 +8314,7 @@
         body: JSON.stringify({
           mode: 'ask', ask: q, week: weekBrief(), chat: history,
           categories: S.categories.map(c => c.label).join(', '),
-          today: dayKey(new Date())
+          today: dayKey(clock())
         })
       });
       let j = {};
@@ -8298,7 +8368,7 @@
         else if (c.act === 'setpriority') tk.priority = c.priority;
         else if (c.act === 'recategorise'){ tk.cat = c.cat; tk.pin = null; }
         else if (c.act === 'rename') tk.title = c.title;
-        else if (c.act === 'done') tk.doneAt = dayKey(new Date());
+        else if (c.act === 'done') tk.doneAt = dayKey(clock());
         else if (c.act === 'delete') S.tasks = (S.tasks || []).filter(x => x.id !== c.id);
       } else if (c.kind === 'event'){
         const ev = findEvent(c.id);
@@ -8534,7 +8604,7 @@
       return x;
     };
     for (let i = 0; i < NUDGE_DAYS; i++){
-      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i);
+      const d = clock(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i);
       const dk = dayKey(d);
       const blocks = blocksForDate(d).filter(b => !b.allDay);
 
@@ -8582,11 +8652,17 @@
       out.push.apply(out, hardMoments(tk));
     });
 
+    // Each reading becomes the moment it lands on. Unpinned this is the same
+    // Date it already was, so nothing about an ordinary account changes.
+    const tz = pinnedTZ();
+    out.forEach(m => { m.fire = instantOfWall(m.at, tz); });
+    const far = Date.now() + NUDGE_DAYS * 86400000;
     // Quiet hours only silence the nudges Athena chose the time for. A morning
     // or evening time you picked yourself is a request, and dropping it because
     // it happens to fall inside your own quiet hours would just look broken.
-    const far = Date.now() + NUDGE_DAYS * 86400000;
-    return out.filter(m => m.at.getTime() > soon && m.at.getTime() < far &&
+    // The window is compared against real moments; inQuiet still reads the wall
+    // clock, because quiet hours are hours of your evening, not of UTC.
+    return out.filter(m => m.fire.getTime() > soon && m.fire.getTime() < far &&
       !(m.kind === 'block' && inQuiet(n, m.at)));
   }
 
@@ -8606,7 +8682,7 @@
     try { moments = nudgeMoments(); } catch(_){ return; }
     const rows = moments.map(m => ({
       user_id: session.user.id,
-      fire_at: m.at.toISOString(),
+      fire_at: m.fire.toISOString(),
       kind: m.kind,
       title: String(m.title || 'Athena').slice(0, 120),
       body: String(m.body || '').slice(0, 300),
@@ -8669,7 +8745,7 @@
   function blocksOutside(s, e){
     const seen = {};
     for (let i = 0; i < 7; i++){
-      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i);
+      const d = clock(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i);
       blocksForDate(d).forEach(b => {
         if (b.allDay) return;
         const bs = mins(b.s), be = mins(b.e);
@@ -8734,6 +8810,92 @@
     }
     if (dayHoursErr) h += '<div class="errdetail"><b>Not saved</b><span>' + esc(dayHoursErr) + '</span></div>';
     return h;
+  }
+
+  /* Every zone the browser knows, with what each one currently reads, worked
+     out once. Four hundred odd Intl formatters is a noticeable pause, and the
+     list does not change while you are looking at it. */
+  const TZ_FEW = ['UTC','Australia/Perth','Australia/Adelaide','Australia/Brisbane',
+    'Australia/Sydney','Pacific/Auckland','Asia/Singapore','Asia/Tokyo','Asia/Kolkata',
+    'Asia/Dubai','Europe/London','Europe/Paris','Europe/Berlin','America/New_York',
+    'America/Chicago','America/Denver','America/Los_Angeles','America/Sao_Paulo',
+    'Africa/Johannesburg'];
+  let tzCache = null;
+  function tzChoices(){
+    if (tzCache) return tzCache;
+    let all = [];
+    try { all = Intl.supportedValuesOf('timeZone') || []; } catch(_){ all = []; }
+    if (!all.length) all = TZ_FEW.slice();
+    const now = Date.now();
+    tzCache = all.map(id => {
+      let off = 0;
+      // To the nearest minute: the instant carries milliseconds and the wall
+      // clock does not, so the raw difference is a few thousandths short of a
+      // whole offset and prints as +7:59.994 rather than +8.
+      try { off = Math.round(tzOffsetMs(now, id) / 60000); } catch(_){ return null; }
+      return { id: id, off: off, label: id.replace(/_/g, ' ') + '  (' + tzLabel(off) + ')' };
+    }).filter(Boolean).sort((x, y) => x.off - y.off || (x.id < y.id ? -1 : 1));
+    return tzCache;
+  }
+  // +8, -3:30, and plain UTC for the one that is neither ahead nor behind.
+  function tzLabel(offMin){
+    if (!offMin) return 'UTC';
+    const s = offMin < 0 ? '-' : '+', m = Math.abs(offMin);
+    const hh = Math.floor(m / 60), mm = m % 60;
+    return 'UTC' + s + hh + (mm ? ':' + pad(mm) : '');
+  }
+  // What the clock reads right now wherever that is, which is the only check
+  // anybody can actually make at a glance.
+  function tzReads(tz){
+    try {
+      const w = wallIn(new Date(), tz);
+      return clockOf(pad(w.getHours()) + ':' + pad(w.getMinutes()));
+    } catch(_){ return ''; }
+  }
+
+  function tzSettingsHTML(){
+    const dev = deviceTZ(), pin = pinnedTZ(), using = appTZ();
+    let h = '<div class="modal-h" style="margin-top:8px">Time zone</div>';
+    h += '<p class="setnote">Athena reads the clock on whatever you open it on, which is right ' +
+      'almost always. Pin a zone if this device is set wrong, or if you use Athena on two ' +
+      'devices in different places and want your day to mean the same thing on both.</p>';
+    const reads = tzReads(using);
+    h += '<div class="tznow"><b>' + esc(using.replace(/_/g, ' ')) + '</b>' +
+      '<span>' + (reads ? 'It is ' + esc(reads) + ' there now' : 'Zone not recognised here') +
+      ' \u00b7 ' + (pin ? 'pinned' : 'from this device') + '</span></div>';
+    // A pin that disagrees with the device is the thing that goes quietly
+    // wrong, so it is the thing said loudest.
+    if (pin && pin !== dev){
+      h += '<div class="savewarn">This device says <b>' + esc(dev.replace(/_/g, ' ')) + '</b>, ' +
+        'where it is ' + esc(tzReads(dev)) + '. Athena is using the pinned zone instead, so every ' +
+        'day, nudge and streak here follows ' + esc(pin.replace(/_/g, ' ')) + '.</div>';
+    }
+    const opts = tzChoices().map(z =>
+      '<option value="' + esc(z.id) + '"' + (z.id === using ? ' selected' : '') + '>' +
+      esc(z.label) + '</option>').join('');
+    h += '<label class="fld"><span>Use this zone</span>' +
+      '<select id="s_tz">' + opts + '</select></label>';
+    if (pin){
+      h += '<button class="ghost" data-tzdevice>Follow this device again</button>';
+      h += '<p class="setnote">Back to reading the clock on whatever you open Athena on, ' +
+        'which means it keeps up by itself when you travel.</p>';
+    }
+    return h;
+  }
+
+  /* One way in, so the nudge queue and the calendar cache can never be left
+     holding times worked out under the old zone. Both are rebuilt rather than
+     adjusted: every fire time in the queue has moved, and reasoning about
+     which ones is more work than simply writing them again. */
+  function tzSet(tz){
+    const next = (tz && tz !== deviceTZ() && tzValid(tz)) ? tz : '';
+    if (((S.profile || {}).tzPin || '') === next) return;
+    S.profile.tzPin = next;
+    S.profile.timezone = appTZ();
+    clearDraft('s_tz');
+    cal.events = []; cal.at = 0; calStash();
+    save(); render();
+    try { pushQueueSync(true); } catch(_){}
   }
 
   function identitySettingsHTML(){
@@ -8872,7 +9034,7 @@
   // The next day this event happens, so a result can take you somewhere real.
   // A one-off in the past has no next day, and says so by giving back its own.
   function nextOn(ev){
-    const D = new Date(); D.setHours(0, 0, 0, 0);
+    const D = clock(); D.setHours(0, 0, 0, 0);
     for (let i = 0; i < 400; i++){
       if (occursOn(ev, D)) return dayKey(D);
       D.setDate(D.getDate() + 1);
@@ -9010,7 +9172,7 @@
       const dk = ev && nextOn(ev);
       // A block on the grid is keyed by event and date together, not by the
       // event alone: the same event is a different block on every day it runs.
-      if (dk){ dayShift = daysBetween(dayKey(new Date()), dk); openDayBlock = ev.id + '@' + dk; }
+      if (dk){ dayShift = daysBetween(dayKey(clock()), dk); openDayBlock = ev.id + '@' + dk; }
       view = 'day'; dayMode = 'today'; render(); return;
     }
     if (kind === 'goal'){ view = 'grow'; growMode = 'goals'; openGoal = id; render(); return; }
@@ -9066,7 +9228,7 @@
      state rather than whatever happened afterwards. */
   async function snapToday(){
     if (!cloud || !session || !cloudLoaded) return;
-    const today = dayKey(new Date());
+    const today = dayKey(clock());
     if (lsGet(SNAP_KEY) === today) return;
     if (!(S.categories || []).length) return;       // never snapshot an empty start
     try {
@@ -9075,7 +9237,7 @@
       });
       if (r.error) return;                          // no table yet: quietly do nothing
       lsSet(SNAP_KEY, today);
-      const cut = new Date(); cut.setDate(cut.getDate() - 7);
+      const cut = clock(); cut.setDate(cut.getDate() - 7);
       await sb.from('snapshots').delete().eq('user_id', session.user.id).lt('taken_on', dayKey(cut));
     } catch(_){}
   }
@@ -9180,13 +9342,16 @@
     h += row('Two devices disagreeing', clash ? 'YES' : 'no');
     h += row('Knows the copy it holds', lastRemoteAt ? 'yes' : 'NO');
     const rk = (S0.coach && S0.coach.rocks) || {};
-    const today = dayKey(new Date());
-    const y = new Date(); y.setDate(y.getDate() - 1);
+    const today = dayKey(clock());
+    const y = clock(); y.setDate(y.getDate() - 1);
     h += row('Rocks set for today', (rk[today] || []).length + (rk[today] ? '' : ' (none set)'));
     h += row('Rocks set yesterday', (rk[dayKey(y)] || []).length);
     h += row('Days that have rocks on them', Object.keys(rk).length);
     const tasks = S0.tasks || [];
     const reps = tasks.filter(t => t && t.repeat);
+    const pinTZ = pinnedTZ();
+    h += row('Time zone', appTZ() + (pinTZ ? ' (pinned)' : ' (from this device)'));
+    if (pinTZ && pinTZ !== deviceTZ()) h += row('This device says', deviceTZ());
     h += row('Tasks', tasks.length);
     h += row('Tasks set to repeat', reps.length);
     h += row('Notes', notes.length);
@@ -9250,7 +9415,7 @@
       h += '<div class="snaplist">' + snaps.map(s =>
         '<button class="snaprow" data-snapopen="'+esc(s.taken_on)+'">'+
         '<span>'+esc(goalDate(s.taken_on))+'</span>'+
-        '<em>'+(s.taken_on === dayKey(new Date()) ? 'this morning' : 'that morning')+'</em></button>').join('') + '</div>';
+        '<em>'+(s.taken_on === dayKey(clock()) ? 'this morning' : 'that morning')+'</em></button>').join('') + '</div>';
     }
     h += '<p class="setnote">A snapshot is taken the first time you open Athena each day, so it holds things as they were before that day started. The last seven are kept. Nothing is replaced without showing you what is in it first.</p>';
     // Underneath the two that can save you, and looking like what it is.
@@ -9359,6 +9524,7 @@
     h += '<p class="setnote">The same questions as the first time, filled in with what you have now. '+
       'Change the hours, add a category, and Athena shows you exactly what it would move before anything happens.</p>';
     h += dayHoursSettingsHTML();
+    h += tzSettingsHTML();
     h += identitySettingsHTML();
     h += valuesSettingsHTML();
     h += calSettingsHTML();
@@ -9403,7 +9569,7 @@
       'dateType says what the date means: "on" if it must happen that day, "by" if it just has to be finished by then. Default to "by".',
       'minutes is a rough estimate of how long the task takes, so it can be fitted into a block.',
       'at is only for a task that must happen at a set time, like an appointment. Leave it out otherwise.',
-      'Rules: weekdays are 0=Sun … 6=Sat. Use "date" only when repeat is "once". Omit "start"/"end" for an all-day item. Skip any field you don\'t need. Today is '+dayKey(new Date())+'.',
+      'Rules: weekdays are 0=Sun … 6=Sat. Use "date" only when repeat is "once". Omit "start"/"end" for an all-day item. Skip any field you don\'t need. Today is '+dayKey(clock())+'.',
       'Here is what I want: '
     ].join('\n');
   }
@@ -9419,7 +9585,7 @@
   const matchCat = name => matchCatInfo(name).id;
 
   function aiImportEvent(spec){
-    const todayK = dayKey(new Date());
+    const todayK = dayKey(clock());
     const cat = matchCat(spec.category);
     const allDay = !spec.start;
     const rep = String(spec.repeat || 'weekly');
@@ -9428,9 +9594,9 @@
     let rrule = null, date = null;
     if (rep === 'once') date = spec.date || todayK;
     else if (rep === 'daily') rrule = { freq:'daily', interval:1, from:todayK };
-    else if (rep === 'weekdays') rrule = { freq:'weekly', interval:1, weekdays:[1,2,3,4,5], from:weekKey(new Date()) };
-    else if (rep === 'monthly') rrule = { freq:'monthly', interval:1, monthday:(spec.monthday || (spec.date ? parseDay(spec.date).getDate() : new Date().getDate())), from:todayK };
-    else rrule = { freq:'weekly', interval:(rep === 'fortnightly' ? 2 : 1), weekdays:(wds || [new Date().getDay()]), from:weekKey(new Date()) };
+    else if (rep === 'weekdays') rrule = { freq:'weekly', interval:1, weekdays:[1,2,3,4,5], from:weekKey(clock()) };
+    else if (rep === 'monthly') rrule = { freq:'monthly', interval:1, monthday:(spec.monthday || (spec.date ? parseDay(spec.date).getDate() : clock().getDate())), from:todayK };
+    else rrule = { freq:'weekly', interval:(rep === 'fortnightly' ? 2 : 1), weekdays:(wds || [clock().getDay()]), from:weekKey(clock()) };
     return {
       id:'ev_'+uid8(), title:String(spec.title).slice(0,120), note:String(spec.note || '').slice(0,200),
       cat, allDay, start: allDay ? null : String(spec.start),
@@ -9516,7 +9682,7 @@
     S.habits.push.apply(S.habits, aiPreview.habits);
     S.goals.push.apply(S.goals, aiPreview.goals);
     const pile = tasks.filter(placeable);
-    if (mode === 'place' && pile.length) announce(placedSummary(placeByCapacity(pile, new Date())));
+    if (mode === 'place' && pile.length) announce(placedSummary(placeByCapacity(pile, clock())));
     else if (mode === 'list' && pile.length){
       pile.forEach(tk => { tk.hold = true; });
       announce(pile.length + ' task' + (pile.length !== 1 ? 's' : '') + ' added to your list, waiting to be placed');
@@ -9588,7 +9754,7 @@
         body: JSON.stringify({
           ask: ask,
           categories: S.categories.map(c => c.label).join(', '),
-          today: dayKey(new Date())
+          today: dayKey(clock())
         })
       });
       let j = {};
@@ -9873,7 +10039,7 @@
 
   shell.addEventListener('click', e => {
     if (noClick){ noClick = false; e.preventDefault(); return; }
-    const now = new Date(), today = dayKey(now);
+    const now = clock(), today = dayKey(now);
     const t = el => e.target.closest(el);
     let m;
 
@@ -9893,6 +10059,7 @@
     if ((m = t('[data-snapopen]'))){ snapOpen(m.dataset.snapopen); return; }
     if (t('[data-rsclose]')){ restoring = null; render(); return; }
     if (t('[data-rsgo]')){ applyRestore(); return; }
+    if (t('[data-tzdevice]')){ tzSet(''); return; }
     if (t('[data-forceupdate]')){ forceUpdate(); return; }
 
     // onboarding
@@ -9960,7 +10127,7 @@
     if (t('[data-placeheld]')){
       const pool = (S.tasks || []).filter(tk => tk.hold && placeable(tk));
       markUndo('Placing');
-      announce(placedSummary(placeByCapacity(pool, new Date())));
+      announce(placedSummary(placeByCapacity(pool, clock())));
       save(); render(); return;
     }
     if ((m = t('[data-aicopy]'))){
@@ -10063,7 +10230,7 @@
     if (t('[data-mnext]')){ morning.step = 'rocks'; render(); return; }
     if (t('[data-mback]')){ morning.step = 'day'; render(); return; }
     if (t('[data-mcarry]')){
-      const now = new Date();
+      const now = clock();
       const left = rocksLeftYesterday(now);
       if (!left.length) return;
       markUndo('Yesterday\u2019s rocks carried over');
@@ -10167,7 +10334,7 @@
     if ((m = t('[data-sitnote]'))){ sitting.keepNote[m.dataset.sitnote] = !!m.checked; return; }
     if (t('[data-sitsave]')){
       (sitting.newNotes || []).forEach((n, i) => { if (sitting.keepNote[i]) addNote(sitting.track, n, 'athena'); });
-      sessionFinish(new Date()); return;
+      sessionFinish(clock()); return;
     }
     if ((m = t('[data-delnote]'))){
       const bits = m.dataset.delnote.split('|');
@@ -10198,8 +10365,8 @@
     // The talking half is worth having, and never worth blocking on. If the
     // model cannot be reached, sittingClose records the week anyway.
     if (t('[data-sitdone]')){
-      if (sitting.questions.length || sitting.notice) sittingClose(new Date());
-      else sessionFinish(new Date());
+      if (sitting.questions.length || sitting.notice) sittingClose(clock());
+      else sessionFinish(clock());
       return;
     }
     if ((m = t('[data-cmans]'))){
@@ -10798,7 +10965,7 @@
     if ((m = t('[data-delstep]'))){ markUndo('Step removed'); const [gid, sid] = m.dataset.delstep.split(':'); const g = S.goals.find(x=>x.id===gid); if (g) g.steps = g.steps.filter(s=>s.id!==sid); save(); render(); return; }
     if ((m = t('[data-delgoal]'))){ markUndo('Goal removed'); S.goals = S.goals.filter(x=>x.id!==m.dataset.delgoal); if (openGoal===m.dataset.delgoal) openGoal=null; save(); render(); return; }
 
-    if (t('[data-park]')){ const i = document.getElementById('sk'); const v = i && i.value.trim(); if (!v){ if (i) i.focus(); return; } S.parked.push({ t:v.slice(0,200), at:dayKey(new Date()) }); clearDraft('sk'); save(); render(); const j = document.getElementById('sk'); if (j) j.focus(); return; }
+    if (t('[data-park]')){ const i = document.getElementById('sk'); const v = i && i.value.trim(); if (!v){ if (i) i.focus(); return; } S.parked.push({ t:v.slice(0,200), at:dayKey(clock()) }); clearDraft('sk'); save(); render(); const j = document.getElementById('sk'); if (j) j.focus(); return; }
     // Opening a block's detail. An explicit empty string means "closed", which
     // is different from null: null still lets the live block open itself.
     // The whole block is the target, not just its label: a press can also be
@@ -10999,7 +11166,7 @@
     if (e.key === 'Escape' && rockEdit){ rockEdit = null; clearDraft('rk_edit'); render(); return; }
     if (e.key === 'Enter' && e.target.id === 'sk'){
       e.preventDefault(); const v = e.target.value.trim();
-      if (v){ S.parked.push({ t:v.slice(0,200), at:dayKey(new Date()) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
+      if (v){ S.parked.push({ t:v.slice(0,200), at:dayKey(clock()) }); clearDraft('sk'); save(); render(); const i = document.getElementById('sk'); if (i) i.focus(); }
     }
     if (e.key === 'Enter' && e.target.id === 'ask_q'){ e.preventDefault(); askAthena(); return; }
     if (e.key === 'Enter' && e.target.id === 'cm_text'){ e.preventDefault(); const b = app.querySelector('[data-cmadd]'); if (b) b.click(); return; }
