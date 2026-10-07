@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-07.3';
+  const BUILD = '2026-10-07.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -6005,6 +6005,7 @@
     rocksAll()[dk] = list;
     announce(list.length ? list.length + (list.length === 1 ? ' rock set for today' : ' rocks set for today') : 'Morning checked in');
     morning = null;
+    clearDraft('rk_own');
     save(); render();
   }
 
@@ -10074,7 +10075,7 @@
       announce(left.length === 1 ? 'Carried over' : left.length + ' carried over');
       save(); render(); return;
     }
-    if (t('[data-mnone]')){ rocksAll()[today] = []; morning = null; save(); render(); return; }
+    if (t('[data-mnone]')){ rocksAll()[today] = []; morning = null; clearDraft('rk_own'); save(); render(); return; }
     if (t('[data-mdone]')){ morningFinish(now); return; }
     if ((m = t('[data-rockadd]'))){
       const c = rockCandidates(now).find(x => x.key === m.dataset.rockadd);
@@ -10091,7 +10092,10 @@
       if (!v){ if (el) el.focus(); return; }
       if (morning.picks.length < 3)
         morning.picks.push({ key: 'own:' + uid8(), text: v.slice(0, 120), why: '', kind: 'free', ref: '', block: '' });
-      clearDraft('rk_own'); render(); return;
+      clearDraft('rk_own'); render();
+      const f = document.getElementById('rk_own');
+      if (f && morning.picks.length < 3) f.focus();
+      return;
     }
     if ((m = t('[data-rockedit]'))){
       rockEdit = { i: +m.dataset.rockedit };
@@ -10985,6 +10989,11 @@
     if (e.key === 'Enter' && e.target.id === 'rk_edit'){
       e.preventDefault();
       const b = app.querySelector('[data-rocksave]'); if (b) b.click();
+      return;
+    }
+    if (e.key === 'Enter' && e.target.id === 'rk_own'){
+      e.preventDefault();
+      const b = app.querySelector('[data-rockown]'); if (b) b.click();
       return;
     }
     if (e.key === 'Escape' && rockEdit){ rockEdit = null; clearDraft('rk_edit'); render(); return; }
