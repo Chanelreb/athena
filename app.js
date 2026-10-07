@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-07.5';
+  const BUILD = '2026-10-08.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2798,13 +2798,46 @@
     return habSlip(h, now);
   }
 
+  // Three hours before you wind down. Not a fixed hour, because somebody
+  // who finishes at eleven has an evening somebody who finishes at six does
+  // not, and the whole point is to ask when the time left is short.
+  const SLIP_TAIL = 180;
+  function slipHour(now){
+    const w = savedWindow();
+    const s = mins(w[0]), e = mins(w[1]);
+    const from = Math.max(s, e - SLIP_TAIL);
+    const m = now.getHours() * 60 + now.getMinutes();
+    // Past the wind down hour still counts: the day is not over until it is.
+    return m >= from;
+  }
+
+  /* Whether there is still comfortably time to do the thing properly. A
+     weekly habit is not running out on a Tuesday evening, so for those the
+     end of the week is the moment, not the end of each day in it. */
+  function slipDue(h, now){
+    if (h.w) return now.getDay() === 6 || now.getDay() === 0;   // Saturday or Sunday
+    return slipHour(now);
+  }
+
+  /* Dismissed for this day, or this week. One entry per habit holding the
+     period it was waved away in, so it grows to the number of habits and no
+     further, and tomorrow is a different key and the card comes back. */
+  const slipOffAll = () => (S.slipOff || (S.slipOff = {}));
+  const slipHidden = (h, now) => slipOffAll()[h.id] === habKey(h.w, now);
+  function slipDismiss(id){
+    const h = activeHabits(clock()).find(x => x.id === id);
+    if (!h) return;
+    slipOffAll()[id] = habKey(h.w, clock());
+    save(); render();
+  }
+
   // Everything currently slipping, worst first. Weekly habits are counted in
   // weeks, so two of those is a fortnight and worth hearing about.
   function slippingHabits(now){
     return activeHabits(now)
       .filter(h => !h.goal)
       .map(h => ({ h, n: habSlipping(h, now) }))
-      .filter(x => x.n >= 2)
+      .filter(x => x.n >= 2 && slipDue(x.h, now) && !slipHidden(x.h, now))
       .sort((x, y) => y.n - x.n);
   }
 
@@ -2871,6 +2904,8 @@
       const unit = x.h.w ? 'week' : 'day';
       const dk = habKey(x.h.w, now);
       h += '<div class="slip">' +
+        '<button class="slipx" data-slipoff="' + esc(x.h.id) + '" ' +
+        'aria-label="Not tonight" title="Not tonight">\u00d7</button>' +
         habRunHTML(x.h, now) +
         '<p class="hrun-w">' + esc(habRunWords(x.h, now)) + '</p>' +
         '<p><b>' + esc(x.h.l) + '</b>, ' + x.n + ' ' + unit + (x.n === 1 ? '' : 's') + ' missed. ' +
@@ -10438,6 +10473,7 @@
     if (t('[data-resetopen]')){ commitSettings(); resetting = { ack: false }; render(); return; }
     if (t('[data-resetclose]')){ resetting = null; render(); return; }
     if (t('[data-resetgo]')){ doReset(); return; }
+    if ((m = t('[data-slipoff]'))){ slipDismiss(m.dataset.slipoff); return; }
     if ((m = t('[data-slipfloor]'))){ slipFloorDo(m.dataset.slipfloor); return; }
     if (t('[data-search]')){ openSearch(); return; }
     if (t('[data-closesearch]')){ searchOpen = false; clearDraft('gs_q'); render(); return; }

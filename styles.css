@@ -2580,9 +2580,23 @@
      pattern is just starting and this is the moment it is cheapest to stop. */
   #soft-app .sliplist { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 4px; }
   #soft-app .slip {
+    position: relative;
     padding: 12px 14px; border-radius: 12px;
     background: var(--live-soft); border: 1px solid var(--live);
   }
+  /* Out of the way of the words, and big enough to hit with a thumb without
+     drawing a box around itself and competing with the button that matters. */
+  #soft-app .slipx {
+    position: absolute; top: 4px; right: 4px;
+    width: 32px; height: 32px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: 0; border-radius: 9px; cursor: pointer;
+    font-size: 19px; line-height: 1; color: var(--live); opacity: .62;
+  }
+  #soft-app .slipx:hover { opacity: 1; background: rgba(0,0,0,.08); }
+  /* The paragraph has to stop short of it, or a long habit name runs under
+     the cross on a narrow screen. */
+  #soft-app .slip > p:first-of-type { padding-right: 30px; }
   #soft-app .slip p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.5; }
   /* .go has no base rule in this stylesheet, it is dressed per context, so a
      button in a new place arrives as a raw browser button. It has to be
