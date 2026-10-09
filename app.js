@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-09.2';
+  const BUILD = '2026-10-09.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1124,7 +1124,9 @@
         '</ul>';
       h += '<div class="ob-callout"><b>The quick way in</b>'+
         '<span>Got a head full of things? Tap <i>Ask your AI</i>, paste in a brain dump, and Athena sorts it into tasks, gives each a category and a priority, then drops them into the blocks where they belong. You approve everything before it lands.</span></div>';
-      h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button><span style="flex:1"></span><button class="go" data-obfinish>Build my week</button></div>';
+      h += '<div class="ob-actions"><button class="ghost" data-obback>Back</button>' +
+        '<span style="flex:1"></span><button class="go" data-obfinish>Build my week</button></div>';
+      h += '<button class="linkish ob-skip" data-tour>Show me how it works first</button>';
     }
     h += '</div>';
     return h;
@@ -8254,6 +8256,7 @@
     if (whyOpen === 'rocks')   h += rocksWhyHTML();
     if (whyOpen === 'habits')  h += habitsWhyHTML();
     if (whyOpen === 'beliefs') h += beliefsHTML();
+    if (tour) h += tourHTML();
 
     paint(h);
   }
@@ -9262,6 +9265,261 @@
     try { pushQueueSync(true); } catch(_){}
   }
 
+  /* --- the pictures --- */
+  // Borrowed classes where they are self contained, hand built where the real
+  // one needs a whole day grid around it to make sense.
+  const tourCats = () => {
+    const cs = (S.categories || []);
+    const pick = n => (cs[n % (cs.length || 1)] || { color: '#9CC0A9', label: 'Life' });
+    return [pick(0), pick(1), pick(2)];
+  };
+
+  const T_DAY_FROM = 7 * 60, T_DAY_TO = 21 * 60;      // the rail runs 7am to 9pm
+  function artDay(){
+    const c = tourCats();
+    const span = T_DAY_TO - T_DAY_FROM;
+    const pc = m => ((m - T_DAY_FROM) / span) * 100;
+    const bl = [
+      { t: 'Work',   s: 9 * 60,          e: 13 * 60,      col: c[0] },
+      { t: 'Gym',    s: 14 * 60,         e: 15 * 60,      col: c[2] },
+      { t: 'Family', s: 17 * 60,         e: 20 * 60,      col: c[1] }
+    ];
+    return '<div class="t-day">' +
+      '<div class="t-hours"><span>7am</span><span>9pm</span></div>' +
+      '<div class="t-rail">' + bl.map((b, i) => {
+        const w = pc(b.e) - pc(b.s);
+        /* Two thresholds, because a name and a time need different amounts of
+           room and a block with both crammed in reads worse than one with
+           neither. Under the first, a short block is simply a block, which is
+           what the real day grid does too. */
+        const named = w > 14, timed = w > 24;
+        return '<div class="t-blk in" style="left:' + pc(b.s).toFixed(1) + '%;width:' + w.toFixed(1) +
+          '%;background:' + tint(b.col.color) + ';animation-delay:' + (i * 0.22) + 's">' +
+          (named ? '<b>' + esc(b.t) + '</b>' : '') +
+          (timed ? '<em>' + clockOf(fmtM(b.s)) + '</em>' : '') + '</div>';
+      }).join('') + '</div></div>';
+  }
+
+  function artCats(){
+    return '<div class="t-cats">' + (S.categories || []).slice(0, 5).map((c, i) =>
+      '<span class="t-cat" style="--cc:' + tint(c.color) + ';animation-delay:' + (i * 0.1) + 's">' +
+      '<i></i>' + esc(c.label) + '</span>').join('') + '</div>';
+  }
+
+  // A task with no time of its own, arriving in the block that shares its
+  // colour. The one idea the whole app rests on, so it gets a picture.
+  function artMatch(){
+    const c = tourCats()[0];
+    return '<div class="t-match">' +
+      '<div class="t-task"><i style="background:' + tint(c.color) + '"></i>' +
+      '<span>Draft the proposal<em>30 min \u00b7 ' + esc(c.label) + '</em></span></div>' +
+      '<div class="t-arrow">\u2193</div>' +
+      '<div class="t-blk t-into" style="background:' + tint(c.color) + '">' +
+      '<b>' + esc(c.label) + '</b><em>9am to 1pm</em></div></div>';
+  }
+
+  function artRocks(done){
+    const rs = ['Finish the proposal', 'Walk before dark', 'Ring Mum'];
+    return '<div class="t-rocks"><div class="t-rklist">' + rs.map((t, i) =>
+      '<div class="t-rk' + (i < done ? ' done' : '') + '">' +
+      '<span class="t-rkn">' + (i < done ? TICK : (i + 1)) + '</span>' + esc(t) + '</div>').join('') +
+      '</div>' + jarHTML(3, done, false) + '</div>';
+  }
+
+  function artRun(){
+    // Eleven kept, two missed, today still open: a fortnight that has had a
+    // wobble, which is the only kind worth drawing.
+    const cells = ['kept','kept','kept','kept','miss','kept','kept','kept','kept',
+                   'kept','kept','miss','kept','open'];
+    return '<div class="t-run"><div class="hrun">' + cells.map((c, i) =>
+      '<i class="' + c + '" style="animation-delay:' + (i * 0.05) + 's"></i>').join('') + '</div>' +
+      '<p class="hrun-w">11 of the last 13 kept.</p></div>';
+  }
+
+  function artSlip(){
+    const cells = ['kept','kept','kept','kept','kept','kept','kept','kept',
+                   'kept','kept','kept','miss','miss','open'];
+    return '<div class="slip t-slip"><div class="hrun">' + cells.map(c =>
+      '<i class="' + c + '"></i>').join('') + '</div>' +
+      '<p class="hrun-w">11 of the last 13 kept, then the last 2.</p>' +
+      '<p><b>Move your body</b>, 2 days missed. Do not go for the whole thing. ' +
+      'Go for <b>just once, however badly</b>, now.</p>' +
+      '<span class="t-fakego">Do the small version</span></div>';
+  }
+
+  function artGoal(){
+    const c = tourCats()[2];
+    return '<div class="t-goal"><b>Run 10km without walking</b><em>by March</em>' +
+      '<div class="t-line">' + ['3km','5km','8km','10km'].map((m, i) =>
+        '<span class="t-ms' + (i < 2 ? ' done' : '') + '" style="--cc:' + tint(c.color) +
+        ';animation-delay:' + (i * 0.12) + 's"><i></i>' + m + '</span>').join('') + '</div>' +
+      '<p>Runs on Tuesday and Saturday, already in your week.</p></div>';
+  }
+
+  function artDump(){
+    const c = tourCats();
+    const rows = [['Book the dentist', c[2]], ['Proposal for Mesh', c[0]], ['Nan\u2019s birthday', c[1]]];
+    return '<div class="t-dump"><div class="t-ask">book dentist, mesh proposal, ' +
+      'nan\u2019s birthday sometime this month\u2026</div>' +
+      '<div class="t-arrow">\u2193</div>' + rows.map((r, i) =>
+        '<div class="t-task t-mini" style="animation-delay:' + (0.2 + i * 0.18) + 's">' +
+        '<i style="background:' + tint(r[1].color) + '"></i>' +
+        '<span>' + esc(r[0]) + '</span><em>' + esc(r[1].label) + '</em></div>').join('') + '</div>';
+  }
+
+  function artMark(){ return '<div class="t-mark">' + MOON + '</div>'; }
+
+  /* --- what it says --- */
+  /* caption is what is on screen and carries the scene alone. say is what is
+     read out, and is allowed to be longer than anybody wants to read. */
+  const TOUR = [
+    { art: artMark, cap: 'Athena is a week you design, then live inside.',
+      say: 'Athena is not a list. It is a week you design on purpose and then live inside. ' +
+           'Here is how the pieces fit together. About two minutes.' },
+    { art: artDay, cap: 'Blocks are the shape of your day.',
+      say: 'Blocks are the shape of your day. Work from nine to one. The gym at five. ' +
+           'They repeat, or they happen once. Nothing else in here makes much sense until ' +
+           'the shape is there.' },
+    { art: artCats, cap: 'Everything carries a category.',
+      say: 'Every single thing in Athena carries a category. Work, family, health, whatever ' +
+           'your life is actually made of. The colour is not decoration. It is the part that ' +
+           'does the matching.' },
+    { art: artMatch, cap: 'A task has no time. It finds its block.',
+      say: 'A task has no time of its own. Give it a category and it turns up inside the ' +
+           'block that shares it, so you do it while you are already in that headspace. ' +
+           'That is the trick the whole app rests on.' },
+    { art: () => artRocks(0), cap: 'Three rocks, chosen in the morning.',
+      say: 'Each morning Athena asks for three rocks. Three things that, if they happen, ' +
+           'today was a good day. Not ten. Three is small enough to hold in your head all ' +
+           'day and big enough to be worth holding.' },
+    { art: () => artRocks(3), cap: 'The jar fills as you tick them.',
+      say: 'The jar is Stephen Covey\u2019s. Big rocks go in first, or the sand fills it and ' +
+           'they never fit. Tick one off and a stone settles in. Three stones is a day that ' +
+           'counted.' },
+    { art: artRun, cap: 'Habits are drawn as a fortnight.',
+      say: 'Habits are the small daily things. Athena draws the last fourteen days rather ' +
+           'than one number, because a single number cannot tell the difference between a ' +
+           'bad fortnight and a bad Tuesday.' },
+    { art: artSlip, cap: 'Miss twice, and Athena speaks up.',
+      say: 'One missed day is an accident. Two is the start of being someone who does not ' +
+           'do this. So Athena says nothing after one, and in the evening after two it asks ' +
+           'for the smallest version. Just once, however badly. The run survives, and the ' +
+           'run is the thing doing the work.' },
+    { art: artGoal, cap: 'Goals break into steps that land in your week.',
+      say: 'A goal is something bigger with a date on it. Athena breaks it into milestones ' +
+           'and small repeating steps, and puts those steps into the week you already have, ' +
+           'rather than leaving them on a list to be admired.' },
+    { art: artDump, cap: 'Empty your head into it.',
+      say: 'And when your head is full, tap Ask Athena and pour the lot in. It sorts the mess ' +
+           'into tasks, gives each one a category and a size, and drops them into the blocks ' +
+           'where they belong. You approve every single thing before it lands.' },
+    { art: artMark, cap: 'That is the whole of it.',
+      say: 'That is the whole of it. Nothing in Athena moves on its own. It is not trying to ' +
+           'remember your life for you, it is trying to hold you to what you decided when ' +
+           'you were thinking clearly. Now go and build your week.' }
+  ];
+
+  // null when it is not running. { i, playing, timer }
+  let tour = null;
+
+  const TOUR_PER_WORD = 230;          // faster than speech, slower than skimming
+  const TOUR_MIN = 5000, TOUR_MAX = 11000;
+  const tourWords = sc => String(sc.say || sc.cap || '').trim().split(/\s+/).length;
+  const tourHold = sc => Math.max(TOUR_MIN, Math.min(TOUR_MAX, tourWords(sc) * TOUR_PER_WORD));
+
+  function tourOpen(){
+    speakStop();
+    tour = { i: 0, playing: true, timer: null };
+    settingsOpen = false;
+    render();
+    tourRun();
+  }
+  function tourClose(){
+    if (tour) clearTimeout(tour.timer);
+    tour = null;
+    speakStop();
+    render();
+  }
+
+  /* Start whatever the current scene does, and arrange for the next one.
+     say() returns false when the voice is off or the engine refuses, and
+     that false is the whole reason this works in silence: the timer takes
+     over without anything else needing to know. */
+  function tourRun(){
+    if (!tour) return;
+    clearTimeout(tour.timer);
+    const sc = TOUR[tour.i];
+    if (!sc || !tour.playing) return;
+    const spoke = say(sc.say, 'tour');
+    if (spoke){
+      // Advance when the sentence finishes rather than on a clock, so the
+      // pictures and the voice cannot drift apart over eleven scenes.
+      tourWatch();
+    } else {
+      tour.timer = setTimeout(tourNext, tourHold(sc));
+    }
+  }
+
+  /* There is no reliable 'utterance ended' to hang this on once a render has
+     replaced the DOM underneath it, so this watches the engine instead. It
+     is a poll, which is not elegant, and it is three lines rather than a
+     web of callbacks that have to survive every redraw. */
+  function tourWatch(){
+    if (!tour || !tour.playing) return;
+    clearTimeout(tour.timer);
+    tour.timer = setTimeout(() => {
+      if (!tour || !tour.playing) return;
+      if (voiceCan() && window.speechSynthesis.speaking) return tourWatch();
+      tourNext();
+    }, 400);
+  }
+
+  function tourNext(){
+    if (!tour) return;
+    if (tour.i >= TOUR.length - 1){ tourClose(); return; }
+    tour.i++; render(); tourRun();
+  }
+  function tourStep(by){
+    if (!tour) return;
+    const n = Math.max(0, Math.min(TOUR.length - 1, tour.i + by));
+    // Reaching for Back means you have stopped watching and started reading.
+    tour.i = n; tour.playing = false;
+    clearTimeout(tour.timer); speakStop();
+    render();
+  }
+  function tourPlay(){
+    if (!tour) return;
+    tour.playing = !tour.playing;
+    clearTimeout(tour.timer); speakStop();
+    render();
+    if (tour.playing) tourRun();
+  }
+
+  function tourHTML(){
+    const sc = TOUR[tour.i] || TOUR[0];
+    const last = tour.i >= TOUR.length - 1;
+    let h = '<div class="modal-back tour-back" data-tourclose></div>';
+    h += '<div class="modal tour">';
+    h += '<div class="t-stage" key="' + tour.i + '">' + sc.art() + '</div>';
+    h += '<p class="t-cap">' + esc(sc.cap) + '</p>';
+    // Dots rather than a bar: eleven is few enough to count, and a dot you
+    // can tap is a chapter mark.
+    h += '<div class="t-dots">' + TOUR.map((_, i) =>
+      '<button class="t-dot' + (i === tour.i ? ' on' : '') + (i < tour.i ? ' seen' : '') +
+      '" data-tourgo="' + i + '" aria-label="Part ' + (i + 1) + '"></button>').join('') + '</div>';
+    h += '<div class="t-bar">' +
+      '<button class="ghost" data-tourback' + (tour.i ? '' : ' disabled') + '>Back</button>' +
+      '<button class="ghost t-play" data-tourplay>' + (tour.playing ? 'Pause' : 'Play') + '</button>' +
+      '<span style="flex:1"></span>' +
+      '<button class="go" data-tournext>' + (last ? 'Done' : 'Next') + '</button>' +
+      '</div>';
+    h += '<button class="linkish t-skip" data-tourclose>' +
+      (last ? 'Close' : 'Skip the tour') + '</button>';
+    if (!voiceOn() && voiceCan())
+      h += '<p class="t-quiet">Athena can read this out loud. Settings, Athena out loud.</p>';
+    return h + '</div>';
+  }
+
   function identitySettingsHTML(){
     let h = '<div class="modal-h" style="margin-top:8px">Who you are becoming</div>';
     h += '<p class="setnote">A goal is something you hit once. This is the person the habits are for, ' +
@@ -9765,6 +10023,7 @@
     // and a label does not, so left alone they came out three different
     // widths, which looks like a mistake because it is one.
     let h = '<div class="datalist">';
+    h += '<button class="ghost" data-tour>Show me around Athena</button>';
     h += '<button class="ghost" data-why="beliefs">What Athena believes</button>';
     h += '<button class="ghost" data-export>Download a backup</button>';
     h += '<button class="ghost" data-diag>' + (diagOpen ? 'Hide the details' : 'Something is wrong, show me the details') + '</button>';
@@ -10803,6 +11062,20 @@
     if (t('[data-resetopen]')){ commitSettings(); resetting = { ack: false }; render(); return; }
     if (t('[data-resetclose]')){ resetting = null; render(); return; }
     if (t('[data-resetgo]')){ doReset(); return; }
+    if (t('[data-tourclose]')){ tourClose(); return; }
+    if (t('[data-tournext]')){
+      if (tour && tour.i >= TOUR.length - 1){ tourClose(); return; }
+      tourStep(1); return;
+    }
+    if (t('[data-tourback]')){ tourStep(-1); return; }
+    if (t('[data-tourplay]')){ tourPlay(); return; }
+    if ((m = t('[data-tourgo]'))){
+      if (!tour) return;
+      tour.i = Math.max(0, Math.min(TOUR.length - 1, +m.dataset.tourgo));
+      tour.playing = false; clearTimeout(tour.timer); speakStop(); render();
+      return;
+    }
+    if (t('[data-tour]')){ tourOpen(); return; }
     if (t('[data-voicetry]')){
       if (speaking === 'try') speakStop(); else say(voiceTryWords(), 'try');
       return;
@@ -11549,6 +11822,7 @@
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'fd_name'){ e.preventDefault(); const b = app.querySelector('[data-foldersave]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newfolder'){ e.preventDefault(); const b = app.querySelector('[data-foldermake]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && tour){ tourClose(); return; }
     if (e.key === 'Escape' && whyOpen){ whyOpen = ''; render(); return; }
     if (e.key === 'Escape' && folderEdit){ folderEdit = null; clearDraft('fd_name'); render(); return; }
     if (e.key === 'Enter' && e.target.id === 'tg_name'){ e.preventDefault(); const b = app.querySelector('[data-tagsave]'); if (b) b.click(); return; }

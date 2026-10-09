@@ -1051,6 +1051,8 @@
     :is(#soft-app, .ath-side) .trow.just .tcheck .mark::after, #soft-app .item.just .dot svg path,
     :is(#soft-app, .ath-side) .trow.just .tcheck .mark svg path, #soft-app .celebrate,
     #soft-app .jar.cheer .jst.on, #soft-app .jar.cheer .jbody, #soft-app .rk-all,
+    #soft-app .t-stage > *, #soft-app .t-blk.in, #soft-app .t-cat, #soft-app .t-arrow,
+    #soft-app .t-ms, #soft-app .t-dump .t-task,
     #soft-app .rkrow.just .rk-tick, #soft-app .rkrow.just .rk-tick svg path { animation: none; }
     #soft-app .hpr .rfg { transition: none; }
   }
@@ -1355,6 +1357,173 @@
   }
   @keyframes athTalk { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
 
+  /* ---- the run-through ---- */
+  /* The stage is a fixed height so the caption and the controls do not walk
+     up and down the screen between scenes. Eleven scenes of furniture
+     shuffling is the difference between a tour and a slideshow. */
+  #soft-app .modal.tour { max-width: 460px; }
+  #soft-app .t-stage {
+    height: 210px; display: flex; align-items: center; justify-content: center;
+    padding: 8px 2px; margin-bottom: 4px;
+  }
+  #soft-app .t-cap {
+    margin: 0 0 14px; text-align: center; font-family: var(--serif);
+    font-size: 19px; line-height: 1.35; color: var(--text); text-wrap: balance;
+  }
+  #soft-app .t-quiet { margin: 10px 0 0; text-align: center; font-size: 11.5px; color: var(--ghost); }
+
+  #soft-app .t-dots { display: flex; justify-content: center; gap: 6px; margin-bottom: 14px; }
+  #soft-app .t-dot {
+    width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%;
+    background: var(--line); cursor: pointer; transition: background .25s, width .25s;
+  }
+  #soft-app .t-dot.seen { background: var(--ghost); }
+  #soft-app .t-dot.on { width: 18px; border-radius: 4px; background: var(--live); }
+
+  #soft-app .t-bar { display: flex; align-items: center; gap: 8px; }
+  #soft-app .t-bar .go {
+    background: var(--live); color: var(--on-live); border: 0; border-radius: 10px;
+    padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  #soft-app .t-bar .ghost[disabled] { opacity: .35; cursor: default; }
+  #soft-app .t-play { min-width: 74px; }
+  #soft-app .t-skip { display: block; margin: 12px auto 0; }
+
+  /* Every picture fades up together rather than each piece arriving on its
+     own schedule, which looked busy. The pieces inside then stagger. */
+  @media (prefers-reduced-motion: no-preference) {
+    #soft-app .t-stage > * { animation: athTourIn .4s ease both; }
+  }
+  @keyframes athTourIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  /* --- a day --- */
+  #soft-app .t-day { width: 100%; }
+  #soft-app .t-hours {
+    display: flex; justify-content: space-between; margin-bottom: 6px;
+    font-size: 10px; color: var(--ghost); letter-spacing: .03em;
+  }
+  #soft-app .t-rail {
+    position: relative; height: 72px; border-radius: 10px;
+    background: var(--line); opacity: .99;
+  }
+  #soft-app .t-blk {
+    position: absolute; top: 8px; bottom: 8px; border-radius: 8px;
+    padding: 7px 9px; overflow: hidden; color: #2C2932;
+  }
+  #soft-app .t-blk b { display: block; font-size: 12px; font-weight: 600; }
+  #soft-app .t-blk em { display: block; font-style: normal; font-size: 10px; opacity: .75; }
+  @media (prefers-reduced-motion: no-preference) {
+    #soft-app .t-blk.in { animation: athBlkIn .45s cubic-bezier(.34,1.4,.64,1) both; }
+  }
+  @keyframes athBlkIn { from { opacity: 0; transform: scaleX(.3); transform-origin: left; } to { opacity: 1; transform: none; } }
+
+  /* --- categories --- */
+  #soft-app .t-cats { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  #soft-app .t-cat {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 13px; border-radius: 999px; font-size: 13px;
+    border: 1px solid var(--cc); color: var(--text);
+    background: color-mix(in srgb, var(--cc) 16%, transparent);
+  }
+  #soft-app .t-cat i { width: 9px; height: 9px; border-radius: 50%; background: var(--cc); }
+  @media (prefers-reduced-motion: no-preference) {
+    #soft-app .t-cat { animation: athTourIn .4s ease both; }
+  }
+
+  /* --- a task finding its block --- */
+  #soft-app .t-match { width: 100%; max-width: 290px; }
+  #soft-app .t-task {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 11px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--card, transparent);
+  }
+  #soft-app .t-task i { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+  #soft-app .t-task span { font-size: 13px; color: var(--text); }
+  #soft-app .t-task em { display: block; font-style: normal; font-size: 11px; color: var(--ghost); }
+  #soft-app .t-arrow { text-align: center; font-size: 17px; color: var(--live); margin: 2px 0; line-height: 1.1; }
+  #soft-app .t-blk.t-into { position: static; padding: 11px 13px; border-radius: 10px; }
+  @media (prefers-reduced-motion: no-preference) {
+    #soft-app .t-arrow { animation: athDrop 1.5s ease-in-out infinite; }
+  }
+  @keyframes athDrop { 0%, 100% { transform: translateY(-2px); opacity: .6; } 50% { transform: translateY(2px); opacity: 1; } }
+
+  /* --- rocks and the jar --- */
+  #soft-app .t-rocks { display: flex; align-items: center; gap: 18px; }
+  #soft-app .t-rklist { display: flex; flex-direction: column; gap: 9px; }
+  #soft-app .t-rk { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--text); }
+  #soft-app .t-rk.done { color: var(--ghost); text-decoration: line-through; }
+  #soft-app .t-rkn {
+    width: 26px; height: 26px; flex: 0 0 auto; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600;
+    border: 1px solid var(--live); color: var(--live);
+  }
+  #soft-app .t-rk.done .t-rkn { background: var(--live); color: var(--on-live); border-color: var(--live); }
+  #soft-app .t-rk.done .t-rkn svg { width: 13px; height: 13px; }
+
+  /* --- the fortnight, and the card after two misses --- */
+  #soft-app .t-run { text-align: center; }
+  #soft-app .t-run .hrun { justify-content: center; }
+  #soft-app .t-run .hrun-w { margin-bottom: 0; }
+  #soft-app .t-slip { transform: scale(.94); }
+  #soft-app .t-slip p { margin: 0 0 8px; font-size: 12.5px; }
+  /* A picture of a button, not a button: tapping it in here should do
+     nothing, so it is not one. */
+  #soft-app .t-fakego {
+    display: inline-block; background: var(--live); color: var(--on-live);
+    border-radius: 10px; padding: 8px 14px; font-size: 13px; font-weight: 600;
+  }
+
+  /* --- a goal --- */
+  #soft-app .t-goal { text-align: center; }
+  #soft-app .t-goal > b { font-size: 15px; color: var(--text); }
+  #soft-app .t-goal > em { display: block; font-style: normal; font-size: 12px; color: var(--ghost); margin-top: 2px; }
+  #soft-app .t-line { display: flex; justify-content: center; gap: 4px; margin: 14px 0 10px; }
+  #soft-app .t-ms {
+    position: relative; flex: 1; max-width: 72px; padding-top: 16px;
+    font-size: 11px; color: var(--dim);
+  }
+  #soft-app .t-ms::before {
+    content: ""; position: absolute; top: 6px; left: 0; right: 0; height: 2px;
+    background: var(--line);
+  }
+  #soft-app .t-ms.done::before { background: var(--cc); }
+  #soft-app .t-ms i {
+    position: absolute; top: 2px; left: 50%; margin-left: -5px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--bg); border: 2px solid var(--line);
+  }
+  #soft-app .t-ms.done i { background: var(--cc); border-color: var(--cc); }
+  #soft-app .t-goal p { margin: 0; font-size: 12px; color: var(--ghost); }
+  @media (prefers-reduced-motion: no-preference) {
+    #soft-app .t-ms { animation: athTourIn .4s ease both; }
+  }
+
+  /* --- the brain dump --- */
+  #soft-app .t-dump { width: 100%; max-width: 300px; }
+  #soft-app .t-ask {
+    padding: 10px 13px; border-radius: 10px; border: 1px solid var(--live);
+    background: var(--live-soft); font-size: 12.5px; color: var(--text);
+  }
+  #soft-app .t-dump .t-task { margin-top: 5px; }
+  #soft-app .t-task.t-mini { padding: 7px 11px; }
+  #soft-app .t-task.t-mini > span { flex: 1; font-size: 12.5px; }
+  #soft-app .t-task.t-mini > em {
+    font-style: normal; font-size: 11px; color: var(--ghost); flex: 0 0 auto;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #soft-app .t-dump .t-task { animation: athTourIn .4s ease both; }
+  }
+
+  /* --- the mark --- */
+  #soft-app .t-mark { width: 92px; height: 92px; color: var(--live); opacity: .9; }
+  #soft-app .t-mark svg { width: 100%; height: 100%; }
+
+  @media (max-width: 420px) {
+    #soft-app .t-stage { height: 190px; }
+    #soft-app .t-cap { font-size: 17px; }
+    #soft-app .t-rocks { gap: 10px; }
+  }
   #soft-app .belief { padding: 11px 0; border-bottom: 1px solid var(--line); }
   #soft-app .belief:last-child { border-bottom: 0; }
   #soft-app .belief b { display: block; font-size: 14.5px; color: var(--text); font-weight: 600; }
