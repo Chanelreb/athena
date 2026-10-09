@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-09.3';
+  const BUILD = '2026-10-09.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1654,7 +1654,10 @@
   }
   // Give a bulk change long enough on screen to read, with its undo.
   /* ---------- Athena out loud ---------- */
-  const voiceDefaults = () => ({ on: false, name: '', rate: 1 });
+  // Unhurried, and a little below the pitch these ship at. Both deliberately
+  // gentle rather than dramatic: past about 0.85 on either, a voice stops
+  // sounding calm and starts sounding unwell.
+  const voiceDefaults = () => ({ on: false, name: '', rate: 0.92, pitch: 0.92 });
   const voicePrefs = () => Object.assign(voiceDefaults(), (S.profile && S.profile.voice) || {});
   const voiceOn = () => !!voicePrefs().on;
   const voiceCan = () => typeof window !== 'undefined' && !!window.speechSynthesis &&
@@ -1697,6 +1700,8 @@
         if (ly === mine) return 1;
         return langName(lx) < langName(ly) ? -1 : 1;
       }
+      const d = voiceScore(y) - voiceScore(x);
+      if (d) return d;
       return (x.name || '') < (y.name || '') ? -1 : 1;
     });
   }
@@ -1719,10 +1724,59 @@
     const v = voicePick();
     return !!v && langOf(v) !== myLang();
   }
+  /* Named voices, because the API has no gender and the name is all there
+     is. These are the ones that actually ship with Windows, macOS, iOS,
+     Android and Chrome, which covers nearly everybody; anything unknown
+     simply scores neutral and keeps its place. */
+  const SHE = ('zira hazel susan catherine linda eva heera elsa helena laura maria ' +
+    'paulina irina sabina hortense samantha karen moira tessa fiona victoria allison ' +
+    'ava vicki kathy serena nicky zoe alice amelie anna ellen joana luciana milena ' +
+    'monica sara satu yuna melina lekha damayanti tracy aria jenny michelle sonia ' +
+    'natasha clara libby denise'). split(' ');
+  const HE = ('george james david mark richard daniel alex fred tom oliver lee rishi ' +
+    'aaron nathan gordon ravi jorge diego thomas xander yuri otoya maged guy ryan ' +
+    'william liam christopher eric brandon'). split(' ');
+  const hasWord = (s, w) => new RegExp('(^|[^a-z])' + w + '([^a-z]|$)', 'i').test(s);
+
+  /* 1 she, -1 he, 0 no idea. 'female' is checked before 'male' on purpose:
+     the word female contains the word male, and a naive check calls every
+     Google female voice a man. */
+  function voiceSounds(v){
+    const n = String((v && v.name) || '').toLowerCase();
+    if (n.indexOf('female') !== -1 || n.indexOf('woman') !== -1) return 1;
+    // Both as whole words. Samantha contains man, Normandy contains man,
+    // and a substring test calls them both blokes.
+    if (hasWord(n, 'male') || hasWord(n, 'man')) return -1;
+    if (SHE.some(w => hasWord(n, w))) return 1;
+    if (HE.some(w => hasWord(n, w))) return -1;
+    return 0;
+  }
+
+  /* What Athena reaches for when nobody has chosen. A woman's voice first,
+     then one that speaks the way the device does, because en-AU read in
+     en-GB is subtly wrong all day in a way that is hard to put a finger on.
+     The engine's own default is the last word, not the first: on Windows it
+     is whichever voice was installed first, which is no recommendation. */
+  function voiceScore(v){
+    let n = 0;
+    const g = voiceSounds(v);
+    if (g > 0) n += 100; else if (g < 0) n -= 40;
+    const full = String((typeof navigator !== 'undefined' && navigator.language) || '').toLowerCase();
+    const vl = String((v && v.lang) || '').toLowerCase().replace('_', '-');
+    if (full && vl === full) n += 30;
+    else if (full && vl.slice(0, 2) === full.slice(0, 2)) n += 10;
+    if (v && v.localService) n += 4;          // offline, and usually the better one
+    if (v && v.default) n += 1;
+    return n;
+  }
+
   function voicePick(){
     const want = voicePrefs().name;
     const all = voiceList();
-    return all.find(v => v.name === want) || all.find(v => v.default) || all[0] || null;
+    if (!all.length) return null;
+    const chosen = all.find(v => v.name === want);
+    if (chosen) return chosen;
+    return all.slice().sort((x, y) => voiceScore(y) - voiceScore(x))[0];
   }
 
   /* The permission, bought once. An empty utterance makes no sound and is
@@ -1776,6 +1830,7 @@
       const v = voicePick();
       if (v){ u.voice = v; u.lang = v.lang; }
       u.rate = Math.min(2, Math.max(0.5, +p.rate || 1));
+      u.pitch = Math.min(1.6, Math.max(0.5, +p.pitch || 1));
       speaking = tag || 'athena';
       u.onend = u.onerror = () => { if (speaking === (tag || 'athena')){ speaking = ''; render(); } };
       window.speechSynthesis.speak(u);
@@ -7821,13 +7876,16 @@
         setVoice('name', e.target.value); render(); say(voiceTryWords(), 'try'); return;
       }
       if (e.target.id === 's_voicerate'){ setVoice('rate', +e.target.value || 1); render(); return; }
+      if (e.target.id === 's_voicepitch'){ setVoice('pitch', +e.target.value || 1); render(); return; }
     });
 
     // A slider is judged while it moves. Speaking on every pixel would be
     // chaos, so this waits for the moment it is let go of.
     shell.addEventListener('input', e => {
-      if (e.target.id !== 's_voicerate') return;
-      setVoice('rate', +e.target.value || 1);
+      const which = e.target.id === 's_voicerate' ? 'rate'
+        : e.target.id === 's_voicepitch' ? 'pitch' : '';
+      if (!which) return;
+      setVoice(which, +e.target.value || 1);
       clearTimeout(rateTimer);
       rateTimer = setTimeout(() => { render(); say(voiceTryWords(), 'try'); }, 450);
     });
@@ -9202,12 +9260,16 @@
           'with <b>Try it</b> before you rely on it.</p>';
       }
     }
-    h += '<label class="fld"><span>How fast</span>' +
-      '<input id="s_voicerate" type="range" min="0.6" max="1.6" step="0.1" value="' +
-      (+p.rate || 1) + '"></label>';
+    h += '<div class="fld two">' +
+      '<label><span>Pace \u00b7 ' + esc(voiceRateWords(+p.rate || 1)) + '</span>' +
+      '<input id="s_voicerate" type="range" min="0.6" max="1.4" step="0.02" value="' +
+      (+p.rate || 1) + '"></label>' +
+      '<label><span>Tone \u00b7 ' + esc(voicePitchWords(+p.pitch || 1)) + '</span>' +
+      '<input id="s_voicepitch" type="range" min="0.7" max="1.3" step="0.02" value="' +
+      (+p.pitch || 1) + '"></label></div>';
     h += '<div class="vrow"><button class="ghost" data-voicetry>' +
       (speaking === 'try' ? 'Stop' : 'Try it') + '</button>' +
-      '<span class="setnote">' + esc(voiceRateWords(+p.rate || 1)) + '</span></div>';
+      '<button class="linkish" data-voicecalm>Set it back to calm</button></div>';
     // Said plainly, because somebody will otherwise conclude it is broken.
     h += '<p class="setnote">These are the voices already on this device, so Athena sounds a ' +
       'little different on your phone than on your laptop, and a device with one voice offers ' +
@@ -9218,7 +9280,9 @@
     return h;
   }
   const voiceRateWords = r =>
-    r <= 0.7 ? 'Slow' : r <= 0.9 ? 'Unhurried' : r < 1.15 ? 'Normal' : r < 1.4 ? 'Brisk' : 'Fast';
+    r < 0.78 ? 'Slow' : r < 0.97 ? 'Unhurried' : r < 1.12 ? 'Normal' : r < 1.3 ? 'Brisk' : 'Fast';
+  const voicePitchWords = p =>
+    p < 0.82 ? 'Low' : p < 0.97 ? 'Warm' : p < 1.1 ? 'Normal' : p < 1.22 ? 'Bright' : 'High';
 
   function tzSettingsHTML(){
     const dev = deviceTZ(), pin = pinnedTZ(), using = appTZ();
@@ -11076,6 +11140,12 @@
       return;
     }
     if (t('[data-tour]')){ tourOpen(); return; }
+    if (t('[data-voicecalm]')){
+      const d = voiceDefaults();
+      setVoice('rate', d.rate); setVoice('pitch', d.pitch); setVoice('name', '');
+      clearDraft('s_voicename'); render(); say(voiceTryWords(), 'try');
+      return;
+    }
     if (t('[data-voicetry]')){
       if (speaking === 'try') speakStop(); else say(voiceTryWords(), 'try');
       return;
