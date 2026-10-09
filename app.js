@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-09.1';
+  const BUILD = '2026-10-09.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1667,15 +1667,55 @@
 
   // Chrome hands back an empty list on the first call and fills it in a tick
   // later, so this is asked every time rather than kept.
+  const langOf = v => String((v && v.lang) || '').slice(0, 2).toLowerCase();
+  const myLang = () => String((typeof navigator !== 'undefined' && navigator.language) || 'en')
+    .slice(0, 2).toLowerCase();
+
+  // 'el' on its own means nothing to anybody. Intl knows the words.
+  function langName(code){
+    try {
+      const n = new Intl.DisplayNames([navigator.language || 'en'], { type: 'language' }).of(code);
+      if (n && n !== code) return n.charAt(0).toUpperCase() + n.slice(1);
+    } catch(_){}
+    return code.toUpperCase();
+  }
+
+  /* All of them, the device's own language first and the rest after in
+     alphabetical order of language, so the common case is still the top of
+     the list and the deliberate case is still reachable. */
   function voiceList(){
     if (!voiceCan()) return [];
     let all = [];
     try { all = window.speechSynthesis.getVoices() || []; } catch(_){ return []; }
-    // The device's own language first: on a machine with forty voices the
-    // twelve that speak your language are the only ones worth scrolling.
-    const lang = (navigator.language || 'en').slice(0, 2).toLowerCase();
-    const mine = all.filter(v => (v.lang || '').slice(0, 2).toLowerCase() === lang);
-    return (mine.length ? mine : all).slice();
+    const mine = myLang();
+    return all.slice().sort((x, y) => {
+      const lx = langOf(x), ly = langOf(y);
+      if (lx !== ly){
+        if (lx === mine) return -1;
+        if (ly === mine) return 1;
+        return langName(lx) < langName(ly) ? -1 : 1;
+      }
+      return (x.name || '') < (y.name || '') ? -1 : 1;
+    });
+  }
+
+  // Grouped for the picker, in the order voiceList put them.
+  function voiceGroups(){
+    const out = [];
+    voiceList().forEach(v => {
+      const code = langOf(v);
+      const last = out[out.length - 1];
+      if (last && last.code === code) last.voices.push(v);
+      else out.push({ code: code, label: langName(code), voices: [v] });
+    });
+    return out;
+  }
+  // True when the chosen voice does not speak the language Athena is written
+  // in, which is a thing worth saying out loud rather than leaving to be
+  // discovered.
+  function voiceIsForeign(){
+    const v = voicePick();
+    return !!v && langOf(v) !== myLang();
   }
   function voicePick(){
     const want = voicePrefs().name;
@@ -7772,7 +7812,12 @@
 
     shell.addEventListener('change', e => {
       if (e.target.id === 's_voiceon'){ setVoice('on', !!e.target.checked); speakStop(); render(); return; }
-      if (e.target.id === 's_voicename'){ setVoice('name', e.target.value); say(voiceTryWords(), 'try'); return; }
+      // Redraw first, then speak. say() happens to render when it works, and
+      // leaning on that meant a voice the engine refuses left the panel showing
+      // the old choice with none of the notes that go with the new one.
+      if (e.target.id === 's_voicename'){
+        setVoice('name', e.target.value); render(); say(voiceTryWords(), 'try'); return;
+      }
       if (e.target.id === 's_voicerate'){ setVoice('rate', +e.target.value || 1); render(); return; }
     });
 
@@ -9127,10 +9172,32 @@
         'Athena will use whatever it is given once there is one.</div>';
     } else {
       const cur = voicePick();
+      const opt = v => '<option value="' + esc(v.name) + '"' +
+        (cur && v.name === cur.name ? ' selected' : '') + '>' + esc(v.name) + '</option>';
+      const groups = voiceGroups();
       h += '<label class="fld"><span>Which voice</span><select id="s_voicename">' +
-        list.map(v => '<option value="' + esc(v.name) + '"' +
-          (cur && v.name === cur.name ? ' selected' : '') + '>' + esc(v.name) +
-          '</option>').join('') + '</select></label>';
+        (groups.length === 1
+          ? groups[0].voices.map(opt).join('')
+          : groups.map(g => '<optgroup label="' + esc(g.label) + '">' +
+              g.voices.map(opt).join('') + '</optgroup>').join('')) +
+        '</select></label>';
+      /* Voices are per device and the choice syncs, so a voice installed on
+         the phone is a name this laptop has never heard of. It falls back on
+         its own, which is right, but doing it in silence leaves somebody
+         wondering why Athena sounds like somebody else today. */
+      const want = p.name;
+      if (want && cur && cur.name !== want){
+        h += '<div class=\"savewarn\">You chose <b>' + esc(want) + '</b>, which is not installed ' +
+          'on this device. Athena is using <b>' + esc(cur.name) + '</b> here instead. Installing ' +
+          'that voice on this device, or picking another, will settle it.</div>';
+      }
+      if (voiceIsForeign()){
+        h += '<p class="setnote">That voice speaks ' + esc(langName(langOf(cur))) +
+          '. Given English, it will read the words with ' + esc(langName(langOf(cur))) +
+          ' pronunciation, which is the nearest thing to an accent any device voice ' +
+          'can do. Some engines carry it off and some turn it to mush, so judge it ' +
+          'with <b>Try it</b> before you rely on it.</p>';
+      }
     }
     h += '<label class="fld"><span>How fast</span>' +
       '<input id="s_voicerate" type="range" min="0.6" max="1.6" step="0.1" value="' +
@@ -9139,9 +9206,12 @@
       (speaking === 'try' ? 'Stop' : 'Try it') + '</button>' +
       '<span class="setnote">' + esc(voiceRateWords(+p.rate || 1)) + '</span></div>';
     // Said plainly, because somebody will otherwise conclude it is broken.
-    h += '<p class="setnote">This is a voice already on your device, so Athena sounds a little ' +
-      'different on your phone than on your laptop. Browsers also refuse to make any sound until ' +
-      'you have tapped the page once, which is why nothing speaks the instant Athena opens.</p>';
+    h += '<p class="setnote">These are the voices already on this device, so Athena sounds a ' +
+      'little different on your phone than on your laptop, and a device with one voice offers ' +
+      'one. More can be installed: on Windows through Settings, Time &amp; language, Language ' +
+      '&amp; region; on an iPhone through Settings, Accessibility, Spoken Content, Voices. ' +
+      'Anything you add turns up in this list. Browsers also refuse to make any sound until you ' +
+      'have tapped the page once, which is why nothing speaks the instant Athena opens.</p>';
     return h;
   }
   const voiceRateWords = r =>
