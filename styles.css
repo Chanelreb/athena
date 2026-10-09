@@ -1331,6 +1331,30 @@
   #soft-app .tznow b { display: block; font-size: 14.5px; font-weight: 600; color: var(--text); }
   #soft-app .tznow span { display: block; margin-top: 2px; font-size: 12.5px; color: var(--dim); }
 
+  /* The speaker. On the day it borrows the cog's shape so the row of
+     controls stays a row; in the check-in it sits against the intro line. */
+  #soft-app .cog.spk svg { width: 19px; height: 19px; }
+  #soft-app .vrow { display: flex; align-items: center; gap: 12px; margin: 2px 0 4px; }
+  #soft-app .vrow .setnote { margin: 0; }
+  #soft-app .mbrief { display: flex; align-items: flex-start; gap: 10px; }
+  #soft-app .mbrief .ai-intro { flex: 1; margin-bottom: 0; }
+  #soft-app .spk-in {
+    flex: 0 0 auto; width: 36px; height: 36px; padding: 7px; margin: -4px 0 0;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: 1px solid var(--line); border-radius: 10px;
+    color: var(--dim); cursor: pointer;
+  }
+  #soft-app .spk-in svg { width: 100%; height: 100%; }
+  #soft-app .spk-in:hover { color: var(--text); border-color: var(--live); }
+  /* While it is talking, so the control that stops it is the obvious one
+     on the screen rather than something to go hunting for. */
+  #soft-app .talking { color: var(--live); border-color: var(--live); }
+  #soft-app .cog.talking { color: var(--live); }
+  @media (prefers-reduced-motion: no-preference) {
+    #soft-app .talking { animation: athTalk 1.5s ease-in-out infinite; }
+  }
+  @keyframes athTalk { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+
   #soft-app .belief { padding: 11px 0; border-bottom: 1px solid var(--line); }
   #soft-app .belief:last-child { border-bottom: 0; }
   #soft-app .belief b { display: block; font-size: 14.5px; color: var(--text); font-weight: 600; }

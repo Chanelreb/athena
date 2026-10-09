@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-08.1';
+  const BUILD = '2026-10-09.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -199,6 +199,11 @@
       '<circle class="mring" cx="' + cx + '" cy="' + cy + '" r="' + r + '"/></svg>';
   }
 
+  const SPKR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4Z"/>' +
+    '<path d="M15.5 9.2a4 4 0 0 1 0 5.6"/><path d="M18.2 6.5a8 8 0 0 1 0 11"/></svg>';
+  const SPKR_STOP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
   const PIN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+
     '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6Z"/></svg>';
   // A settings control should look like a settings control. The daily drawing is
@@ -1646,6 +1651,116 @@
     return parts.join('. ') || 'Nothing needed placing';
   }
   // Give a bulk change long enough on screen to read, with its undo.
+  /* ---------- Athena out loud ---------- */
+  const voiceDefaults = () => ({ on: false, name: '', rate: 1 });
+  const voicePrefs = () => Object.assign(voiceDefaults(), (S.profile && S.profile.voice) || {});
+  const voiceOn = () => !!voicePrefs().on;
+  const voiceCan = () => typeof window !== 'undefined' && !!window.speechSynthesis &&
+    typeof window.SpeechSynthesisUtterance === 'function';
+  function setVoice(k, v){
+    if (!S.profile) S.profile = blank().profile;
+    const cur = voicePrefs();
+    cur[k] = v;
+    S.profile.voice = cur;
+    save();
+  }
+
+  // Chrome hands back an empty list on the first call and fills it in a tick
+  // later, so this is asked every time rather than kept.
+  function voiceList(){
+    if (!voiceCan()) return [];
+    let all = [];
+    try { all = window.speechSynthesis.getVoices() || []; } catch(_){ return []; }
+    // The device's own language first: on a machine with forty voices the
+    // twelve that speak your language are the only ones worth scrolling.
+    const lang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+    const mine = all.filter(v => (v.lang || '').slice(0, 2).toLowerCase() === lang);
+    return (mine.length ? mine : all).slice();
+  }
+  function voicePick(){
+    const want = voicePrefs().name;
+    const all = voiceList();
+    return all.find(v => v.name === want) || all.find(v => v.default) || all[0] || null;
+  }
+
+  /* The permission, bought once. An empty utterance makes no sound and is
+     not worth cancelling, and after it the page is allowed to speak for the
+     rest of its life, including from inside a promise that resolved long
+     after the tap that started it. */
+  let voiceUnlocked = false;
+  function voiceUnlock(){
+    if (voiceUnlocked || !voiceCan()) return;
+    voiceUnlocked = true;
+    try {
+      const u = new SpeechSynthesisUtterance(' ');
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+    } catch(_){}
+  }
+
+  // Said out loud, a time reads better spelt than punctuated, and a bare
+  // dash in the middle of a sentence is read as nothing at all rather than
+  // as the pause it was standing in for.
+  function speakable(t){
+    return String(t || '')
+      .replace(/\u2014|\u2013/g, ', ')
+      .replace(/\b(\d{1,2})(:(\d{2}))?(am|pm)\b/gi,
+        (m, h, _c, mm, ap) => h + (mm && mm !== '00' ? ' ' + (+mm) : '') + ' ' + ap.toLowerCase().split('').join(' '))
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  let speaking = '';           // a short tag naming what is being read, or ''
+  let speakTimer = null;
+  function speakStop(){
+    if (!voiceCan()) return;
+    try { window.speechSynthesis.cancel(); } catch(_){}
+    clearInterval(speakTimer); speakTimer = null;
+    if (speaking){ speaking = ''; render(); }
+  }
+
+  /* The one way in. Everything that wants Athena to say something calls
+     this, which is the whole point of its existing: the device's voice is
+     behind it today and something better can be behind it tomorrow without
+     a single caller changing. */
+  function say(text, tag){
+    if (!voiceOn() || !voiceCan()) return false;
+    const words = speakable(text);
+    if (!words) return false;
+    speakStop();                     // a new thing interrupts, it does not queue
+    const p = voicePrefs();
+    try {
+      const u = new SpeechSynthesisUtterance(words);
+      const v = voicePick();
+      if (v){ u.voice = v; u.lang = v.lang; }
+      u.rate = Math.min(2, Math.max(0.5, +p.rate || 1));
+      speaking = tag || 'athena';
+      u.onend = u.onerror = () => { if (speaking === (tag || 'athena')){ speaking = ''; render(); } };
+      window.speechSynthesis.speak(u);
+      /* Chrome stops speaking after about fifteen seconds unless it is
+         poked, a bug old enough to vote. Resuming on a timer costs nothing
+         and is the only reason a long brief finishes. */
+      clearInterval(speakTimer);
+      speakTimer = setInterval(() => {
+        if (!window.speechSynthesis.speaking){ clearInterval(speakTimer); speakTimer = null; return; }
+        try { window.speechSynthesis.pause(); window.speechSynthesis.resume(); } catch(_){}
+      }, 9000);
+      render();
+      return true;
+    } catch(_){ speaking = ''; return false; }
+  }
+
+  // Both places that offer to read the day use this, so they can never drift
+  // into saying different things or looking like different controls.
+  function briefBtnHTML(cls){
+    if (!voiceOn() || !voiceCan()) return '';
+    const going = speaking === 'brief';
+    return '<button class="' + cls + (going ? ' talking' : '') + '" data-saybrief ' +
+      'aria-label="' + (going ? 'Stop reading' : 'Read my day to me') + '" ' +
+      'title="' + (going ? 'Stop reading' : 'Read my day to me') + '">' +
+      (going ? SPKR_STOP : SPKR) + '</button>';
+  }
+
   function announce(label){
     if (!undoState) return;
     undoState.label = label;
@@ -5920,9 +6035,81 @@
     save(); render();
   }
 
+  const SPOKEN_MONTHS = ['January','February','March','April','May','June','July',
+                         'August','September','October','November','December'];
+  function ordinal(n){
+    const t = n % 100;
+    if (t >= 11 && t <= 13) return n + 'th';
+    return n + ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+  }
+  const SMALL = ['no','one','two','three','four','five','six','seven','eight','nine','ten'];
+  const spokenN = n => (n >= 0 && n <= 10) ? SMALL[n] : String(n);
+  const spokenList = xs =>
+    xs.length < 2 ? (xs[0] || '')
+      : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1];
+
+  function spokenBrief(now){
+    const b = dayBrief(now);
+    const name = (S.profile && S.profile.name) ? ', ' + S.profile.name : '';
+    const hr = now.getHours();
+    const out = [(hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening') + name + '.'];
+    out.push('It is ' + DAYS[now.getDay()] + ' the ' + ordinal(now.getDate()) + ' of ' +
+      SPOKEN_MONTHS[now.getMonth()] + '.');
+
+    // What is left of the day, not what the day had in it. At four in the
+    // afternoon the three blocks you already finished are not news.
+    const ahead = b.ahead.filter(x => !x.step && !x.task);
+    if (!ahead.length && !b.meets.length){
+      out.push('Nothing booked for the rest of today.');
+    } else {
+      if (ahead.length){
+        out.push(ahead.length === 1
+          ? 'One block left: ' + ahead[0].t + ' at ' + clockOf(ahead[0].s) + '.'
+          : spokenN(ahead.length) + ' blocks left. The next is ' + ahead[0].t +
+            ' at ' + clockOf(ahead[0].s) + '.');
+      }
+      const meets = b.meets.filter(m => !isBanner(m) && m.em > (hr * 60 + now.getMinutes()));
+      if (meets.length) out.push(meets.length === 1
+        ? 'One thing in your calendar: ' + meets[0].t + ' at ' + clockOf(fmtM(meets[0].sm)) + '.'
+        : spokenN(meets.length) + ' things in your calendar, the next at ' +
+          clockOf(fmtM(meets[0].sm)) + '.');
+    }
+
+    // The two that are genuinely urgent get named, because a count you
+    // cannot act on is just a worry.
+    if (b.closing.length) out.push(spokenList(b.closing.slice(0, 2).map(tk =>
+      tk.title + ' closes at ' + clockOf(hardClose(tk)))) + '.');
+    if (b.late.length) out.push(b.late.length === 1
+      ? 'One task is overdue: ' + b.late[0].title + '.'
+      : spokenN(b.late.length) + ' tasks are overdue.');
+    if (b.owed.length) out.push(b.owed.length === 1
+      ? 'You committed to ' + b.owed[0].text + ' today.'
+      : spokenN(b.owed.length) + ' commitments are due today.');
+
+    // And the question the whole thing is for.
+    const rocks = rocksOn(dayKey(now));
+    if (!rocks) out.push('You have not set your rocks yet. What are the three things that would make today a good day?');
+    else if (!rocks.length) out.push('No rocks today.');
+    else {
+      const left = rocks.filter(r => !rockDone(r, now));
+      const done = rocks.length - left.length;
+      if (!left.length) out.push('Every rock is down. The rest of today is yours.');
+      else if (done) out.push(spokenN(done) + ' of your ' + spokenN(rocks.length) + ' rocks ' +
+        (done === 1 ? 'is' : 'are') + ' done. Still to go: ' +
+        spokenList(left.map(r => r.text)) + '.');
+      else out.push('Your ' + (rocks.length === 1 ? 'rock is ' : spokenN(rocks.length) + ' rocks are ') +
+        spokenList(rocks.map(r => r.text)) + '.');
+    }
+    // Spelling the numbers leaves sentences starting in lower case, and some
+    // engines read a capital as the hint that a new sentence has begun, so a
+    // flat delivery is the cost of not doing this.
+    return out.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
+  }
+
   function morningDayHTML(now){
     const b = dayBrief(now);
-    let h = '<p class="ai-intro">What today has on it, before you decide what it is for.</p>';
+    let h = '<div class="mbrief"><p class="ai-intro">What today has on it, before you decide ' +
+      'what it is for.</p>' + briefBtnHTML('spk-in') + '</div>';
 
     const rows = [];
     if (b.timed.length) rows.push([b.timed.length, 'block' + (b.timed.length !== 1 ? 's' : '') +
@@ -7387,6 +7574,15 @@
     };
     shell.addEventListener('input',  keep);
     shell.addEventListener('change', keep);
+    // Capture, and once: it has to run before any handler that might speak,
+    // and it costs nothing after the first time.
+    shell.addEventListener('pointerdown', voiceUnlock, { capture: true });
+    if (voiceCan() && typeof window.speechSynthesis.addEventListener === 'function'){
+      window.speechSynthesis.addEventListener('voiceschanged', () => {
+        if (settingsOpen && voiceOn()) render();
+      });
+    }
+    shell.addEventListener('keydown', voiceUnlock, { capture: true });
     // Six digits in means they are done typing, or the phone has just autofilled
     // the code from the email. Making them reach for a button after that is a
     // small insult, so submit it.
@@ -7575,6 +7771,21 @@
     });
 
     shell.addEventListener('change', e => {
+      if (e.target.id === 's_voiceon'){ setVoice('on', !!e.target.checked); speakStop(); render(); return; }
+      if (e.target.id === 's_voicename'){ setVoice('name', e.target.value); say(voiceTryWords(), 'try'); return; }
+      if (e.target.id === 's_voicerate'){ setVoice('rate', +e.target.value || 1); render(); return; }
+    });
+
+    // A slider is judged while it moves. Speaking on every pixel would be
+    // chaos, so this waits for the moment it is let go of.
+    shell.addEventListener('input', e => {
+      if (e.target.id !== 's_voicerate') return;
+      setVoice('rate', +e.target.value || 1);
+      clearTimeout(rateTimer);
+      rateTimer = setTimeout(() => { render(); say(voiceTryWords(), 'try'); }, 450);
+    });
+
+    shell.addEventListener('change', e => {
       if (e.target.id !== 's_tz') return;
       tzSet(e.target.value);
     });
@@ -7694,7 +7905,7 @@
   };
   const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
     'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','te_at','te_monthday','tk_when','tk_mins',
-    'ne_title','ne_body','ne_folder','ne_tag','ne_newfolder','ne_newitem','rk_edit','s_tz'];
+    'ne_title','ne_body','ne_folder','ne_tag','ne_newfolder','ne_newitem','rk_edit','s_tz','s_voicename'];
   const clearModalDrafts = () => { MODAL_IDS.forEach(clearDraft); tagDraft = ''; newFolder = null; };
 
   function paint(h){
@@ -7877,6 +8088,7 @@
       '<p>'+DAYS[now.getDay()]+' '+now.getDate()+' '+MON[now.getMonth()]+' · '+
       clockOf(pad(now.getHours())+':'+pad(now.getMinutes()))+'</p></div>'+
       '<div class="greetbtns">'+
+        briefBtnHTML('cog spk')+
         '<button class="cog mag" data-search aria-label="Find anything">'+MAG+'</button>'+
         '<button class="cog" data-settings aria-label="Settings">'+COG+'</button>'+
       '</div></div>';
@@ -8100,6 +8312,7 @@
   function askSay(who, text){
     if (!text) return;
     askThread.push({ who: who, text: String(text) });
+    if (who === 'athena') say(text, 'ask');
     while (askThread.length > ASK_TURNS) askThread.shift();
   }
   const askHistory = () => askThread.map(t =>
@@ -8888,6 +9101,52 @@
     } catch(_){ return ''; }
   }
 
+  let rateTimer = null;
+  // Long enough to judge a voice by, and it says what it is for.
+  const voiceTryWords = () => 'Hello' +
+    ((S.profile && S.profile.name) ? ', ' + S.profile.name : '') +
+    '. This is the voice Athena will read your day in.';
+
+  function voiceSettingsHTML(){
+    let h = '<div class="modal-h" style="margin-top:8px">Athena out loud</div>';
+    if (!voiceCan()){
+      h += '<p class="setnote">This browser cannot speak, so there is nothing to turn on here. ' +
+        'Every other browser on the same device probably can.</p>';
+      return h;
+    }
+    const p = voicePrefs();
+    h += '<label class="fld chk"><input id="s_voiceon" type="checkbox"' + (p.on ? ' checked' : '') + '>' +
+      '<span>Let Athena read things to you</span></label>';
+    h += '<p class="setnote">A speaker appears beside your name and in the morning check-in, and ' +
+      'reads your day: what is left of it, what is overdue, and what your rocks are. Answers from ' +
+      '<b>Ask Athena</b> read themselves as they arrive. Nothing ever speaks on its own.</p>';
+    if (!p.on) return h;
+    const list = voiceList();
+    if (!list.length){
+      h += '<div class="savewarn">No voices are installed on this device yet. ' +
+        'Athena will use whatever it is given once there is one.</div>';
+    } else {
+      const cur = voicePick();
+      h += '<label class="fld"><span>Which voice</span><select id="s_voicename">' +
+        list.map(v => '<option value="' + esc(v.name) + '"' +
+          (cur && v.name === cur.name ? ' selected' : '') + '>' + esc(v.name) +
+          '</option>').join('') + '</select></label>';
+    }
+    h += '<label class="fld"><span>How fast</span>' +
+      '<input id="s_voicerate" type="range" min="0.6" max="1.6" step="0.1" value="' +
+      (+p.rate || 1) + '"></label>';
+    h += '<div class="vrow"><button class="ghost" data-voicetry>' +
+      (speaking === 'try' ? 'Stop' : 'Try it') + '</button>' +
+      '<span class="setnote">' + esc(voiceRateWords(+p.rate || 1)) + '</span></div>';
+    // Said plainly, because somebody will otherwise conclude it is broken.
+    h += '<p class="setnote">This is a voice already on your device, so Athena sounds a little ' +
+      'different on your phone than on your laptop. Browsers also refuse to make any sound until ' +
+      'you have tapped the page once, which is why nothing speaks the instant Athena opens.</p>';
+    return h;
+  }
+  const voiceRateWords = r =>
+    r <= 0.7 ? 'Slow' : r <= 0.9 ? 'Unhurried' : r < 1.15 ? 'Normal' : r < 1.4 ? 'Brisk' : 'Fast';
+
   function tzSettingsHTML(){
     const dev = deviceTZ(), pin = pinnedTZ(), using = appTZ();
     let h = '<div class="modal-h" style="margin-top:8px">Time zone</div>';
@@ -9565,6 +9824,7 @@
     h += calSettingsHTML();
     h += trackSettingsHTML();
     h += nudgeSettingsHTML();
+    h += voiceSettingsHTML();
     h += '<div class="modal-h" style="margin-top:8px">Account</div>';
     if (cloud && session){
       h += '<div class="acctrow"><span class="acctmail">'+esc(session.user.email || 'Signed in')+'</span>'+
@@ -10473,6 +10733,15 @@
     if (t('[data-resetopen]')){ commitSettings(); resetting = { ack: false }; render(); return; }
     if (t('[data-resetclose]')){ resetting = null; render(); return; }
     if (t('[data-resetgo]')){ doReset(); return; }
+    if (t('[data-voicetry]')){
+      if (speaking === 'try') speakStop(); else say(voiceTryWords(), 'try');
+      return;
+    }
+    if (t('[data-saybrief]')){
+      if (speaking === 'brief') speakStop();
+      else say(spokenBrief(clock()), 'brief');
+      return;
+    }
     if ((m = t('[data-slipoff]'))){ slipDismiss(m.dataset.slipoff); return; }
     if ((m = t('[data-slipfloor]'))){ slipFloorDo(m.dataset.slipfloor); return; }
     if (t('[data-search]')){ openSearch(); return; }
@@ -10484,7 +10753,7 @@
     if ((m = t('[data-calforget]'))){ commitSettings(); calForget(m.dataset.calforget); return; }
     if ((m = t('[data-gapblock]'))){ gapBlock(m.dataset.gapblock); return; }
     if (t('[data-settings]')){ clearModalDrafts(); settingsOpen = true; render(); return; }
-    if (t('[data-closesettings]')){ commitSettings(); settingsOpen = false; clearModalDrafts(); render(); return; }
+    if (t('[data-closesettings]')){ speakStop(); commitSettings(); settingsOpen = false; clearModalDrafts(); render(); return; }
     if (t('[data-addcat]')){ commitSettings(); S.categories.push({ id:'c_'+uid8(), label:'New', color:'#B7B2BE' }); save(); render(); return; }
     if ((m = t('[data-delcat]'))){ commitSettings(); if (S.categories.length>1){ markUndo('Category removed'); S.categories = S.categories.filter(c=>c.id!==m.dataset.delcat); } save(); render(); return; }
 
