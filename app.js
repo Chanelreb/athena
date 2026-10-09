@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-09.4';
+  const BUILD = '2026-10-09.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -199,6 +199,13 @@
       '<circle class="mring" cx="' + cx + '" cy="' + cy + '" r="' + r + '"/></svg>';
   }
 
+  const NOTE_ON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/>' +
+    '<circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>';
+  const NOTE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+    'stroke-linecap="round" stroke-linejoin="round" opacity=".55"><path d="M9 18V6l10-2v12"/>' +
+    '<circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>' +
+    '<path d="M4 4l16 16"/></svg>';
   const SPKR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
     'stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4Z"/>' +
     '<path d="M15.5 9.2a4 4 0 0 1 0 5.6"/><path d="M18.2 6.5a8 8 0 0 1 0 11"/></svg>';
@@ -1653,11 +1660,165 @@
     return parts.join('. ') || 'Nothing needed placing';
   }
   // Give a bulk change long enough on screen to read, with its undo.
+  /* ---------- the music, which is generated ---------- */
+  const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+
+  /* A one four six five turnaround in F, two bars each, which is the most
+     familiar warm resolution there is: it leaves and comes home, leaves and
+     comes home, so nothing ever feels unresolved. Voicings carry the ninth
+     and the thirteenth because a plain triad sounds like a hymn and the
+     colour notes are the entire difference. */
+  const CHORDS = [
+    { n: 'Fmaj9', bass: 41, mid: [57, 60, 64, 67] },
+    { n: 'Dm9',   bass: 38, mid: [57, 60, 62, 65] },
+    { n: 'Gm9',   bass: 43, mid: [58, 62, 65, 69] },
+    { n: 'C13',   bass: 36, mid: [58, 62, 64, 69] }
+  ];
+  // Where a chord lands in the bar. Never on the one: an off beat is most of
+  // what separates this from a hymn.
+  const COMP = [[1.66, 0.55], [3.0, 0.5], [3.66, 0.7]];
+  const BPM = 96, SWING = 0.17;
+
+  let mus = null;      // { ctx, out, wet, bar, timer }
+
+  const musCan = () => typeof window !== 'undefined' &&
+    (window.AudioContext || window.webkitAudioContext);
+  const musOn = () => { const p = voicePrefs(); return p.music !== false; };
+
+  function musStart(){
+    if (mus || !musCan() || !musOn()) return;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      const out = ctx.createGain();
+      out.gain.value = 0;
+      out.connect(ctx.destination);
+      out.gain.linearRampToValueAtTime(0.09, ctx.currentTime + 3);
+
+      // A small room rather than a cathedral. The first version's long tail
+      // was half of why it felt haunted.
+      const dly = ctx.createDelay(0.5);
+      dly.delayTime.value = 0.28;
+      const fb = ctx.createGain(); fb.gain.value = 0.22;
+      const damp = ctx.createBiquadFilter();
+      damp.type = 'lowpass'; damp.frequency.value = 2200;
+      dly.connect(damp); damp.connect(fb); fb.connect(dly);
+      const wet = ctx.createGain(); wet.gain.value = 0.22;
+      dly.connect(wet); wet.connect(out);
+
+      mus = { ctx: ctx, out: out, dly: dly, bar: 0, timer: null };
+      musBar();
+    } catch(_){ mus = null; }
+  }
+
+  /* An electric piano, near enough. A sine for the body and a quieter one an
+     octave and a bit above for the bell on the attack, which decays faster
+     than the body does: that difference is the sound. */
+  function musKey(midi, at, dur, vol){
+    if (!mus) return;
+    const ctx = mus.ctx, f = hz(midi);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(vol, at + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 2600;
+    g.connect(lp); lp.connect(mus.out); lp.connect(mus.dly);
+
+    const body = ctx.createOscillator();
+    body.type = 'sine'; body.frequency.value = f;
+    body.connect(g); body.start(at); body.stop(at + dur + 0.05);
+
+    const bell = ctx.createGain();
+    bell.gain.setValueAtTime(0.0001, at);
+    bell.gain.exponentialRampToValueAtTime(vol * 0.3, at + 0.008);
+    bell.gain.exponentialRampToValueAtTime(0.0001, at + Math.min(dur, 0.42));
+    bell.connect(lp);
+    const o2 = ctx.createOscillator();
+    o2.type = 'sine'; o2.frequency.value = f * 3.01;
+    o2.connect(bell); o2.start(at); o2.stop(at + dur + 0.05);
+  }
+
+  function musBass(midi, at, dur){
+    if (!mus) return;
+    const ctx = mus.ctx;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(0.1, at + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 520;
+    g.connect(lp); lp.connect(mus.out);
+    const o = ctx.createOscillator();
+    o.type = 'triangle'; o.frequency.value = hz(midi);
+    o.connect(g); o.start(at); o.stop(at + dur + 0.05);
+  }
+
+  /* One bar at a time, scheduled a bar ahead so a busy main thread cannot
+     make it stumble. Swing is the off beats arriving late, which is the
+     whole feel and is one number. */
+  function musBar(){
+    if (!mus) return;
+    const beat = 60 / BPM;
+    const ch = CHORDS[mus.bar % CHORDS.length];
+    const t0 = mus.ctx.currentTime + 0.06;
+    const when = b => t0 + (b - 1) * beat + ((b % 1) ? SWING * beat : 0);
+
+    // Walking, loosely: root, then a step toward the next chord's root.
+    const nextRoot = CHORDS[(mus.bar + 1) % CHORDS.length].bass;
+    musBass(ch.bass, when(1), beat * 0.9);
+    musBass(ch.bass + 7, when(2.5), beat * 0.6);
+    musBass(nextRoot > ch.bass ? ch.bass + 10 : ch.bass + 5, when(4), beat * 0.7);
+
+    COMP.forEach((c, i) => {
+      ch.mid.forEach((m, k) => {
+        // A hair apart, so the chord sounds struck rather than switched on.
+        musKey(m, when(c[0]) + k * 0.006, c[1] + 0.5, 0.055 - k * 0.004);
+      });
+      // A single note up top now and then, as a tune rather than a pattern.
+      if (i === 1 && Math.random() < 0.55){
+        const top = ch.mid[Math.floor(Math.random() * ch.mid.length)] + 12;
+        musKey(top, when(c[0] + 0.34), 0.9, 0.04);
+      }
+    });
+
+    mus.bar++;
+    mus.timer = setTimeout(musBar, beat * 4 * 1000);
+  }
+
+  /* Under the voice, and back up afterwards. Without this it is either too
+     quiet to be worth having or loud enough to fight the narration, and
+     there is no fixed level that is both. */
+  function musDuck(on){
+    if (!mus) return;
+    try {
+      const t = mus.ctx.currentTime;
+      mus.out.gain.cancelScheduledValues(t);
+      mus.out.gain.setValueAtTime(mus.out.gain.value, t);
+      mus.out.gain.linearRampToValueAtTime(on ? 0.028 : 0.09, t + (on ? 0.4 : 1.2));
+    } catch(_){}
+  }
+
+  function musStop(){
+    if (!mus) return;
+    const m = mus; mus = null;
+    clearTimeout(m.timer);
+    try {
+      const t = m.ctx.currentTime;
+      m.out.gain.cancelScheduledValues(t);
+      m.out.gain.setValueAtTime(m.out.gain.value, t);
+      m.out.gain.linearRampToValueAtTime(0.0001, t + 1.1);
+      // Long enough for the fade and the tail, or it ends on a click, which
+      // is the one thing worse than no music.
+      setTimeout(() => { try { m.ctx.close(); } catch(_){} }, 2200);
+    } catch(_){}
+  }
+
   /* ---------- Athena out loud ---------- */
   // Unhurried, and a little below the pitch these ship at. Both deliberately
   // gentle rather than dramatic: past about 0.85 on either, a voice stops
   // sounding calm and starts sounding unwell.
-  const voiceDefaults = () => ({ on: false, name: '', rate: 0.92, pitch: 0.92 });
+  const voiceDefaults = () => ({ on: false, name: '', rate: 0.92, pitch: 0.92, music: true });
   const voicePrefs = () => Object.assign(voiceDefaults(), (S.profile && S.profile.voice) || {});
   const voiceOn = () => !!voicePrefs().on;
   const voiceCan = () => typeof window !== 'undefined' && !!window.speechSynthesis &&
@@ -1809,6 +1970,7 @@
   let speaking = '';           // a short tag naming what is being read, or ''
   let speakTimer = null;
   function speakStop(){
+    musDuck(false);
     if (!voiceCan()) return;
     try { window.speechSynthesis.cancel(); } catch(_){}
     clearInterval(speakTimer); speakTimer = null;
@@ -1819,8 +1981,13 @@
      this, which is the whole point of its existing: the device's voice is
      behind it today and something better can be behind it tomorrow without
      a single caller changing. */
+  // Hidden covers a locked screen, a minimised window, and another tab on
+  // top. All three mean the same thing: nobody is listening.
+  const unattended = () => typeof document !== 'undefined' && document.hidden;
+
   function say(text, tag){
     if (!voiceOn() || !voiceCan()) return false;
+    if (unattended()) return false;
     const words = speakable(text);
     if (!words) return false;
     speakStop();                     // a new thing interrupts, it does not queue
@@ -1832,7 +1999,11 @@
       u.rate = Math.min(2, Math.max(0.5, +p.rate || 1));
       u.pitch = Math.min(1.6, Math.max(0.5, +p.pitch || 1));
       speaking = tag || 'athena';
-      u.onend = u.onerror = () => { if (speaking === (tag || 'athena')){ speaking = ''; render(); } };
+      musDuck(true);
+      u.onend = u.onerror = () => {
+        musDuck(false);
+        if (speaking === (tag || 'athena')){ speaking = ''; render(); }
+      };
       window.speechSynthesis.speak(u);
       /* Chrome stops speaking after about fifteen seconds unless it is
          poked, a bug old enough to vote. Resuming on a timer costs nothing
@@ -7674,6 +7845,25 @@
     // Capture, and once: it has to run before any handler that might speak,
     // and it costs nothing after the first time.
     shell.addEventListener('pointerdown', voiceUnlock, { capture: true });
+    /* The screen going away mid sentence. say() cannot help here: the
+       utterance is already with the engine, and the tour's timer is already
+       set. Both have to be stopped from the outside. */
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) return;
+      speakStop();
+      musStop();
+      if (tour){ tour.playing = false; clearTimeout(tour.timer); render(); }
+      if (point){ clearTimeout(point.timer); }
+    });
+    // Safari on iOS does not always report hidden when the phone locks, but
+    // it does fire this, and a tour left talking in a pocket is worse than
+    // one that stopped a moment early.
+    window.addEventListener('pagehide', () => { speakStop(); musStop(); });
+    // The spotlight is positioned in viewport coordinates, so a scroll or a
+    // rotation moves the thing it is pointing at out from under it.
+    const repoint = () => { if (point){ pointMeasure(); render(); } };
+    window.addEventListener('resize', repoint);
+    window.addEventListener('scroll', repoint, { passive: true });
     if (voiceCan() && typeof window.speechSynthesis.addEventListener === 'function'){
       window.speechSynthesis.addEventListener('voiceschanged', () => {
         if (settingsOpen && voiceOn()) render();
@@ -7877,6 +8067,11 @@
       }
       if (e.target.id === 's_voicerate'){ setVoice('rate', +e.target.value || 1); render(); return; }
       if (e.target.id === 's_voicepitch'){ setVoice('pitch', +e.target.value || 1); render(); return; }
+      if (e.target.id === 's_music'){
+        setVoice('music', !!e.target.checked);
+        if (!e.target.checked) musStop(); else if (tour || point) musStart();
+        render(); return;
+      }
     });
 
     // A slider is judged while it moves. Speaking on every pixel would be
@@ -8315,6 +8510,7 @@
     if (whyOpen === 'habits')  h += habitsWhyHTML();
     if (whyOpen === 'beliefs') h += beliefsHTML();
     if (tour) h += tourHTML();
+    if (point) h += pointHTML();
 
     paint(h);
   }
@@ -9270,6 +9466,13 @@
     h += '<div class="vrow"><button class="ghost" data-voicetry>' +
       (speaking === 'try' ? 'Stop' : 'Try it') + '</button>' +
       '<button class="linkish" data-voicecalm>Set it back to calm</button></div>';
+    if (musCan()){
+      h += '<label class="fld chk"><input id="s_music" type="checkbox"' +
+        (p.music !== false ? ' checked' : '') + '><span>Quiet music during the tours</span></label>';
+      h += '<p class="setnote">Played rather than downloaded: a handful of soft notes, ' +
+        'never the same twice, which drop under Athena\u2019s voice while she is talking. ' +
+        'Only during the two tours, never while you are working.</p>';
+    }
     // Said plainly, because somebody will otherwise conclude it is broken.
     h += '<p class="setnote">These are the voices already on this device, so Athena sounds a ' +
       'little different on your phone than on your laptop, and a device with one voice offers ' +
@@ -9483,6 +9686,139 @@
            'you were thinking clearly. Now go and build your week.' }
   ];
 
+  /* Each one names what it needs. `find` returning nothing drops the step
+     rather than pointing at the middle of the screen and hoping. */
+  const POINTS = [
+    { sel: '.segrow .seg',  t: 'Five places',
+      p: 'Day is where you live. Blocks is the shape of your week, Tasks is everything ' +
+         'waiting, Grow holds habits and goals, and Notes is for the rest.' },
+    { sel: '.hprog',        t: 'How today is going',
+      p: 'Blocks and habits kept, out of what today asked for. Tasks are left out on ' +
+         'purpose: an open list never empties, and a ring that cannot fill is a telling off.' },
+    { sel: '.rocks, .sp-rocks', t: 'Your three rocks',
+      p: 'Set them in the morning and they sit here all day. The jar fills as you tick them.' },
+    { sel: '.dayhab-h',     t: 'Habits',
+      p: 'Tap one to tick it. Miss twice and Athena will ask you in the evening for the ' +
+         'smallest possible version rather than the whole thing.' },
+    { sel: '.askbar',       t: 'Ask Athena',
+      p: 'A question, an instruction, or a head full of things pasted in at once. ' +
+         'It shows you what it would do and changes nothing until you agree.' },
+    { sel: '.tmr, [data-pomo]', t: 'The focus timer',
+      p: 'Twenty five minutes on one thing. It asks what it is counting for, and that ' +
+         'question is half of why it works.' },
+    { sel: '[data-search]',  t: 'Find anything',
+      p: 'One box across blocks, tasks, notes and goals, for when you know you wrote ' +
+         'it down somewhere.' },
+    { sel: '[data-settings]', t: 'And everything else',
+      p: 'Your categories, your hours, nudges, the voice, and this tour again whenever ' +
+         'you want it.' }
+  ];
+
+  // null when not running. { i, steps, rect }
+  let point = null;
+
+  const pointAt = sel => {
+    if (typeof document === 'undefined') return null;
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    // Present in the markup but collapsed or scrolled off a hidden panel is
+    // the same as absent, for this purpose.
+    return (r.width > 8 && r.height > 8) ? el : null;
+  };
+
+  function pointOpen(){
+    speakStop();
+    const steps = POINTS.filter(s => pointAt(s.sel));
+    if (!steps.length) return;          // nothing on screen worth pointing at
+    tour = null;
+    musStart();
+    point = { i: 0, steps: steps };
+    settingsOpen = false;
+    render();
+    pointShow();
+  }
+  function pointClose(){ point = null; speakStop(); musStop(); render(); }
+
+  /* Bring the target into view, then measure, then draw. In that order: a
+     rectangle measured before the scroll finishes is a hole in the wrong
+     place, which is the one way this can look broken rather than merely
+     imperfect. */
+  function pointShow(){
+    if (!point) return;
+    const st = point.steps[point.i];
+    const el = st && pointAt(st.sel);
+    if (!el){ pointStep(1); return; }
+    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch(_){ el.scrollIntoView(); }
+    say(st.t + '. ' + st.p, 'point');
+    pointSettle(0, null);
+  }
+  /* Two readings that agree mean the scroll has finished. About a second and
+     a half of patience, after which it draws wherever things have got to,
+     because a stale spotlight beats none at all. */
+  function pointSettle(n, was){
+    if (!point) return;
+    clearTimeout(point.timer);
+    pointMeasure();
+    const now = point.rect ? Math.round(point.rect.top) + ':' + Math.round(point.rect.left) : '';
+    if ((was !== null && now === was) || n > 18){ render(); return; }
+    if (n === 0) render();        // draw something immediately, then correct it
+    point.timer = setTimeout(() => pointSettle(n + 1, now), 80);
+  }
+
+  function pointMeasure(){
+    if (!point) return;
+    const st = point.steps[point.i];
+    const el = st && pointAt(st.sel);
+    point.rect = el ? el.getBoundingClientRect() : null;
+  }
+  function pointStep(by){
+    if (!point) return;
+    const n = point.i + by;
+    if (n < 0) return;
+    if (n >= point.steps.length){ pointClose(); return; }
+    point.i = n; point.rect = null; render(); pointShow();
+  }
+
+  /* The spotlight is four panels around the target rather than a cut-out,
+     because a box-shadow hole cannot be clicked through and four divs leave
+     the real control sitting in the open, where it can be tapped. */
+  function pointHTML(){
+    const st = point.steps[point.i];
+    const r = point.rect;
+    const pad = 8;
+    let h = '<div class="pt-wrap">';
+    if (r){
+      const top = Math.max(0, r.top - pad), left = Math.max(0, r.left - pad);
+      const right = r.right + pad, bottom = r.bottom + pad;
+      h += '<div class="pt-sh" style="top:0;left:0;right:0;height:' + top + 'px"></div>';
+      h += '<div class="pt-sh" style="top:' + bottom + 'px;left:0;right:0;bottom:0"></div>';
+      h += '<div class="pt-sh" style="top:' + top + 'px;height:' + (bottom - top) +
+        'px;left:0;width:' + left + 'px"></div>';
+      h += '<div class="pt-sh" style="top:' + top + 'px;height:' + (bottom - top) +
+        'px;left:' + right + 'px;right:0"></div>';
+      h += '<div class="pt-ring" style="top:' + top + 'px;left:' + left + 'px;width:' +
+        (right - left) + 'px;height:' + (bottom - top) + 'px"></div>';
+    } else {
+      h += '<div class="pt-sh" style="inset:0"></div>';
+    }
+    // Above or below the target, whichever has room. A card that covers the
+    // thing it is describing is worse than no card.
+    const below = !r || r.top < 240;
+    const style = r
+      ? (below ? 'top:' + (r.bottom + 18) + 'px' : 'bottom:' + (window.innerHeight - r.top + 18) + 'px')
+      : 'top:50%';
+    h += '<div class="pt-card" style="' + style + '">' +
+      '<b>' + esc(st.t) + '</b><p>' + esc(st.p) + '</p>' +
+      '<div class="pt-bar"><span class="pt-n">' + (point.i + 1) + ' of ' + point.steps.length + '</span>' +
+      '<span style="flex:1"></span>' +
+      (point.i ? '<button class="ghost" data-pointback>Back</button>' : '') +
+      '<button class="go" data-pointnext>' +
+      (point.i >= point.steps.length - 1 ? 'Done' : 'Next') + '</button></div>' +
+      '<button class="linkish pt-skip" data-pointclose>Close</button></div>';
+    return h + '</div>';
+  }
+
   // null when it is not running. { i, playing, timer }
   let tour = null;
 
@@ -9493,6 +9829,7 @@
 
   function tourOpen(){
     speakStop();
+    musStart();
     tour = { i: 0, playing: true, timer: null };
     settingsOpen = false;
     render();
@@ -9502,6 +9839,9 @@
     if (tour) clearTimeout(tour.timer);
     tour = null;
     speakStop();
+    // Not when it is handing over to the pointer tour, which is about to ask
+    // for it again: stopping and restarting is an audible seam.
+    if (!point) musStop();
     render();
   }
 
@@ -9574,11 +9914,14 @@
     h += '<div class="t-bar">' +
       '<button class="ghost" data-tourback' + (tour.i ? '' : ' disabled') + '>Back</button>' +
       '<button class="ghost t-play" data-tourplay>' + (tour.playing ? 'Pause' : 'Play') + '</button>' +
+      (musCan() ? '<button class="ghost t-mute" data-tourmute aria-label="' +
+        (mus ? 'Turn the music off' : 'Turn the music on') + '" title="' +
+        (mus ? 'Music off' : 'Music on') + '">' + (mus ? NOTE_ON : NOTE_OFF) + '</button>' : '') +
       '<span style="flex:1"></span>' +
       '<button class="go" data-tournext>' + (last ? 'Done' : 'Next') + '</button>' +
       '</div>';
-    h += '<button class="linkish t-skip" data-tourclose>' +
-      (last ? 'Close' : 'Skip the tour') + '</button>';
+    h += '<button class="linkish t-skip" data-' + (last ? 'point' : 'tourclose') + '>' +
+      (last ? 'Now show me where everything is' : 'Skip the tour') + '</button>';
     if (!voiceOn() && voiceCan())
       h += '<p class="t-quiet">Athena can read this out loud. Settings, Athena out loud.</p>';
     return h + '</div>';
@@ -10088,6 +10431,7 @@
     // widths, which looks like a mistake because it is one.
     let h = '<div class="datalist">';
     h += '<button class="ghost" data-tour>Show me around Athena</button>';
+    h += '<button class="ghost" data-point>Point out where things are</button>';
     h += '<button class="ghost" data-why="beliefs">What Athena believes</button>';
     h += '<button class="ghost" data-export>Download a backup</button>';
     h += '<button class="ghost" data-diag>' + (diagOpen ? 'Hide the details' : 'Something is wrong, show me the details') + '</button>';
@@ -11126,6 +11470,10 @@
     if (t('[data-resetopen]')){ commitSettings(); resetting = { ack: false }; render(); return; }
     if (t('[data-resetclose]')){ resetting = null; render(); return; }
     if (t('[data-resetgo]')){ doReset(); return; }
+    if (t('[data-pointclose]')){ pointClose(); return; }
+    if (t('[data-pointnext]')){ pointStep(1); return; }
+    if (t('[data-pointback]')){ pointStep(-1); return; }
+    if (t('[data-point]')){ pointOpen(); return; }
     if (t('[data-tourclose]')){ tourClose(); return; }
     if (t('[data-tournext]')){
       if (tour && tour.i >= TOUR.length - 1){ tourClose(); return; }
@@ -11133,6 +11481,13 @@
     }
     if (t('[data-tourback]')){ tourStep(-1); return; }
     if (t('[data-tourplay]')){ tourPlay(); return; }
+    if (t('[data-tourmute]')){
+      // Remembered, so turning it off once turns it off for good rather than
+      // once per tour.
+      if (mus){ setVoice('music', false); musStop(); }
+      else { setVoice('music', true); musStart(); }
+      render(); return;
+    }
     if ((m = t('[data-tourgo]'))){
       if (!tour) return;
       tour.i = Math.max(0, Math.min(TOUR.length - 1, +m.dataset.tourgo));
@@ -11166,7 +11521,7 @@
     if ((m = t('[data-calforget]'))){ commitSettings(); calForget(m.dataset.calforget); return; }
     if ((m = t('[data-gapblock]'))){ gapBlock(m.dataset.gapblock); return; }
     if (t('[data-settings]')){ clearModalDrafts(); settingsOpen = true; render(); return; }
-    if (t('[data-closesettings]')){ speakStop(); commitSettings(); settingsOpen = false; clearModalDrafts(); render(); return; }
+    if (t('[data-closesettings]')){ speakStop(); if (!tour && !point) musStop(); commitSettings(); settingsOpen = false; clearModalDrafts(); render(); return; }
     if (t('[data-addcat]')){ commitSettings(); S.categories.push({ id:'c_'+uid8(), label:'New', color:'#B7B2BE' }); save(); render(); return; }
     if ((m = t('[data-delcat]'))){ commitSettings(); if (S.categories.length>1){ markUndo('Category removed'); S.categories = S.categories.filter(c=>c.id!==m.dataset.delcat); } save(); render(); return; }
 
@@ -11892,6 +12247,7 @@
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'fd_name'){ e.preventDefault(); const b = app.querySelector('[data-foldersave]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newfolder'){ e.preventDefault(); const b = app.querySelector('[data-foldermake]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && point){ pointClose(); return; }
     if (e.key === 'Escape' && tour){ tourClose(); return; }
     if (e.key === 'Escape' && whyOpen){ whyOpen = ''; render(); return; }
     if (e.key === 'Escape' && folderEdit){ folderEdit = null; clearDraft('fd_name'); render(); return; }
