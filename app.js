@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-11.4';
+  const BUILD = '2026-10-11.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -4614,6 +4614,9 @@
         '<button class="ghost" data-notenew="list" aria-label="New checklist">+ List</button>'+
         '<button class="ghost" data-notephoto aria-label="New note with a photo">+ Photo</button>'+
         '</div>';
+      if (cloud && session && canGrid())
+        h += '<p class="notehint">Or paste a screenshot straight in. Anything typed here ' +
+          'becomes its title.</p>';
     }
     if (!notesArchived) h += tagBarHTML(live);
     if (onShelf) h += shelfHTML(all);
@@ -8637,6 +8640,69 @@
       if (!goalAI || !e.target.dataset || e.target.dataset.gpick == null) return;
       goalAI.pick[e.target.dataset.gpick] = !!e.target.checked;
     });
+  /* Images on the clipboard, if that is all there is. getAsFile is the only
+     way to reach them and it has to be called synchronously inside the
+     event, so the list is built before anything else happens. */
+    function pastedImages(e){
+      const cd = e.clipboardData || (typeof window !== 'undefined' && window.clipboardData);
+      if (!cd) return [];
+      // Words beat pictures. Copying from a web page brings both, and losing
+      // the words to keep a stray logo is the worst version of this.
+      let text = '';
+      try { text = cd.getData('text/plain') || ''; } catch(_){ text = ''; }
+      if (text.trim()) return [];
+      const out = [];
+      const items = cd.items || [];
+      for (let i = 0; i < items.length; i++){
+        const it = items[i];
+        if (it && it.kind === 'file' && /^image\//.test(it.type || '')){
+          const f = it.getAsFile();
+          if (f) out.push(f);
+        }
+      }
+      // Safari hands them over as files rather than items on some versions.
+      if (!out.length && cd.files && cd.files.length){
+        for (let i = 0; i < cd.files.length; i++){
+          if (/^image\//.test(cd.files[i].type || '')) out.push(cd.files[i]);
+        }
+      }
+      return out;
+    }
+
+    /* Into the quick box on the notes screen, or into a note already open.
+       Anywhere else a paste is somebody's business and not mine. */
+    shell.addEventListener('paste', e => {
+      const id = e.target && e.target.id;
+      const inQuick = id === 'nt_quick';
+      const inNote = (id === 'ne_body' || id === 'ne_title') && noteEdit;
+      if (!inQuick && !inNote) return;
+      const pics = pastedImages(e);
+      if (!pics.length) return;              // an ordinary paste, left alone
+      e.preventDefault();
+      if (!cloud || !session){
+        /* imgError is only ever drawn inside the note editor, and pasting from
+           the quick box happens before there is one, so setting it there puts
+           the message nowhere at all. The Photo button has the same problem
+           and answers it the same way. */
+        const words = 'Photos need an account, so they are stored safely and reach your ' +
+          'other devices. Sign in first.';
+        if (inNote){ imgError = words; render(); } else alert(words);
+        return;
+      }
+      if (inNote){ noteSync(); addNoteImages(pics, noteEdit); return; }
+      /* From the quick box there is no note yet, so one is made the same way
+         the Photo button makes one, carrying whatever had been typed as its
+         title. A pasted screenshot with a line of context above it is the
+         whole point of this. */
+      const box = document.getElementById('nt_quick');
+      const typed = ((box && box.value) || '').trim();
+      const n = newNoteHere('text');
+      if (typed) n.title = typed.slice(0, 140);
+      clearDraft('nt_quick');
+      noteEdit = n; save(); render();
+      addNoteImages(pics, n);
+    });
+
     shell.addEventListener('change', e => {
       if (e.target.id !== 'ne_file') return;
       const f = e.target.files && e.target.files[0];
