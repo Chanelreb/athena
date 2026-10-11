@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-11.1';
+  const BUILD = '2026-10-11.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -206,6 +206,9 @@
     'stroke-linecap="round" stroke-linejoin="round" opacity=".55"><path d="M9 18V6l10-2v12"/>' +
     '<circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>' +
     '<path d="M4 4l16 16"/></svg>';
+  const MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/>' +
+    '<path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg>';
   const SPKR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
     'stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4Z"/>' +
     '<path d="M15.5 9.2a4 4 0 0 1 0 5.6"/><path d="M18.2 6.5a8 8 0 0 1 0 11"/></svg>';
@@ -1660,6 +1663,143 @@
     return parts.join('. ') || 'Nothing needed placing';
   }
   // Give a bulk change long enough on screen to read, with its undo.
+  /* ---------- listening ---------- */
+  const EarCtor = () => (typeof window === 'undefined') ? null
+    : (window.SpeechRecognition || window.webkitSpeechRecognition || null);
+  const earCan = () => !!EarCtor();
+
+  let ear = null;             // the live recogniser, or null
+  let earState = '';          // '' | 'listening' | 'thinking'
+  let earHeard = '';          // what it has made out so far
+  let earErr = '';
+  let earChat = false;        // keep the conversation going between turns
+
+  /* Yes and no, as people actually say them to a machine. Anything else is
+     treated as a new instruction rather than an answer, because guessing
+     that "maybe tomorrow" means yes is how an app moves something nobody
+     agreed to move. */
+  const APOS = "['\u2019]?";          // engines give a straight one, prose a curly one
+  const EAR_YES = new RegExp('^(yes|yeah|yep|yup|sure|ok|okay|go on|do it|please do|that' +
+    APOS + 's right|correct|confirm|apply|make (those|the|these) changes?)\\b', 'i');
+  const EAR_NO  = new RegExp('^(no|nope|nah|cancel|stop|don' + APOS +
+    't|leave it|never ?mind|forget it|change nothing)\\b', 'i');
+
+  function earStop(){
+    earChat = false;
+    if (ear){ try { ear.abort(); } catch(_){} ear = null; }
+    if (earState){ earState = ''; earHeard = ''; render(); }
+  }
+
+  /* One utterance. continuous is deliberately off: on it keeps the
+     microphone open for minutes at a time, which is both a worse experience
+     and a thing nobody asked for. */
+  function earListen(){
+    const Ctor = EarCtor();
+    if (!Ctor){ earErr = 'This browser cannot listen. Chrome and Safari can.'; render(); return; }
+    if (unattended()) return;
+    // She must not hear herself. Her own voice through the speaker is a
+    // perfectly good sentence as far as the microphone is concerned.
+    speakStop();
+    if (ear){ try { ear.abort(); } catch(_){} ear = null; }
+    let r;
+    try { r = new Ctor(); } catch(_){ earErr = 'The microphone could not be opened.'; render(); return; }
+    r.lang = (typeof navigator !== 'undefined' && navigator.language) || 'en-AU';
+    r.interimResults = true;
+    r.continuous = false;
+    r.maxAlternatives = 1;
+
+    r.onresult = e => {
+      let said = '', done = false;
+      for (let i = e.resultIndex; i < e.results.length; i++){
+        said += e.results[i][0].transcript;
+        if (e.results[i].isFinal) done = true;
+      }
+      earHeard = said.trim();
+      // Shown under the bar as it arrives, so you can see it heard you
+      // rather than wonder whether it did. Not in the box: the redraw puts
+      // that back to its draft a moment later anyway.
+      if (done && earHeard){ ear = null; try { r.stop(); } catch(_){} earHandle(earHeard); }
+      else render();
+    };
+    r.onerror = e => {
+      ear = null; earState = '';
+      const c = e && e.error;
+      earErr = c === 'not-allowed' || c === 'service-not-allowed'
+        ? 'The microphone was refused. Allow it in the browser\u2019s own settings and try again.'
+        : c === 'no-speech' ? ''
+        : c === 'audio-capture' ? 'No microphone was found on this device.'
+        : 'The microphone stopped unexpectedly.';
+      earChat = false;
+      render();
+    };
+    r.onend = () => { if (earState === 'listening'){ earState = ''; render(); } };
+
+    ear = r; earState = 'listening'; earHeard = ''; earErr = '';
+    try { r.start(); } catch(_){ ear = null; earState = ''; earErr = 'Could not start listening.'; }
+    render();
+  }
+
+  /* What to do with a finished sentence. When a set of changes is already on
+     screen waiting for an answer, yes and no mean yes and no. Anything else
+     at that point is a new instruction, so the proposal is dropped rather
+     than left sitting behind the next one. */
+  function earHandle(said){
+    earState = 'thinking';
+    if (askChanges){
+      if (EAR_YES.test(said)){
+        earHeard = ''; earState = '';
+        const box = document.getElementById('ask_q'); if (box) box.value = '';
+        clearDraft('ask_q');
+        askApply();
+        if (earChat) earSoon();
+        return;
+      }
+      if (EAR_NO.test(said)){
+        earHeard = ''; earState = '';
+        const box = document.getElementById('ask_q'); if (box) box.value = '';
+        clearDraft('ask_q');
+        askChanges = null; askPick = {};
+        askSay('athena', 'Left everything as it was.');
+        render();
+        if (earChat) earSoon();
+        return;
+      }
+      askChanges = null; askPick = {};
+    }
+    const box = document.getElementById('ask_q');
+    if (box) box.value = said;
+    drafts['ask_q'] = said;
+    render();
+    askAthena().then(() => {
+      earState = '';
+      // askErr means the next turn fails the same way. Stop rather than
+      // reopen the microphone into a wall.
+      if (earChat && !askErr) earSoon();
+      else { earChat = false; render(); }
+    }).catch(() => { earState = ''; earChat = false; render(); });
+  }
+
+  /* The next turn, once she has stopped talking. Polling the engine rather
+     than hanging off an end event, because the end event belongs to an
+     utterance that a redraw may already have orphaned. */
+  let earWait = null;
+  function earSoon(){
+    clearTimeout(earWait);
+    earWait = setTimeout(function again(){
+      if (!earChat || unattended()) return;
+      if (voiceCan() && window.speechSynthesis.speaking){
+        earWait = setTimeout(again, 350); return;
+      }
+      earListen();
+    }, 500);
+  }
+
+  function earToggle(){
+    if (earState === 'listening' || earChat){ earStop(); return; }
+    earChat = true;
+    earListen();
+  }
+
   /* ---------- the weather ---------- */
   const WX_KEY = 'athena:wx', WX_STALE = 30 * 60 * 1000;
   let wx = { at: 0, lat: 0, lon: 0, days: {}, busy: false, err: '' };
@@ -8069,13 +8209,14 @@
       if (!document.hidden) return;
       speakStop();
       musStop();
+      earStop();
       if (tour){ tour.playing = false; clearTimeout(tour.timer); render(); }
       if (point){ clearTimeout(point.timer); }
     });
     // Safari on iOS does not always report hidden when the phone locks, but
     // it does fire this, and a tour left talking in a pocket is worse than
     // one that stopped a moment early.
-    window.addEventListener('pagehide', () => { speakStop(); musStop(); });
+    window.addEventListener('pagehide', () => { speakStop(); musStop(); earStop(); });
     // The spotlight is positioned in viewport coordinates, so a scroll or a
     // rotation moves the thing it is pointing at out from under it.
     const repoint = () => { if (point){ pointMeasure(); render(); } };
@@ -8749,11 +8890,29 @@
   // A nudge can ask for a particular screen. The flag is taken off the
   // address straight away, so a reload later in the evening does not reopen
   // a screen that was dealt with hours ago.
+  /* Read the day, then ask the question, then listen. One utterance rather
+     than two, because a pause between them sounds like she has finished. */
+  function morningAloud(){
+    if (unattended()) return;
+    const said = spokenBrief(clock()) +
+      (earCan() ? ' Does anything need changing?' : '');
+    if (!say(said, 'brief')) return;
+    if (!earCan()) return;
+    earChat = true;
+    earSoon();
+    render();
+  }
+
   function consumeNudge(){
     if (typeof location === 'undefined') return;
     if (/[?&]n=morning/.test(location.search)){
       try { history.replaceState({}, '', location.pathname); } catch(_){}
-      openMorning(clock()); return;
+      openMorning(clock());
+      // Arriving from the nudge is a tap, which is the gesture both the
+      // speaker and the microphone need, so this is the one moment Athena
+      // can start a conversation rather than wait to be asked.
+      if (voiceOn() && voiceCan()) setTimeout(morningAloud, 500);
+      return;
     }
     if (!/[?&]n=tomorrow/.test(location.search)) return;
     tomorrowOpen = true; tmrw = {};
@@ -9183,10 +9342,25 @@
     let h = '<div class="askbar">'+
       '<input id="ask_q" type="text" placeholder="Ask Athena anything…" autocomplete="off"'+
       (askBusy ? ' disabled' : '')+'>'+
+      (earCan()
+        ? '<button class="askmic' + (earState === 'listening' ? ' hearing' : '') +
+          (earChat && earState !== 'listening' ? ' waiting' : '') + '" data-askmic ' +
+          'aria-label="' + (earChat ? 'Stop listening' : 'Talk to Athena') + '" ' +
+          'title="' + (earChat ? 'Stop listening' : 'Talk to Athena') + '">' + MIC + '</button>'
+        : '')+
       '<button class="go" data-askgo'+(askBusy ? ' disabled' : '')+'>'+(askBusy ? '…' : 'Ask')+'</button>'+
       '</div>';
-    h += '<p class="askhint">Add something, ask how your week looks, or tell it to move things around. '+
-      'Nothing changes until you say so.</p>';
+    if (earState === 'listening'){
+      h += '<p class="askear"><i></i>' +
+        (earHeard ? esc(earHeard) : 'Listening\u2026') + '</p>';
+    } else if (earChat){
+      h += '<p class="askear quiet"><i></i>Your turn in a moment\u2026</p>';
+    } else {
+      h += '<p class="askhint">Add something, ask how your week looks, or tell it to move things around. '+
+        'Nothing changes until you say so.' +
+        (earCan() ? ' Or press the microphone and say it.' : '') + '</p>';
+    }
+    if (earErr) h += '<div class="savewarn">'+esc(earErr)+'</div>';
     if (askErr) h += '<div class="savewarn">'+esc(askErr)+'</div>';
     if (askThread.length && !askChanges){
       h += '<div class="askthread">';
@@ -9209,7 +9383,8 @@
     h += askChanges.map((c, i) =>
       '<label class="gpick"><input type="checkbox" data-askpick="'+i+'"'+(askPick[i] ? ' checked' : '')+'>'+
       '<span class="gpk"><b>'+esc(c.line)+'</b>'+(c.why ? '<em>'+esc(c.why)+'</em>' : '')+'</span></label>').join('');
-    h += '<p class="ai-howto">Untick anything you would rather keep. Undo will still be there afterwards.</p>';
+    h += '<p class="ai-howto">Untick anything you would rather keep. Undo will still be there afterwards.' +
+      (earChat ? ' Or just say <b>yes</b> or <b>no</b>.' : '') + '</p>';
     h += '<div class="modal-actions"><button class="ghost" data-askclear>Change nothing</button>'+
       '<span style="flex:1"></span><button class="go" data-askapply>Make these changes</button></div>';
     return h + '</div>';
@@ -11639,7 +11814,8 @@
       coach().tracks[bits[0]] = bits[1];
       save(); render(); return;
     }
-    if (t('[data-askgo]')){ askAthena(); return; }
+    if (t('[data-askmic]')){ earToggle(); return; }
+    if (t('[data-askgo]')){ earStop(); askAthena(); return; }
     if (t('[data-askclear]')){ askChanges = null; askPick = {}; askThread = []; askErr = ''; askSaid = ''; render(); return; }
     if ((m = t('[data-askpick]'))){ askPick[m.dataset.askpick] = !!m.checked; return; }
     if (t('[data-askapply]')){ askApply(); return; }

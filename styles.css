@@ -1357,6 +1357,35 @@
   }
   @keyframes athTalk { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
 
+  /* ---- the microphone ---- */
+  #soft-app .askmic {
+    flex: 0 0 auto; width: 42px; height: 42px; padding: 10px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: 1px solid var(--line); border-radius: 11px;
+    color: var(--dim); cursor: pointer;
+  }
+  #soft-app .askmic svg { width: 100%; height: 100%; }
+  #soft-app .askmic:hover { color: var(--text); border-color: var(--live); }
+  /* Open and closed must not look alike. This is the one control on the
+     screen where being unsure of the state actually matters. */
+  #soft-app .askmic.hearing { color: var(--on-live); background: var(--live); border-color: var(--live); }
+  #soft-app .askmic.waiting { color: var(--live); border-color: var(--live); }
+  @media (prefers-reduced-motion: no-preference) {
+    #soft-app .askmic.hearing { animation: athMic 1.3s ease-in-out infinite; }
+  }
+  @keyframes athMic { 0%, 100% { box-shadow: 0 0 0 0 var(--live); } 70% { box-shadow: 0 0 0 7px transparent; } }
+  #soft-app .askear {
+    display: flex; align-items: center; gap: 8px;
+    margin: 8px 0 14px; font-size: 13px; color: var(--text); min-height: 20px;
+  }
+  #soft-app .askear.quiet { color: var(--dim); }
+  #soft-app .askear i {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--live); flex: 0 0 auto;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #soft-app .askear i { animation: athTalk 1.2s ease-in-out infinite; }
+  }
+
   /* ---- the weather, one line ---- */
   #soft-app .wxline {
     display: flex; align-items: center; gap: 7px;
