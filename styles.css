@@ -1407,6 +1407,19 @@
   #soft-app .modal.ask-sheet { max-width: 520px; }
   #soft-app .modal.ask-sheet .askbar { margin-top: 4px; }
 
+  /* ---- the assistant's own line ---- */
+  #soft-app .asklabel {
+    display: flex; align-items: center; gap: 8px; margin: 0 2px 7px;
+    font-size: 12px; font-weight: 600; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--live);
+  }
+  #soft-app .asklabel svg { width: 19px; height: 19px; flex: 0 0 auto; }
+  /* The sheet puts the name and the helmet in its own title, so the bar
+     inside it must not say both again directly underneath. */
+  #soft-app .ask-sheet .asklabel { display: none; }
+  #soft-app .modal-h.askhead { display: flex; align-items: center; gap: 9px; }
+  #soft-app .modal-h.askhead svg { width: 21px; height: 21px; flex: 0 0 auto; color: var(--live); }
+
   /* ---- the three things worth asking ---- */
   /* Wrapped rather than scrolled: a row that runs off the edge hides the
      third one, and the third one is often the interesting one. */

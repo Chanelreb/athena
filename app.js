@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-11.5';
+  const BUILD = '2026-10-11.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -206,9 +206,14 @@
     'stroke-linecap="round" stroke-linejoin="round" opacity=".55"><path d="M9 18V6l10-2v12"/>' +
     '<circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>' +
     '<path d="M4 4l16 16"/></svg>';
-  const SPARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
-    'stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"/>' +
-    '<path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7Z"/></svg>';
+  const HELM = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    // The helmet: dome, then down each side into a cheek piece, with the
+    // brow carried across so the face is left open.
+    '<path d="M12 6.6c-3.8 0-6.9 3.1-6.9 6.9v4.2c0 1.8 1.1 3.3 2.6 3.9v-6h8.6v6c1.5-.6 2.6-2.1 2.6-3.9v-4.2c0-3.8-3.1-6.9-6.9-6.9Z"/>' +
+    // The nose guard, which is what turns one opening into two eyes.
+    '<path d="M11.1 15.6h1.8v6.1h-1.8z"/>' +
+    // The plume, swept back and clear of the dome.
+    '<path d="M21.2.8c-4.8-1.1-9.9 1-13.4 5.1a9.9 9.9 0 0 1 4.2-.9c2.2 0 4.2.6 5.9 1.7-.4-2.5.7-4.6 3.3-5.9Z"/></svg>';
   const MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
     'stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/>' +
     '<path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg>';
@@ -9595,7 +9600,7 @@
 
   function askSheetHTML(){
     let h = '<div class="modal-back" data-askclosesheet></div>';
-    h += '<div class="modal ask-sheet"><div class="modal-h">Ask Athena</div>';
+    h += '<div class="modal ask-sheet"><div class="modal-h askhead">' + HELM + 'Ask Athena</div>';
     h += '<p class="ai-intro">Asked from anywhere, always about your week. ' +
       'Nothing changes until you agree to it.</p>';
     h += askBarHTML();
@@ -9608,12 +9613,13 @@
   function askFabHTML(){
     if (view === 'day' || askOpen || askChanges) return '';
     return '<button class="askfab" data-askopen aria-label="Ask Athena">' +
-      SPARK + '<span>Ask</span></button>';
+      HELM + '<span>Ask</span></button>';
   }
 
   function askBarHTML(){
-    let h = '<div class="askbar">'+
-      '<input id="ask_q" type="text" placeholder="Ask Athena anything…" autocomplete="off"'+
+    let h = '<div class="asklabel">' + HELM + '<span>Ask Athena</span></div>';
+    h += '<div class="askbar">'+
+      '<input id="ask_q" type="text" placeholder="Anything about your week…" autocomplete="off"'+
       (askBusy ? ' disabled' : '')+'>'+
       (earCan()
         ? '<button class="askmic' + (earState === 'listening' ? ' hearing' : '') +
