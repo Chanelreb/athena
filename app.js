@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-11.2';
+  const BUILD = '2026-10-11.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -206,6 +206,9 @@
     'stroke-linecap="round" stroke-linejoin="round" opacity=".55"><path d="M9 18V6l10-2v12"/>' +
     '<circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>' +
     '<path d="M4 4l16 16"/></svg>';
+  const SPARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"/>' +
+    '<path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7Z"/></svg>';
   const MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
     'stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/>' +
     '<path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg>';
@@ -8810,6 +8813,7 @@
     // One line, above everything it can change. On any other view it would be
     // asking about a week you are not looking at.
     if (view === 'day') h += askBarHTML();
+    else h += askFabHTML();
 
     if (view === 'day')    h += weekShown() ? weekView(vd, now) : dayRail(vd, now);
     else if (view === 'blocks') h += blocksManagerHTML(now);
@@ -8868,6 +8872,7 @@
     if (whyOpen === 'habits')  h += habitsWhyHTML();
     if (whyOpen === 'beliefs') h += beliefsHTML();
     if (tour) h += tourHTML();
+    if (askOpen) h += askSheetHTML();
     if (point) h += pointHTML();
 
     paint(h);
@@ -9338,6 +9343,52 @@
     save(); render();
   }
 
+  /* What is worth asking right now, in the order it is worth asking. Each
+     line is a real sentence somebody would say, not a command phrased to
+     suit the parser, because the parser copes and people do not. */
+  function askSuggest(now){
+    const out = [];
+    const b = dayBrief(now);
+    const hr = now.getHours();
+    const rocks = rocksOn(dayKey(now));
+    let loose = [];
+    try { loose = unplacedTasks(now).filter(placeable); } catch(_){ loose = []; }
+
+    if (b.late.length) out.push(b.late.length === 1
+      ? 'Find a slot for my overdue task'
+      : 'Find slots for my ' + b.late.length + ' overdue tasks');
+    if (!rocks && hr < 14) out.push('Help me choose three rocks for today');
+    if (loose.length >= 3) out.push('Where should my ' + loose.length + ' unplaced tasks go?');
+    if (b.closing.length) out.push('What must I not miss today?');
+    if (hr >= 16) out.push('Set tomorrow up for me');
+    if (!b.ahead.length && hr < 16) out.push('My day is empty, what should I put in it?');
+    // Always worth having, and last, so a week with something urgent in it
+    // leads with the urgent thing.
+    out.push('How does the rest of my week look?');
+    out.push('Where is my time actually going?');
+    return out.slice(0, 3);
+  }
+
+  let askOpen = false;        // the sheet, on views that have no room for a bar
+
+  function askSheetHTML(){
+    let h = '<div class="modal-back" data-askclosesheet></div>';
+    h += '<div class="modal ask-sheet"><div class="modal-h">Ask Athena</div>';
+    h += '<p class="ai-intro">Asked from anywhere, always about your week. ' +
+      'Nothing changes until you agree to it.</p>';
+    h += askBarHTML();
+    h += '<div class="modal-actions"><span style="flex:1"></span>' +
+      '<button class="go" data-askclosesheet>Close</button></div>';
+    return h + '</div>';
+  }
+
+  // Not on the day, where the bar is already sitting in the open.
+  function askFabHTML(){
+    if (view === 'day' || askOpen || askChanges) return '';
+    return '<button class="askfab" data-askopen aria-label="Ask Athena">' +
+      SPARK + '<span>Ask</span></button>';
+  }
+
   function askBarHTML(){
     let h = '<div class="askbar">'+
       '<input id="ask_q" type="text" placeholder="Ask Athena anything…" autocomplete="off"'+
@@ -9356,9 +9407,15 @@
     } else if (earChat){
       h += '<p class="askear quiet"><i></i>Your turn in a moment\u2026</p>';
     } else {
-      h += '<p class="askhint">Add something, ask how your week looks, or tell it to move things around. '+
-        'Nothing changes until you say so.' +
-        (earCan() ? ' Or press the microphone and say it.' : '') + '</p>';
+      const tips = (!askThread.length && !askChanges && !askBusy) ? askSuggest(clock()) : [];
+      if (tips.length){
+        h += '<div class="asktips">' + tips.map(t =>
+          '<button class="asktip" data-asktip="' + esc(t) + '">' + esc(t) + '</button>').join('') +
+          '</div>';
+      }
+      h += '<p class="askhint">Or tell it to move things around, add something, or paste in a ' +
+        'head full of things. Nothing changes until you say so.' +
+        (earCan() ? ' The microphone works too.' : '') + '</p>';
     }
     if (earErr) h += '<div class="savewarn">'+esc(earErr)+'</div>';
     if (askErr) h += '<div class="savewarn">'+esc(askErr)+'</div>';
@@ -11814,6 +11871,18 @@
       coach().tracks[bits[0]] = bits[1];
       save(); render(); return;
     }
+    if (t('[data-askopen]')){ askOpen = true; askErr = ''; render(); return; }
+    if (t('[data-askclosesheet]')){ askOpen = false; earStop(); render(); return; }
+    if ((m = t('[data-asktip]'))){
+      // Sent rather than typed into the box. The point is to see it work
+      // once; the second question gets typed without any help from me.
+      earStop();
+      const box = document.getElementById('ask_q');
+      if (box) box.value = m.dataset.asktip;
+      drafts['ask_q'] = m.dataset.asktip;
+      askAthena();
+      return;
+    }
     if (t('[data-askmic]')){ earToggle(); return; }
     if (t('[data-askgo]')){ earStop(); askAthena(); return; }
     if (t('[data-askclear]')){ askChanges = null; askPick = {}; askThread = []; askErr = ''; askSaid = ''; render(); return; }
@@ -12647,6 +12716,7 @@
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'fd_name'){ e.preventDefault(); const b = app.querySelector('[data-foldersave]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newfolder'){ e.preventDefault(); const b = app.querySelector('[data-foldermake]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && askOpen && !askChanges){ askOpen = false; earStop(); render(); return; }
     if (e.key === 'Escape' && point){ pointClose(); return; }
     if (e.key === 'Escape' && tour){ tourClose(); return; }
     if (e.key === 'Escape' && whyOpen){ whyOpen = ''; render(); return; }
