@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-09.5';
+  const BUILD = '2026-10-11.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1660,6 +1660,221 @@
     return parts.join('. ') || 'Nothing needed placing';
   }
   // Give a bulk change long enough on screen to read, with its undo.
+  /* ---------- the weather ---------- */
+  const WX_KEY = 'athena:wx', WX_STALE = 30 * 60 * 1000;
+  let wx = { at: 0, lat: 0, lon: 0, days: {}, busy: false, err: '' };
+
+  const wxPrefs = () => Object.assign({ on: false, lat: 0, lon: 0, place: '' },
+    (S.profile && S.profile.wx) || {});
+  const wxOn = () => { const p = wxPrefs(); return !!(p.on && p.lat && p.lon); };
+  function setWx(patch){
+    if (!S.profile) S.profile = blank().profile;
+    S.profile.wx = Object.assign(wxPrefs(), patch);
+    save();
+  }
+
+  function wxLoad(){
+    try {
+      const j = JSON.parse(lsGet(WX_KEY) || 'null');
+      if (!j) return;
+      const p = wxPrefs();
+      // A forecast for where you were last week is worse than none.
+      if (Math.abs(j.lat - p.lat) > 0.05 || Math.abs(j.lon - p.lon) > 0.05) return;
+      wx.days = j.days || {}; wx.at = j.at || 0; wx.lat = j.lat; wx.lon = j.lon;
+      // The day has already been painted once by now, without this on it.
+      if (Object.keys(wx.days).length) render();
+    } catch(_){}
+  }
+  const wxStash = () => lsSet(WX_KEY, JSON.stringify({
+    days: wx.days, at: wx.at, lat: wx.lat, lon: wx.lon
+  }));
+
+  /* WMO weather codes, which is what Open-Meteo speaks. Grouped rather than
+     listed: nobody needs to be told the difference between light and
+     moderate drizzle before breakfast. */
+  function wxWords(code){
+    const c = +code;
+    if (c === 0) return { t: 'Clear', wet: false };
+    if (c <= 2) return { t: 'Mostly sunny', wet: false };
+    if (c === 3) return { t: 'Overcast', wet: false };
+    if (c <= 49) return { t: 'Fog', wet: false };
+    if (c <= 55) return { t: 'Drizzle', wet: true };
+    if (c <= 57) return { t: 'Freezing drizzle', wet: true };
+    if (c <= 65) return { t: 'Rain', wet: true };
+    if (c <= 67) return { t: 'Freezing rain', wet: true };
+    if (c <= 77) return { t: 'Snow', wet: true };
+    if (c <= 82) return { t: 'Showers', wet: true };
+    if (c <= 86) return { t: 'Snow showers', wet: true };
+    return { t: 'Storms', wet: true };
+  }
+
+  async function wxFetch(force){
+    if (!wxOn() || wx.busy) return;
+    // Nothing to fetch still means there is something to draw, for a caller
+    // that has just come back to the app with a cache already warm.
+    if (!force && Date.now() - wx.at < WX_STALE){ render(); return; }
+    const p = wxPrefs();
+    wx.busy = true; wx.err = '';
+    try {
+      // Rounded before it leaves. About a kilometre, which decides rain and
+      // does not identify a house.
+      const lat = (+p.lat).toFixed(2), lon = (+p.lon).toFixed(2);
+      const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat +
+        '&longitude=' + lon +
+        '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
+        '&hourly=weather_code,precipitation_probability,temperature_2m' +
+        '&forecast_days=7&timezone=' + encodeURIComponent(appTZ());
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('weather service said no');
+      const j = await r.json();
+      const days = {};
+      (j.daily && j.daily.time || []).forEach((d, i) => {
+        days[d] = {
+          code: j.daily.weather_code[i],
+          hi: Math.round(j.daily.temperature_2m_max[i]),
+          lo: Math.round(j.daily.temperature_2m_min[i]),
+          wet: j.daily.precipitation_probability_max[i],
+          hours: []
+        };
+      });
+      // Hour by hour, kept per day, so a later build can ask whether it rains
+      // during one particular block rather than merely some time today.
+      (j.hourly && j.hourly.time || []).forEach((t, i) => {
+        const d = String(t).slice(0, 10), hh = +String(t).slice(11, 13);
+        if (!days[d]) return;
+        days[d].hours[hh] = {
+          code: j.hourly.weather_code[i],
+          wet: j.hourly.precipitation_probability[i],
+          temp: Math.round(j.hourly.temperature_2m[i])
+        };
+      });
+      wx.days = days; wx.at = Date.now(); wx.lat = +p.lat; wx.lon = +p.lon;
+      wxStash();
+    } catch(e){
+      // Kept, not shown on the day: a failed forecast is not worth a banner
+      // over somebody's morning. Settings says so if they go looking.
+      wx.err = (e && e.message) || 'could not reach the weather service';
+    }
+    wx.busy = false;
+    render();
+  }
+
+  const wxOn4 = dk => wxOn() ? (wx.days[dk] || null) : null;
+
+  /* One line on the day. The temperature, what it is doing, and the first
+     hour inside your own waking hours when rain becomes likely, because
+     "60% chance today" is useless and "showers from 4pm" is a decision. */
+  function wxLineHTML(vd){
+    const d = wxOn4(dayKey(vd));
+    if (!d) return '';
+    const w = wxWords(d.code);
+    const win = savedWindow();
+    const from = Math.floor(mins(win[0]) / 60), to = Math.ceil(mins(win[1]) / 60);
+    let first = -1;
+    for (let h = from; h <= to && h < 24; h++){
+      const hr = d.hours[h];
+      if (hr && hr.wet >= 50){ first = h; break; }
+    }
+    const bits = [w.t, d.hi + '\u00b0'];
+    if (first >= 0) bits.push('wet from ' + clockOf(pad(first) + ':00'));
+    else if (d.wet >= 50) bits.push(d.wet + '% chance of rain');
+    return '<p class="wxline' + (w.wet || first >= 0 ? ' wet' : '') + '">' +
+      WX_ICON(d.code) + '<span>' + esc(bits.join(' \u00b7 ')) + '</span></p>';
+  }
+
+  // Four drawings rather than forty: sun, cloud, rain, storm.
+  function WX_ICON(code){
+    const c = +code, w = wxWords(c);
+    const s = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">';
+    if (c >= 95) return s + '<path d="M7 15a4 4 0 0 1 .6-7.95A5.5 5.5 0 0 1 18 8.5a3.5 3.5 0 0 1 .4 6.5"/>' +
+      '<path d="M12 13l-2 4h3l-2 4"/></svg>';
+    if (w.wet) return s + '<path d="M7 15a4 4 0 0 1 .6-7.95A5.5 5.5 0 0 1 18 8.5a3.5 3.5 0 0 1 .4 6.5"/>' +
+      '<path d="M9 18.5v2M13 18v2.5M17 18.5v2"/></svg>';
+    if (c === 0 || c <= 1) return s + '<circle cx="12" cy="12" r="4"/>' +
+      '<path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg>';
+    return s + '<path d="M7 17a4.2 4.2 0 0 1 .6-8.35A5.6 5.6 0 0 1 18 9a3.6 3.6 0 0 1 .4 8Z"/></svg>';
+  }
+
+  let wxFinding = '';          // '' | 'device' | 'search'
+  let wxHits = [];             // places a search turned up
+
+  function wxUseDevice(){
+    if (!navigator.geolocation){ wx.err = 'This browser will not say where it is.'; render(); return; }
+    wxFinding = 'device'; wx.err = ''; render();
+    navigator.geolocation.getCurrentPosition(pos => {
+      wxFinding = '';
+      setWx({ on: true, lat: pos.coords.latitude, lon: pos.coords.longitude, place: 'This device' });
+      wx.days = {}; wx.at = 0;
+      wxFetch(true);
+      render();
+    }, err => {
+      wxFinding = '';
+      wx.err = err && err.code === 1
+        ? 'Location was refused. Type a town instead, which works just as well.'
+        : 'Could not work out where this device is. Typing a town works just as well.';
+      render();
+    }, { timeout: 12000, maximumAge: 10 * 60 * 1000 });
+  }
+
+  /* Open-Meteo's own place lookup, also free and keyless. Sending a town
+     name is a good deal less revealing than sending coordinates, which is
+     why this is offered first in the panel. */
+  async function wxSearch(){
+    const q = ((document.getElementById('s_wxplace') || {}).value || '').trim();
+    if (!q) return;
+    wxFinding = 'search'; wx.err = ''; wxHits = []; render();
+    try {
+      const r = await fetch('https://geocoding-api.open-meteo.com/v1/search?count=6&name=' +
+        encodeURIComponent(q));
+      const j = await r.json();
+      wxHits = (j.results || []).map(x => ({
+        name: [x.name, x.admin1, x.country].filter(Boolean).join(', '),
+        lat: x.latitude, lon: x.longitude
+      }));
+      if (!wxHits.length) wx.err = 'No such place came back. Try the nearest larger town.';
+    } catch(_){ wx.err = 'Could not reach the place lookup.'; }
+    wxFinding = ''; render();
+  }
+  function wxChoose(i){
+    const h = wxHits[i];
+    if (!h) return;
+    setWx({ on: true, lat: h.lat, lon: h.lon, place: h.name });
+    wxHits = []; wx.days = {}; wx.at = 0;
+    clearDraft('s_wxplace');
+    wxFetch(true); render();
+  }
+
+  function wxSettingsHTML(){
+    const p = wxPrefs();
+    let h = '<div class="modal-h" style="margin-top:8px">Weather</div>';
+    h += '<p class="setnote">A line on your day saying what it is doing outside, and when ' +
+      'the rain starts if it is going to. From Open-Meteo, which is free and wants no ' +
+      'account. Your position is rounded to about a kilometre before it is sent, which is ' +
+      'enough to know whether it will rain on you and is not your address.</p>';
+    if (wxOn()){
+      h += '<div class="tznow"><b>' + esc(p.place || 'Where you are') + '</b><span>' +
+        (wx.at ? 'Forecast from ' + esc(clockOf(pad(new Date(wx.at).getHours()) + ':' +
+          pad(new Date(wx.at).getMinutes()))) : 'Not fetched yet') + '</span></div>';
+      h += '<div class="vrow"><button class="ghost" data-wxoff>Turn the weather off</button>' +
+        '<button class="linkish" data-wxagain>Somewhere else</button></div>';
+    } else {
+      h += '<div class="vrow"><button class="go" data-wxhere>' +
+        (wxFinding === 'device' ? 'Asking\u2026' : 'Use where I am') + '</button></div>';
+      h += '<label class="fld"><span>Or name a town</span>' +
+        '<input id="s_wxplace" type="text" placeholder="Fremantle" autocomplete="off"></label>';
+      h += '<div class="vrow"><button class="ghost" data-wxfind>' +
+        (wxFinding === 'search' ? 'Looking\u2026' : 'Find it') + '</button></div>';
+      if (wxHits.length){
+        h += '<div class="fldlist">' + wxHits.map((x, i) =>
+          '<button class="ghost wxhit" data-wxpick="' + i + '">' + esc(x.name) + '</button>').join('') +
+          '</div>';
+      }
+    }
+    if (wx.err) h += '<div class="savewarn">' + esc(wx.err) + '</div>';
+    return h;
+  }
+
   /* ---------- the music, which is generated ---------- */
   const hz = m => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -2655,11 +2870,13 @@
     }
     if (booked){
       h += '<p class="slack">Today asks for <b>'+dur(booked)+'</b>, and leaves <b>'+dur(openTotal)+'</b> open in between. There is room.</p>';
+      h += wxLineHTML(vd);
       h += '<div class="balbar">' + S.categories.map(c =>
         split[c.id] ? '<i style="width:'+(split[c.id]/booked*100)+'%;background:'+tint(c.color)+'"></i>' : '').join('') + '</div>';
       h += '<div class="balkey">' + S.categories.filter(c=>split[c.id]).map(c =>
         '<span><b style="background:'+tint(c.color)+'"></b>'+esc(c.label)+' '+dur(split[c.id])+'</span>').join('') + '</div>';
     } else {
+      h += wxLineHTML(vd);
       h += '<p class="slack">Nothing scheduled '+(isToday ? 'today' : 'this day')+'. '+
         '<button class="linkish" data-newon="'+dk+'">Add something</button>, or enjoy the open day.</p>';
     }
@@ -8205,7 +8422,7 @@
   };
   const MODAL_IDS = ['e_title','e_note','e_cat','e_allday','e_start','e_end','e_repeat','e_date','e_monthday','s_name',
     'te_title','te_note','te_cat','te_prio','te_rep','te_due','te_when','te_mins','te_at','te_monthday','tk_when','tk_mins',
-    'ne_title','ne_body','ne_folder','ne_tag','ne_newfolder','ne_newitem','rk_edit','s_tz','s_voicename'];
+    'ne_title','ne_body','ne_folder','ne_tag','ne_newfolder','ne_newitem','rk_edit','s_tz','s_voicename','s_wxplace'];
   const clearModalDrafts = () => { MODAL_IDS.forEach(clearDraft); tagDraft = ''; newFolder = null; };
 
   function paint(h){
@@ -10561,6 +10778,7 @@
     h += calSettingsHTML();
     h += trackSettingsHTML();
     h += nudgeSettingsHTML();
+    h += wxSettingsHTML();
     h += voiceSettingsHTML();
     h += '<div class="modal-h" style="margin-top:8px">Account</div>';
     if (cloud && session){
@@ -11474,6 +11692,11 @@
     if (t('[data-pointnext]')){ pointStep(1); return; }
     if (t('[data-pointback]')){ pointStep(-1); return; }
     if (t('[data-point]')){ pointOpen(); return; }
+    if (t('[data-wxhere]')){ wxUseDevice(); return; }
+    if (t('[data-wxfind]')){ wxSearch(); return; }
+    if ((m = t('[data-wxpick]'))){ wxChoose(+m.dataset.wxpick); return; }
+    if (t('[data-wxoff]')){ setWx({ on: false }); wx.days = {}; wx.at = 0; render(); return; }
+    if (t('[data-wxagain]')){ setWx({ on: false }); wxHits = []; wx.err = ''; render(); return; }
     if (t('[data-tourclose]')){ tourClose(); return; }
     if (t('[data-tournext]')){
       if (tour && tour.i >= TOUR.length - 1){ tourClose(); return; }
@@ -12231,6 +12454,7 @@
       const b = app.querySelector('[data-rocksave]'); if (b) b.click();
       return;
     }
+    if (e.key === 'Enter' && e.target.id === 's_wxplace'){ e.preventDefault(); wxSearch(); return; }
     if (e.key === 'Enter' && e.target.id === 'rk_own'){
       e.preventDefault();
       const b = app.querySelector('[data-rockown]'); if (b) b.click();
@@ -12428,6 +12652,10 @@
       render();
       consumeShare();      // anything Android handed us on the way in
       snapToday();         // a copy of this morning, before the day touches it
+      wxLoad();            // last known forecast, drawn at once if there is one
+      // Then ask for a newer one, after the first paint. A forecast is never
+      // worth making somebody wait to see their own day.
+      setTimeout(() => { wxFetch(false); }, 1200);
       consumeNudge();      // and anything a notification sent us here to do
       pushCheck();         // is this device set up to be nudged at all
       // Thoughts parked before any of this was counted get a date now, so

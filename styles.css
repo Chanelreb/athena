@@ -1357,6 +1357,17 @@
   }
   @keyframes athTalk { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
 
+  /* ---- the weather, one line ---- */
+  #soft-app .wxline {
+    display: flex; align-items: center; gap: 7px;
+    margin: -6px 0 14px; font-size: 13px; color: var(--dim);
+  }
+  #soft-app .wxline svg { width: 17px; height: 17px; flex: 0 0 auto; opacity: .85; }
+  /* Wet is the one state worth a colour, because it is the one that changes
+     what you do today. */
+  #soft-app .wxline.wet { color: var(--live); }
+  #soft-app .wxhit { text-align: left; }
+
   /* ---- the pointer tour ---- */
   /* Four panels rather than one with a hole in it, because a box-shadow
      cut-out still swallows taps and the whole point is that the control
