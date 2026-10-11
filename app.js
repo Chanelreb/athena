@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-11.3';
+  const BUILD = '2026-10-11.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2015,7 +2015,157 @@
       }
     }
     if (wx.err) h += '<div class="savewarn">' + esc(wx.err) + '</div>';
+    h += '<label class="fld chk" style="margin-top:10px"><input id="s_offers" type="checkbox"' +
+      (offersOn() ? ' checked' : '') + '><span>Let Athena mention things unprompted</span></label>';
+    h += '<p class="setnote">One line on your day when something is worth saying: rain due on ' +
+      'something that happens outside, or work that is late while there is still room for it. ' +
+      'It only ever offers. The button hands the question to Ask Athena, which shows you what ' +
+      'it would change and waits, exactly as if you had asked yourself. Dismissing one means ' +
+      'that particular thing is never mentioned again.</p>';
     return h;
+  }
+
+  /* ---------- offers ---------- */
+  /* Things that plainly happen outside. Deliberately short: a word that is
+     usually indoors does not belong here, because a false warning about the
+     weather is worse than a missing one. */
+  const OUTDOORS = ('tennis|golf|run|running|parkrun|jog|jogging|walk|walking|hike|hiking|cycle|cycling|' +
+    'ride|bike|swim|surf|beach|park|garden|gardening|mow|lawn|football|soccer|cricket|' +
+    'netball|rugby|hockey|sailing|kayak|picnic|bbq|barbecue|market|playground|zoo|' +
+    'bushwalk|camping|fishing|paddle|skate|climb').split('|');
+  /* The senses of those words that happen at a desk. Checked first, and a
+     match here settles it: an invoice run is not a run. */
+  const NOT_OUTDOORS = new RegExp(
+    '(invoice|payroll|test|dry|dress|trial|practice|final|first|last) run|' +
+    'run (rate|through|book|sheet)|running (cost|costs|total|order|late)|' +
+    'walk ?through|car ?park|market(ing| research| share| fit| day)|' +
+    'parkinson|swim ?lane|ride ?along', 'i');
+  const looksOutdoors = title => {
+    const t = ' ' + String(title || '').toLowerCase().replace(/[^a-z ]/g, ' ')
+      .replace(/\s+/g, ' ') + ' ';
+    if (NOT_OUTDOORS.test(t)) return false;
+    return OUTDOORS.some(w => t.indexOf(' ' + w + ' ') !== -1);
+  };
+
+  // The worst it gets during a stretch of the day, as a percentage.
+  function wxDuring(dk, fromM, toM){
+    const d = wxOn4(dk);
+    if (!d || !d.hours) return 0;
+    let worst = 0;
+    for (let h = Math.floor(fromM / 60); h <= Math.floor((toM - 1) / 60) && h < 24; h++){
+      const hr = d.hours[h];
+      if (hr && hr.wet > worst) worst = hr.wet;
+    }
+    return worst;
+  }
+
+  /* What is left of your own day that is not already blocked out. Not the
+     whole window: time that has already gone is not room. */
+  function roomLeft(now){
+    const w = savedWindow();
+    const nowM = now.getHours() * 60 + now.getMinutes();
+    const from = Math.max(mins(w[0]), nowM), to = mins(w[1]);
+    if (to <= from) return 0;
+    let used = 0;
+    blocksForDate(now).filter(b => !b.allDay && b.s).forEach(b => {
+      const s = Math.max(mins(b.s), from), e = Math.min(mins(b.e), to);
+      if (e > s) used += e - s;
+    });
+    return Math.max(0, (to - from) - used);
+  }
+
+  const offerOffAll = () => (S.offerOff || (S.offerOff = {}));
+  const offerHidden = id => !!offerOffAll()[id];
+  function offerDismiss(id){ offerOffAll()[id] = true; save(); render(); }
+
+  const offersOn = () => {
+    const p = (S.profile && S.profile.offers);
+    return p !== false;
+  };
+
+  /* Rain on something that happens outside, while there is still time to do
+     anything about it. Only today, only ahead, only once it is likely rather
+     than merely possible. */
+  function offerRain(now){
+    if (!wxOn()) return null;
+    const dk = dayKey(now), nowM = now.getHours() * 60 + now.getMinutes();
+    const blocks = blocksForDate(now).filter(b =>
+      !b.allDay && b.s && mins(b.s) > nowM && looksOutdoors(b.t));
+    for (let i = 0; i < blocks.length; i++){
+      const b = blocks[i];
+      /* The block, not the occurrence. uid carries the date on a repeating
+         block, so keying on it would mean 'not today' while the button says
+         'do not mention it again', and tennis every Tuesday would ask every
+         Tuesday. The common reason to dismiss is that the guess was wrong
+         about it being outdoors, and that does not change next week. */
+      const id = 'rain:' + b.id;
+      if (offerHidden(id)) continue;
+      const wet = wxDuring(dk, mins(b.s), mins(b.e));
+      if (wet < 55) continue;
+      return {
+        id: id,
+        text: '<b>' + esc(b.t) + '</b> is at ' + clockOf(b.s) + ', and rain is ' + wet +
+          '% likely then. Worth moving?',
+        ask: 'It is going to rain around ' + clockOf(b.s) + '. Move ' + b.t +
+          ' to a drier time today if there is one.',
+        go: 'Find a drier time'
+      };
+    }
+    return null;
+  }
+
+  /* Work that is already late, and room today to do it in. Both halves have
+     to be true: telling somebody they are behind when the day is full is not
+     help, it is commentary. */
+  function offerOverdue(now){
+    const b = dayBrief(now);
+    if (b.late.length < 2) return null;
+    const id = 'late:' + dayKey(now);
+    if (offerHidden(id)) return null;
+    const room = roomLeft(now);
+    if (room < 60) return null;
+    return {
+      id: id,
+      text: b.late.length + ' tasks are overdue, and you have <b>' + dur(room) +
+        '</b> open today. Shall Athena find them somewhere?',
+      ask: 'Place my overdue tasks into the open time I have today.',
+      go: 'Find them a slot'
+    };
+  }
+
+  /* One at a time, best first. The weather leads because it expires: a
+     drier hour that has already passed is no use to anybody, and the overdue
+     pile will still be there tomorrow. */
+  function offerNow(now){
+    if (!offersOn()) return null;
+    return offerRain(now) || offerOverdue(now);
+  }
+
+  function offerHTML(now){
+    const o = offerNow(now);
+    if (!o) return '';
+    return '<div class="offer">' +
+      '<button class="offerx" data-offeroff="' + esc(o.id) + '" ' +
+      'aria-label="Not this one, and do not mention it again" ' +
+      'title="Not this one, and do not mention it again">\u00d7</button>' +
+      '<p>' + o.text + '</p>' +
+      '<button class="go" data-offergo="' + esc(o.id) + '">' + esc(o.go) + '</button>' +
+      '</div>';
+  }
+
+  /* The button does not act. It asks, exactly as if the question had been
+     typed, and the answer comes back as changes to be ticked off one at a
+     time. Athena offering and Athena doing are different things and this is
+     the only place where the difference could quietly be lost. */
+  function offerGo(id){
+    const o = offerNow(clock());
+    if (!o || o.id !== id) return;
+    const box = document.getElementById('ask_q');
+    if (box) box.value = o.ask;
+    drafts['ask_q'] = o.ask;
+    if (view !== 'day') askOpen = true;
+    render();
+    askAthena();
   }
 
   /* ---------- the music, which is generated ---------- */
@@ -2999,6 +3149,7 @@
       // A second miss goes above the chips, not among them. The whole idea is
       // that it is the one thing worth doing next, and a chip in a row of
       // chips is the one thing you scroll past.
+      h += offerHTML(now);
       h += slipHTML(now);
       // Habits sit with the ring they count toward. Only today's: a tick here
       // always lands on today, so offering them on another day would mislead.
@@ -8428,6 +8579,11 @@
       }
       if (e.target.id === 's_voicerate'){ setVoice('rate', +e.target.value || 1); render(); return; }
       if (e.target.id === 's_voicepitch'){ setVoice('pitch', +e.target.value || 1); render(); return; }
+      if (e.target.id === 's_offers'){
+        if (!S.profile) S.profile = blank().profile;
+        S.profile.offers = !!e.target.checked;
+        save(); render(); return;
+      }
       if (e.target.id === 's_music'){
         setVoice('music', !!e.target.checked);
         if (!e.target.checked) musStop(); else if (tour || point) musStart();
@@ -11871,6 +12027,8 @@
       coach().tracks[bits[0]] = bits[1];
       save(); render(); return;
     }
+    if ((m = t('[data-offergo]'))){ offerGo(m.dataset.offergo); return; }
+    if ((m = t('[data-offeroff]'))){ offerDismiss(m.dataset.offeroff); return; }
     if (t('[data-askopen]')){ askOpen = true; askErr = ''; render(); return; }
     if (t('[data-askclosesheet]')){ askOpen = false; earStop(); render(); return; }
     if ((m = t('[data-asktip]'))){
