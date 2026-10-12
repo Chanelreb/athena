@@ -3,7 +3,7 @@
    freshest file and we refresh the cache; when offline we serve the last good
    copy (falling back to the app shell for navigations). All user data lives in
    localStorage / Supabase, never here. */
-const CACHE = 'athena-shell-v128';
+const CACHE = 'athena-shell-v129';
 const ASSETS = [
   './',
   './index.html',
@@ -14,6 +14,9 @@ const ASSETS = [
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/icon-192-maskable.png',
+  './icons/icon-512-maskable.png',
+  './icons/favicon-32.png',
   './icons/apple-touch-icon.png',
   // The assistant's mark. Precached with the rest of the shell, because a
   // missing mask leaves an empty box beside the words rather than degrading
