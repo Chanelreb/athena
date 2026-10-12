@@ -1397,7 +1397,7 @@
     font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
     box-shadow: 0 10px 28px rgba(0,0,0,.34);
   }
-  #soft-app .askfab svg { width: 19px; height: 19px; }
+  #soft-app .askfab .amark { width: 20px; height: 20px; }
   @supports (padding: max(0px)) {
     #soft-app .askfab { bottom: max(16px, env(safe-area-inset-bottom)); }
   }
@@ -1413,12 +1413,19 @@
     font-size: 12px; font-weight: 600; letter-spacing: .06em;
     text-transform: uppercase; color: var(--live);
   }
-  #soft-app .asklabel svg { width: 19px; height: 19px; flex: 0 0 auto; }
+  /* The mark itself. Size is set by whoever is using it; this only has to
+     say that the colour comes from the element and the shape from the file. */
+  #soft-app .amark {
+    display: inline-block; flex: 0 0 auto; background: currentColor;
+    -webkit-mask: url(icons/athena-mark.png) center / contain no-repeat;
+    mask: url(icons/athena-mark.png) center / contain no-repeat;
+  }
+  #soft-app .asklabel .amark { width: 20px; height: 20px; }
   /* The sheet puts the name and the helmet in its own title, so the bar
      inside it must not say both again directly underneath. */
   #soft-app .ask-sheet .asklabel { display: none; }
   #soft-app .modal-h.askhead { display: flex; align-items: center; gap: 9px; }
-  #soft-app .modal-h.askhead svg { width: 21px; height: 21px; flex: 0 0 auto; color: var(--live); }
+  #soft-app .modal-h.askhead .amark { width: 22px; height: 22px; color: var(--live); }
 
   /* ---- the three things worth asking ---- */
   /* Wrapped rather than scrolled: a row that runs off the edge hides the
