@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-12.3';
+  const BUILD = '2026-10-12.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3258,11 +3258,18 @@
     if (homeless.length){
       const names = {};
       homeless.forEach(tk => { const c = S.categories.find(x => x.id === tk.cat); names[c ? c.label : 'Other'] = 1; });
-      h += '<div class="homeless"><div class="homeless-h">'+
-        '<b>'+homeless.length+' task'+(homeless.length !== 1 ? 's' : '')+' with nowhere to go</b>'+
-        '<span>Nothing scheduled for '+esc(Object.keys(names).join(', '))+' between now and when '+
-        (homeless.length === 1 ? 'this is' : 'these are')+' due. Tick them off here, or give them somewhere to live.</span></div>'+
-        '<div class="tlist">'+homeless.map(tk => taskRow(tk, vd, true)).join('')+'</div>'+
+      const where = esc(Object.keys(names).join(', '));
+      const many = homeless.length !== 1;
+      h += '<div class="homeless' + (panelsOn() ? ' brief' : '') + '"><div class="homeless-h">'+
+        '<b>'+homeless.length+' task'+(many ? 's' : '')+' with nowhere to go</b>'+
+        '<span>Nothing scheduled for '+where+' between now and when '+
+        (many ? 'these are' : 'this is')+' due.' +
+        (panelsOn()
+          ? ' ' + (many ? 'They are' : 'It is') + ' in <b>To place</b>, ready to drag onto the day.'
+          : ' Tick them off here, or give them somewhere to live.') +
+        '</span></div>'+
+        // The list itself only where there is no panel showing the same rows.
+        (panelsOn() ? '' : '<div class="tlist">'+homeless.map(tk => taskRow(tk, vd, true)).join('')+'</div>')+
         '<button class="linkish" data-newon="'+dk+'">Add a block for today</button></div>';
     }
 
@@ -9639,6 +9646,15 @@
 
   function askBarHTML(){
     let h = '<div class="asklabel">' + HELM + '<span>Ask Athena</span></div>';
+    if (askThread.length && !askChanges){
+      h += '<div class="askthread">';
+      h += '<button class="linkish askclear" data-askclear>Start again</button>';
+      askThread.forEach(t => {
+        h += '<div class="asay '+(t.who === 'you' ? 'me' : 'her')+'"><p>'+esc(t.text)+'</p></div>';
+      });
+      if (askBusy) h += '<div class="asay her thinking"><p>Thinking…</p></div>';
+      h += '</div>';
+    }
     h += '<div class="askbar">'+
       '<input id="ask_q" type="text" placeholder="Anything about your week…" autocomplete="off"'+
       (askBusy ? ' disabled' : '')+'>'+
@@ -9668,15 +9684,6 @@
     }
     if (earErr) h += '<div class="savewarn">'+esc(earErr)+'</div>';
     if (askErr) h += '<div class="savewarn">'+esc(askErr)+'</div>';
-    if (askThread.length && !askChanges){
-      h += '<div class="askthread">';
-      askThread.forEach(t => {
-        h += '<div class="asay '+(t.who === 'you' ? 'me' : 'her')+'"><p>'+esc(t.text)+'</p></div>';
-      });
-      if (askBusy) h += '<div class="asay her thinking"><p>Thinking…</p></div>';
-      h += '<button class="linkish askclear" data-askclear>Start again</button>';
-      h += '</div>';
-    }
     return h;
   }
 
