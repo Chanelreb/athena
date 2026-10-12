@@ -228,8 +228,8 @@
   /* A thought that has been sitting a week. Marked, not shouted at: the
      point is that you can see which ones have been ignored, and the prompt
      above the list does the asking. */
-  #soft-app .parked li.stale { border-left: 2px solid var(--live); padding-left: 8px; }
-  #soft-app .parked li .parkage {
+  :is(#soft-app, .ath-side) .parked li.stale { border-left: 2px solid var(--live); padding-left: 8px; }
+  :is(#soft-app, .ath-side) .parked li .parkage {
     display: block; font-style: normal; font-size: 11.5px;
     color: var(--live); margin-top: 3px;
   }
@@ -1092,11 +1092,11 @@
      own colour rather than borrowing the accent, because the accent is a matter
      of taste and a warning is not: a theme with a quiet accent must not quietly
      turn "your data is not saving" into a grey box. */
-  #soft-app .savewarn {
+  :is(#soft-app, .ath-side) .savewarn {
     background: var(--warn-soft); border: 1px solid var(--warn); color: var(--warn);
     border-radius: 12px; padding: 11px 14px; font-size: 13px; line-height: 1.45; margin: 18px 0 4px;
   }
-  #soft-app .modal .savewarn { margin: 0 0 12px; }
+  :is(#soft-app, .ath-side) .modal .savewarn { margin: 0 0 12px; }
 
   /* Starting again. The only button in Athena that throws work away, so it
      is dressed as what it is: quiet where it sits in Settings, so it is not
@@ -1401,7 +1401,7 @@
     font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
     box-shadow: 0 10px 28px rgba(0,0,0,.34);
   }
-  #soft-app .askfab .amark { width: 20px; height: 20px; }
+  :is(#soft-app, .ath-side) .askfab .amark { width: 20px; height: 20px; }
   @supports (padding: max(0px)) {
     #soft-app .askfab { bottom: max(16px, env(safe-area-inset-bottom)); }
   }
@@ -1409,7 +1409,7 @@
      sitting on top of the one on the right. */
   @media (min-width: 1100px) { #soft-app .askfab { right: 28px; } }
   #soft-app .modal.ask-sheet { max-width: 520px; }
-  #soft-app .modal.ask-sheet .askbar { margin-top: 4px; }
+  :is(#soft-app, .ath-side) .modal.ask-sheet .askbar { margin-top: 4px; }
 
   /* ---- a section that folds ---- */
   /* The heading is the control, so it has to look like one without becoming
@@ -1436,63 +1436,63 @@
   #soft-app .fold-q { vertical-align: middle; margin-left: 2px; }
 
   /* ---- the assistant's own line ---- */
-  #soft-app .asklabel {
+  :is(#soft-app, .ath-side) .asklabel {
     display: flex; align-items: center; gap: 8px; margin: 0 2px 7px;
     font-size: 12px; font-weight: 600; letter-spacing: .06em;
     text-transform: uppercase; color: var(--live);
   }
   /* The mark itself. Size is set by whoever is using it; this only has to
      say that the colour comes from the element and the shape from the file. */
-  #soft-app .amark {
+  :is(#soft-app, .ath-side) .amark {
     display: inline-block; flex: 0 0 auto; background: currentColor;
     -webkit-mask: url(icons/athena-mark.png) center / contain no-repeat;
     mask: url(icons/athena-mark.png) center / contain no-repeat;
   }
-  #soft-app .asklabel .amark { width: 20px; height: 20px; }
+  :is(#soft-app, .ath-side) .asklabel .amark { width: 20px; height: 20px; }
   /* The sheet puts the name and the helmet in its own title, so the bar
      inside it must not say both again directly underneath. */
-  #soft-app .ask-sheet .asklabel { display: none; }
+  :is(#soft-app, .ath-side) .ask-sheet .asklabel { display: none; }
   #soft-app .modal-h.askhead { display: flex; align-items: center; gap: 9px; }
-  #soft-app .modal-h.askhead .amark { width: 22px; height: 22px; color: var(--live); }
+  :is(#soft-app, .ath-side) .modal-h.askhead .amark { width: 22px; height: 22px; color: var(--live); }
 
   /* ---- the three things worth asking ---- */
   /* Wrapped rather than scrolled: a row that runs off the edge hides the
      third one, and the third one is often the interesting one. */
-  #soft-app .asktips { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0 8px; }
-  #soft-app .asktip {
+  :is(#soft-app, .ath-side) .asktips { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0 8px; }
+  :is(#soft-app, .ath-side) .asktip {
     background: none; border: 1px solid var(--line); border-radius: 999px;
     padding: 8px 14px; font: inherit; font-size: 12.5px; color: var(--text);
     cursor: pointer; text-align: left;
   }
-  #soft-app .asktip:hover { border-color: var(--live); color: var(--live); }
+  :is(#soft-app, .ath-side) .asktip:hover { border-color: var(--live); color: var(--live); }
 
   /* ---- the microphone ---- */
-  #soft-app .askmic {
+  :is(#soft-app, .ath-side) .askmic {
     flex: 0 0 auto; width: 42px; height: 42px; padding: 10px;
     display: flex; align-items: center; justify-content: center;
     background: none; border: 1px solid var(--line); border-radius: 11px;
     color: var(--dim); cursor: pointer;
   }
-  #soft-app .askmic svg { width: 100%; height: 100%; }
-  #soft-app .askmic:hover { color: var(--text); border-color: var(--live); }
+  :is(#soft-app, .ath-side) .askmic svg { width: 100%; height: 100%; }
+  :is(#soft-app, .ath-side) .askmic:hover { color: var(--text); border-color: var(--live); }
   /* Open and closed must not look alike. This is the one control on the
      screen where being unsure of the state actually matters. */
-  #soft-app .askmic.hearing { color: var(--on-live); background: var(--live); border-color: var(--live); }
-  #soft-app .askmic.waiting { color: var(--live); border-color: var(--live); }
+  :is(#soft-app, .ath-side) .askmic.hearing { color: var(--on-live); background: var(--live); border-color: var(--live); }
+  :is(#soft-app, .ath-side) .askmic.waiting { color: var(--live); border-color: var(--live); }
   @media (prefers-reduced-motion: no-preference) {
-    #soft-app .askmic.hearing { animation: athMic 1.3s ease-in-out infinite; }
+    :is(#soft-app, .ath-side) .askmic.hearing { animation: athMic 1.3s ease-in-out infinite; }
   }
   @keyframes athMic { 0%, 100% { box-shadow: 0 0 0 0 var(--live); } 70% { box-shadow: 0 0 0 7px transparent; } }
-  #soft-app .askear {
+  :is(#soft-app, .ath-side) .askear {
     display: flex; align-items: center; gap: 8px;
     margin: 8px 0 14px; font-size: 13px; color: var(--text); min-height: 20px;
   }
-  #soft-app .askear.quiet { color: var(--dim); }
-  #soft-app .askear i {
+  :is(#soft-app, .ath-side) .askear.quiet { color: var(--dim); }
+  :is(#soft-app, .ath-side) .askear i {
     width: 7px; height: 7px; border-radius: 50%; background: var(--live); flex: 0 0 auto;
   }
   @media (prefers-reduced-motion: no-preference) {
-    #soft-app .askear i { animation: athTalk 1.2s ease-in-out infinite; }
+    :is(#soft-app, .ath-side) .askear i { animation: athTalk 1.2s ease-in-out infinite; }
   }
 
   /* ---- the weather, one line ---- */
@@ -2024,9 +2024,14 @@
   /* Both panels the same width, or the middle column is not actually the middle. */
   @media (min-width: 1360px) {
     #ath-shell { gap: 22px; }
+    /* A column rather than a block, because the conversation in it claims the
+       height going spare and the lists under it take what is left. Hidden
+       rather than auto: the two things inside do their own scrolling, and a
+       rail that also scrolled would slide the box you type into out of
+       reach. */
     #ath-left:not([hidden]) {
-      display: block; flex: 0 0 300px; position: sticky; top: 20px;
-      max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain;
+      display: flex; flex-direction: column; flex: 0 0 300px; position: sticky; top: 20px;
+      max-height: calc(100vh - 40px); overflow: hidden;
     }
   }
   .ath-side .panel {
@@ -2645,19 +2650,19 @@
   /* ---- one box ------------------------------------------------------------
      Sits above everything it can change, and looks like a thing you type into
      rather than a feature you have to find. */
-  #soft-app .askbar { display: flex; gap: 8px; margin: 14px 0 6px; }
-  #soft-app .askbar input {
+  :is(#soft-app, .ath-side) .askbar { display: flex; gap: 8px; margin: 14px 0 6px; }
+  :is(#soft-app, .ath-side) .askbar input {
     flex: 1; min-width: 0; background: var(--raise); border: 1px solid var(--line); color: var(--text);
     border-radius: 12px; padding: 11px 14px; font: inherit; -webkit-appearance: none; appearance: none;
   }
-  #soft-app .askbar input:focus { outline: none; border-color: var(--live); }
-  #soft-app .askbar input:disabled { opacity: .6; }
-  #soft-app .askbar .go {
+  :is(#soft-app, .ath-side) .askbar input:focus { outline: none; border-color: var(--live); }
+  :is(#soft-app, .ath-side) .askbar input:disabled { opacity: .6; }
+  :is(#soft-app, .ath-side) .askbar .go {
     flex: 0 0 auto; background: var(--live); color: var(--on-live); border: 0;
     border-radius: 12px; padding: 11px 18px; font: inherit; font-weight: 600; cursor: pointer;
   }
-  #soft-app .askbar .go:disabled { opacity: .55; cursor: default; }
-  #soft-app .askhint { font-size: 12.5px; color: var(--ghost); margin: 0 0 4px; line-height: 1.5; max-width: 52ch; }
+  :is(#soft-app, .ath-side) .askbar .go:disabled { opacity: .55; cursor: default; }
+  :is(#soft-app, .ath-side) .askhint { font-size: 12.5px; color: var(--ghost); margin: 0 0 4px; line-height: 1.5; max-width: 52ch; }
   #soft-app .askreply {
     position: relative; background: var(--raise); border: 1px solid var(--line);
     border-radius: 12px; padding: 12px 34px 12px 14px; margin: 10px 0 4px;
@@ -3205,25 +3210,62 @@
      rather than a stack of identical cards. */
   /* Above the box now. Capped and scrolling, because a long conversation
      must not push the thing you type into off the bottom of the screen. */
-  #soft-app .askthread {
+  /* ---- the assistant as a column ---- */
+  /* In a rail it is not a line above the day, it is the thing on the left you
+     talk to: its own height, its own scroll, and the box sitting on the bottom
+     edge where the newest line lands right on top of it. */
+  :is(#ath-left, #ath-right) .panel.askpanel { display: flex; flex-direction: column; }
+  :is(#ath-left, #ath-right) .askpanel .panel-h { display: flex; align-items: center; gap: 8px; }
+  :is(#ath-left, #ath-right) .askpanel .panel-h .amark { width: 14px; height: 14px; color: var(--live); }
+  /* The panel's heading already says it, so the bar's own label would say it
+     twice, the way it used to in the sheet. */
+  :is(#ath-left, #ath-right) .askpanel .asklabel { display: none; }
+  :is(#ath-left, #ath-right) .askpanel .askbody { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  :is(#ath-left, #ath-right) .askpanel .asktop { flex: 0 0 auto; margin: 0 0 6px; }
+  :is(#ath-left, #ath-right) .askpanel .askthread { max-height: 40vh; margin: 0 0 10px; }
+  /* Three hundred pixels will not take a field, a microphone and a button on
+     one line and leave anywhere to type, so the field takes the whole row and
+     the two buttons go under it, on the right. */
+  :is(#ath-left, #ath-right) .askpanel .askbar { flex-wrap: wrap; margin: 0; }
+  :is(#ath-left, #ath-right) .askpanel .askbar input { flex: 1 1 100%; }
+  :is(#ath-left, #ath-right) .askpanel .askbar .askmic { margin-left: auto; }
+  :is(#ath-left, #ath-right) .askpanel .asktips { margin: 10px 0 0; }
+  :is(#ath-left, #ath-right) .askpanel .asktip { font-size: 12px; padding: 5px 9px; }
+  :is(#ath-left, #ath-right) .askpanel .askhint { font-size: 12px; margin: 9px 0 0; max-width: none; }
+  :is(#ath-left, #ath-right) .askpanel .askear { margin: 9px 0 0; }
+  @media (min-width: 1360px) {
+    /* The rail stops scrolling as one thing and becomes two: the conversation
+       keeps its own, the lists under it keep theirs. Otherwise a long enough
+       conversation pushes the box you type into off the bottom of the rail,
+       which is the one thing a chat column must never do. Only once there is
+       a conversation, though: before that the panel is a box and three
+       suggestions and has no business being tall. */
+    #ath-left .panel.askpanel.chatting {
+      flex: 1 1 auto; min-height: 300px; max-height: 60vh; overflow: hidden;
+    }
+    #ath-left .askpanel.chatting .askthread { flex: 1 1 auto; min-height: 0; max-height: none; }
+    #ath-left .askunder { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  }
+
+  :is(#soft-app, .ath-side) .askthread {
     display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px;
     max-height: 46vh; overflow-y: auto; padding-right: 2px;
   }
-  #soft-app .askthread .askclear { align-self: flex-end; margin: 0 0 2px; }
-  #soft-app .asay { max-width: 86%; }
-  #soft-app .asay p {
+  :is(#soft-app, .ath-side) .asktop { display: flex; justify-content: flex-end; margin: 6px 0 2px; }
+  :is(#soft-app, .ath-side) .asay { max-width: 86%; }
+  :is(#soft-app, .ath-side) .asay p {
     margin: 0; padding: 10px 13px; font-size: 14.5px; line-height: 1.55;
     border: 1px solid var(--line); border-radius: 14px; background: var(--raise);
   }
-  #soft-app .asay.me { align-self: flex-end; }
-  #soft-app .asay.me p {
+  :is(#soft-app, .ath-side) .asay.me { align-self: flex-end; }
+  :is(#soft-app, .ath-side) .asay.me p {
     background: var(--live); color: var(--on-live); border-color: var(--live);
     border-bottom-right-radius: 5px;
   }
-  #soft-app .asay.her { align-self: flex-start; }
-  #soft-app .asay.her p { border-bottom-left-radius: 5px; }
-  #soft-app .asay.thinking p { color: var(--ghost); font-style: italic; }
-  #soft-app .askclear { align-self: flex-start; font-size: 12.5px; padding-top: 2px; }
+  :is(#soft-app, .ath-side) .asay.her { align-self: flex-start; }
+  :is(#soft-app, .ath-side) .asay.her p { border-bottom-left-radius: 5px; }
+  :is(#soft-app, .ath-side) .asay.thinking p { color: var(--ghost); font-style: italic; }
+  :is(#soft-app, .ath-side) .askclear { align-self: flex-start; font-size: 12.5px; padding-top: 2px; }
 
   /* ---- backup and restore -------------------------------------------------
      The comparison is the whole point: you should see what you are about to

@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-12.5';
+  const BUILD = '2026-10-12.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2189,7 +2189,7 @@
     const box = document.getElementById('ask_q');
     if (box) box.value = o.ask;
     drafts['ask_q'] = o.ask;
-    if (view !== 'day') askOpen = true;
+    if (!panelsOn() && view !== 'day') askOpen = true;
     render();
     askAthena();
   }
@@ -8159,16 +8159,20 @@
       blk = '<div class="panel blk"><div class="panel-h">In this block</div>'+
         (det || '<p class="blk-empty">Click a block on the day to see what is waiting in it.</p>')+'</div>';
     }
+    const ask = askPanelHTML();
     if (twoPanels()){
-      // Left is for capture: the scratchpad on top, the pile to place under it.
+      // Left is the assistant and then capture: the conversation on top with
+      // the height going spare, the scratchpad and the pile to place beneath.
       // Right is the clock, with whichever block you are looking at under it.
+      // The two under it are wrapped because they scroll together, separately
+      // from the conversation: see #ath-left in the stylesheet.
       L.hidden = R.hidden = false;
-      L.innerHTML = park + place;
+      L.innerHTML = ask + '<div class="askunder">' + park + place + '</div>';
       R.innerHTML = timerHTML() + blk;
     } else {
       // One rail only: the same order, top to bottom.
       L.hidden = true; L.innerHTML = '';
-      R.hidden = false; R.innerHTML = timerHTML() + blk + park + place;
+      R.hidden = false; R.innerHTML = ask + timerHTML() + blk + park + place;
     }
   }
 
@@ -8847,6 +8851,9 @@
     let caret = null;
     try { caret = (ae && ae.selectionStart != null) ? ae.selectionStart : null; } catch(_){}
     const sy = (typeof window !== 'undefined' && window.scrollY) || 0;
+    const oldTh = document.querySelector('.askthread');
+    const thAt = oldTh ? oldTh.scrollTop : 0;
+    const thEnd = oldTh ? (oldTh.scrollHeight - oldTh.clientHeight - thAt < 40) : true;
     app.innerHTML = h;
     // Panels are redrawn before drafts and focus are put back, so a half-typed
     // thought in the scratchpad panel survives a render like any other field.
@@ -8864,6 +8871,8 @@
       const m2 = app.querySelector('.modal');
       if (m2 && m2.className === modKey) m2.scrollTop = modTop;
     }
+    const th = document.querySelector('.askthread');
+    if (th) th.scrollTop = thEnd ? th.scrollHeight : thAt;
     if (typeof window !== 'undefined' && window.scrollTo && sy) window.scrollTo(0, sy);
     if (app.querySelector('img[data-imgpath]')) hydrateImages();
     watchPickbar();
@@ -9080,10 +9089,11 @@
       // ones that have come due. Put this line back to have it again.
       // h += dailyCheckHTML(now);
     }
-    // One line, above everything it can change. On any other view it would be
-    // asking about a week you are not looking at.
-    if (view === 'day') h += askBarHTML();
-    else h += askFabHTML();
+    // Only where there is no rail to hold it. On a phone it is one line above
+    // everything it can change, and a button on the views where a line would
+    // be asking about a week you are not looking at. On a laptop it has a
+    // column, so the day says nothing about it at all.
+    if (!panelsOn()) h += (view === 'day' ? askBarHTML() : askFabHTML());
 
     if (view === 'day')    h += weekShown() ? weekView(vd, now) : dayRail(vd, now);
     else if (view === 'blocks') h += blocksManagerHTML(now);
@@ -9654,9 +9664,24 @@
     return h + '</div>';
   }
 
-  // Not on the day, where the bar is already sitting in the open.
+  /* The assistant as a column rather than a line. The panel heading carries
+     the helmet and the name, so the bar's own label is hidden inside here:
+     see .askpanel .asklabel in the stylesheet.
+
+     'chatting' is what lets the panel stretch. Before there is a conversation
+     it is a box and three suggestions and wants to be short; once there is
+     one it should take the height going spare and scroll inside itself. */
+  function askPanelHTML(){
+    const live = askThread.length && !askChanges;
+    return '<div class="panel askpanel' + (live ? ' chatting' : '') + '">' +
+      '<div class="panel-h">' + HELM + '<span>Ask Athena</span></div>' +
+      '<div class="askbody">' + askBarHTML() + '</div></div>';
+  }
+
+  // Not on the day, where the bar is already sitting in the open, and not on
+  // any screen wide enough to have given it a column of its own.
   function askFabHTML(){
-    if (view === 'day' || askOpen || askChanges) return '';
+    if (panelsOn() || view === 'day' || askOpen || askChanges) return '';
     return '<button class="askfab" data-askopen aria-label="Ask Athena">' +
       HELM + '<span>Ask</span></button>';
   }
@@ -9694,8 +9719,9 @@
   function askBarHTML(){
     let h = '<div class="asklabel">' + HELM + '<span>Ask Athena</span></div>';
     if (askThread.length && !askChanges){
+      h += '<div class="asktop"><button class="linkish askclear" data-askclear>' +
+        'Start again</button></div>';
       h += '<div class="askthread">';
-      h += '<button class="linkish askclear" data-askclear>Start again</button>';
       askThread.forEach(t => {
         h += '<div class="asay '+(t.who === 'you' ? 'me' : 'her')+'"><p>'+esc(t.text)+'</p></div>';
       });
