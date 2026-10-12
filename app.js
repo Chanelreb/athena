@@ -17,12 +17,38 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-12.2';
+  const BUILD = '2026-10-12.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
   // each account's data private. Falls back to local-only if config/lib absent.
   const CFG = (typeof window !== 'undefined' && window.ATHENA_SUPABASE) || null;
+
+  /* Where the serverless functions live. Empty on the web, which leaves the
+     paths exactly as they were: same origin, same behaviour. A native shell
+     serves the app from capacitor://localhost or a file, where a root
+     relative /api/ai is not the assistant and not even an error, just the
+     wrong thing with a 200 on it. One constant rather than six fetches. */
+  const API_BASE = ((typeof window !== 'undefined' && window.ATHENA_API_BASE) || '')
+    .replace(/\/+$/, '');
+  const api = path => API_BASE + '/api/' + path;
+
+  /* Where a sign-in link should land. The email takes you out of the app and
+     has to bring you back, and on the web back means this address. In a
+     native shell it means a registered scheme, athena://auth or similar,
+     which also has to be added to the allowed redirects in Supabase. */
+  const authReturn = () => (typeof window !== 'undefined' && window.ATHENA_AUTH_RETURN) ||
+    (typeof window !== 'undefined' ? window.location.origin : '');
+
+  /* Leaving for somebody else's sign-in page and coming back. A browser just
+     goes; a native shell has to open a system browser and listen for the
+     return, so the going is behind a door rather than written inline. */
+  function leaveTo(url){
+    if (typeof window !== 'undefined' && typeof window.ATHENA_OPEN_EXTERNAL === 'function'){
+      window.ATHENA_OPEN_EXTERNAL(url); return;
+    }
+    location.href = url;
+  }
   const sb = (CFG && window.supabase && window.supabase.createClient)
     ? window.supabase.createClient(CFG.url, CFG.publishableKey, {
         auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -5184,7 +5210,7 @@
     if (!cloud || !session) throw new Error('Sign in first to use the built-in assistant.');
     const { data } = await sb.auth.getSession();
     const token = data && data.session ? data.session.access_token : '';
-    const r = await fetch('/api/ai', {
+    const r = await fetch(api('ai'), {
       method: 'POST',
       headers: { 'content-type':'application/json', Authorization:'Bearer ' + token },
       body: JSON.stringify(Object.assign({
@@ -6219,7 +6245,7 @@
     if (!cloud || !session) throw new Error('Sign in first, so Athena can do the talking part.');
     const { data } = await sb.auth.getSession();
     const token = data && data.session ? data.session.access_token : '';
-    const r = await fetch('/api/ai', {
+    const r = await fetch(api('ai'), {
       method: 'POST',
       headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify(Object.assign({
@@ -6438,7 +6464,7 @@
   async function calPost(body){
     const { data } = await sb.auth.getSession();
     const token = data && data.session ? data.session.access_token : '';
-    const r = await fetch('/api/ms', {
+    const r = await fetch(api('ms'), {
       method: 'POST',
       headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify(body)
@@ -6491,7 +6517,7 @@
       const st = uid8() + uid8() + uid8();
       try { sessionStorage.setItem(CAL_STATE, st); } catch(_){}
       const j = await calPost({ action: 'start', state: st });
-      location.href = j.url;
+      leaveTo(j.url);
     } catch(e){ cal.err = (e && e.message) || 'Could not start that.'; cal.busy = false; render(); }
   }
 
@@ -9461,7 +9487,7 @@
     try {
       const { data } = await sb.auth.getSession();
       const token = data && data.session ? data.session.access_token : '';
-      const r = await fetch('/api/ai', {
+      const r = await fetch(api('ai'), {
         method: 'POST',
         headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({
@@ -9728,7 +9754,7 @@
   // The key the browser needs to subscribe. Fetched rather than written into
   // the app, so it can be changed in one place and never appears in the repo.
   async function pushKey(){
-    const r = await fetch('/api/push', { cache: 'no-store' });
+    const r = await fetch(api('push'), { cache: 'no-store' });
     if (!r.ok) throw new Error('Athena could not fetch its push key, so nudges are not set up on the server yet.');
     const j = await r.json();
     if (!j || !j.key) throw new Error('The push key came back empty.');
@@ -11453,7 +11479,7 @@
     try {
       const { data } = await sb.auth.getSession();
       const token = data && data.session ? data.session.access_token : '';
-      const r = await fetch('/api/ai', {
+      const r = await fetch(api('ai'), {
         method: 'POST',
         headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({
@@ -13068,7 +13094,7 @@
     if (!sb){ authMsg = 'Sign-in is not configured.'; renderAuth(); return; }
     authBusy = true; authMsg = ''; renderAuth();
     try {
-      const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
+      const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: authReturn() } });
       authBusy = false;
       if (error){
         authMsg = /rate|limit|seconds/i.test(error.message || '')
