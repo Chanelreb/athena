@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-12.4';
+  const BUILD = '2026-10-12.5';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3180,21 +3180,31 @@
       // Habits sit with the ring they count toward. Only today's: a tick here
       // always lands on today, so offering them on another day would mislead.
       // A habit inside a routine is ticked in its routine's block instead.
-      if (looseHabits().some(x => !x.w)) h += '<h2 class="dayhab-h">Every day' +
-        '<button class="pomo-q" data-why="habits" aria-label="How the habits work" ' +
-        'title="How the habits work">?</button></h2>' + chipsHTML(now, false);
+      if (looseHabits().some(x => !x.w)){
+        const every = looseHabits().filter(x => !x.w);
+        const kept = every.filter(hb => isDone(hb.id, dayKey(now), hb.target)).length;
+        h += foldHTML('habits',
+          'Every day',
+          kept + ' of ' + every.length + ' kept',
+          chipsHTML(now, false),
+          '<button class="pomo-q fold-q" data-why="habits" aria-label="How the habits work" ' +
+          'title="How the habits work">?</button>');
+      }
       // Beneath them, and only on the day you are actually on. A weekly chip
       // is the same tick all week, so it belongs with today rather than with
       // a Thursday you are merely looking at.
       if (looseHabits().some(x => x.w)) h += '<h2 class="dayhab-h">This week</h2>' + chipsHTML(now, true);
     }
     if (booked){
-      h += '<p class="slack">Today asks for <b>'+dur(booked)+'</b>, and leaves <b>'+dur(openTotal)+'</b> open in between. There is room.</p>';
-      h += wxLineHTML(vd);
-      h += '<div class="balbar">' + S.categories.map(c =>
-        split[c.id] ? '<i style="width:'+(split[c.id]/booked*100)+'%;background:'+tint(c.color)+'"></i>' : '').join('') + '</div>';
-      h += '<div class="balkey">' + S.categories.filter(c=>split[c.id]).map(c =>
+      const bar = '<div class="balbar">' + S.categories.map(c =>
+        split[c.id] ? '<i style="width:'+(split[c.id]/booked*100)+'%;background:'+tint(c.color)+'"></i>' : '').join('') + '</div>' +
+        '<div class="balkey">' + S.categories.filter(c=>split[c.id]).map(c =>
         '<span><b style="background:'+tint(c.color)+'"></b>'+esc(c.label)+' '+dur(split[c.id])+'</span>').join('') + '</div>';
+      const parts = S.categories.filter(c => split[c.id]).length;
+      h += foldHTML('shape',
+        'Today asks for <b>'+dur(booked)+'</b>, and leaves <b>'+dur(openTotal)+'</b> open in between.',
+        'across ' + parts + ' part' + (parts !== 1 ? 's' : '') + ' of your life',
+        bar, wxLineHTML(vd));
     } else {
       h += wxLineHTML(vd);
       h += '<p class="slack">Nothing scheduled '+(isToday ? 'today' : 'this day')+'. '+
@@ -9051,9 +9061,14 @@
     if (view === 'day' && !weekShown() && dayKey(vd) === dayKey(now)){
       // What today is for, above what today merely contains.
       h += rocksHTML(now);
-      h += morningPromptHTML(now);
-      h += sessionPromptHTML(now);
-      h += parkPromptHTML();
+      /* One at a time. All three could be due at once, and three cards of
+         being asked for something, stacked, is not three times as useful: it
+         is a queue presented as a pile, and it pushes the day itself off the
+         bottom of the screen. Most pressing first, the rest once that one has
+         been dealt with, which is the order somebody would answer them in
+         anyway. */
+      const asks = [morningPromptHTML(now), sessionPromptHTML(now), parkPromptHTML()];
+      h += asks.find(x => x) || '';
       // No side panel on a phone, so the clock has lived only on a laptop.
       // A focus timer you cannot reach from the thing that is distracting you
       // is not much of a focus timer.
@@ -9249,6 +9264,8 @@
   let askThread = [];
   function askSay(who, text){
     if (!text) return;
+    // She has had an answer, so the explanation has done its job.
+    if (who === 'athena' && S.profile && !S.profile.askUsed){ S.profile.askUsed = true; save(); }
     askThread.push({ who: who, text: String(text) });
     if (who === 'athena') say(text, 'ask');
     while (askThread.length > ASK_TURNS) askThread.shift();
@@ -9644,6 +9661,36 @@
       HELM + '<span>Ask</span></button>';
   }
 
+  /* Open unless it has been shut. The default lives here rather than in the
+     stored value, so a section can change its mind later without having to
+     rewrite what everybody already has. */
+  const FOLD_SHUT = { shape: true };          // folded until opened
+  const folds = () => (S.profile && S.profile.folds) || {};
+  function folded(key){
+    const f = folds();
+    return (key in f) ? !!f[key] : !!FOLD_SHUT[key];
+  }
+  function foldToggle(key){
+    if (!S.profile) S.profile = blank().profile;
+    const f = Object.assign({}, folds());
+    f[key] = !folded(key);
+    S.profile.folds = f;
+    save(); render();
+  }
+
+  /* A heading that is also the control. The summary is what the section says
+     when it is shut, so closing it loses the detail and never the fact. */
+  function foldHTML(key, title, summary, body, extra){
+    const shut = folded(key);
+    return '<div class="fold' + (shut ? ' shut' : '') + '">' +
+      '<button class="fold-h" data-fold="' + esc(key) + '" aria-expanded="' + (!shut) + '">' +
+      '<span class="fold-t">' + title + '</span>' +
+      (shut && summary ? '<span class="fold-s">' + summary + '</span>' : '') +
+      '<i class="fold-c" aria-hidden="true"></i></button>' +
+      (extra || '') +
+      (shut ? '' : '<div class="fold-b">' + body + '</div>') + '</div>';
+  }
+
   function askBarHTML(){
     let h = '<div class="asklabel">' + HELM + '<span>Ask Athena</span></div>';
     if (askThread.length && !askChanges){
@@ -9678,9 +9725,12 @@
           '<button class="asktip" data-asktip="' + esc(t) + '">' + esc(t) + '</button>').join('') +
           '</div>';
       }
-      h += '<p class="askhint">Or tell it to move things around, add something, or paste in a ' +
-        'head full of things. Nothing changes until you say so.' +
-        (earCan() ? ' The microphone works too.' : '') + '</p>';
+      // Explained once. After the first real answer it is sixty pixels of
+      // something already understood.
+      if (!(S.profile && S.profile.askUsed))
+        h += '<p class="askhint">Or tell it to move things around, add something, or paste in a ' +
+          'head full of things. Nothing changes until you say so.' +
+          (earCan() ? ' The microphone works too.' : '') + '</p>';
     }
     if (earErr) h += '<div class="savewarn">'+esc(earErr)+'</div>';
     if (askErr) h += '<div class="savewarn">'+esc(askErr)+'</div>';
@@ -12141,6 +12191,7 @@
       askAthena();
       return;
     }
+    if ((m = t('[data-fold]'))){ foldToggle(m.dataset.fold); return; }
     if (t('[data-askmic]')){ earToggle(); return; }
     if (t('[data-askgo]')){ earStop(); askAthena(); return; }
     if (t('[data-askclear]')){ askChanges = null; askPick = {}; askThread = []; askErr = ''; askSaid = ''; render(); return; }

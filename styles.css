@@ -1411,6 +1411,30 @@
   #soft-app .modal.ask-sheet { max-width: 520px; }
   #soft-app .modal.ask-sheet .askbar { margin-top: 4px; }
 
+  /* ---- a section that folds ---- */
+  /* The heading is the control, so it has to look like one without becoming
+     a button in a row of buttons: the chevron carries that and nothing else
+     changes until it is hovered. */
+  #soft-app .fold { margin: 2px 0 14px; }
+  #soft-app .fold-h {
+    display: flex; align-items: baseline; gap: 9px; width: 100%;
+    background: none; border: 0; padding: 4px 0; cursor: pointer;
+    font: inherit; color: var(--dim); text-align: left;
+  }
+  #soft-app .fold-h:hover { color: var(--text); }
+  #soft-app .fold-t { font-size: 13.5px; }
+  #soft-app .fold-t b { color: var(--text); font-weight: 600; }
+  #soft-app .fold-s { font-size: 12px; color: var(--ghost); }
+  #soft-app .fold-c {
+    margin-left: auto; width: 7px; height: 7px; flex: 0 0 auto;
+    border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor;
+    transform: rotate(45deg) translate(-2px, -2px); transition: transform .18s ease;
+  }
+  #soft-app .fold.shut .fold-c { transform: rotate(-45deg) translate(-1px, 1px); }
+  #soft-app .fold-b { padding-top: 6px; }
+  /* The habits heading used to be an h2 and carried its own size. */
+  #soft-app .fold-q { vertical-align: middle; margin-left: 2px; }
+
   /* ---- the assistant's own line ---- */
   #soft-app .asklabel {
     display: flex; align-items: center; gap: 8px; margin: 0 2px 7px;
