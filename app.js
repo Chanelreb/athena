@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-13.3';
+  const BUILD = '2026-10-13.4';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2862,7 +2862,17 @@
      list lives inside the block: the tick, the time, and the tasks waiting in
      it. Overlapping blocks share the width rather than hiding each other.
      ========================================================================== */
-  const DAY_H = 1120;                       // 30 minutes is about 36px
+  const DAY_H = 1120;                       // full size: 30 minutes is about 36px
+  const DAY_H_MIN = 560;                    // below this it stops being readable
+  /* What is above and below the grid inside its column: the shell's padding
+     at the top, the date strip, and enough at the bottom that the last hour
+     is not flush against the edge. Measured rather than derived, because the
+     date strip's height depends on whether there is a Today button in it. */
+  const DAY_CHROME = 132;
+  function dayH(){
+    if (typeof window === 'undefined' || !panelsOn()) return DAY_H;
+    return Math.max(DAY_H_MIN, Math.min(DAY_H, window.innerHeight - DAY_CHROME));
+  }
   let openDayBlock = null;                  // which block has its detail open
 
   // Blocks that overlap each other share the width. Worked out per cluster, so
@@ -2892,7 +2902,8 @@
     const dk = dayKey(vd);
     const isToday = dk === dayKey(now);
     const t = isToday ? (now.getHours() * 60 + now.getMinutes()) : -1;
-    const px = m => (m - DS) / SPAN * DAY_H;
+    const GRID_H = dayH();
+    const px = m => (m - DS) / SPAN * GRID_H;
     const all = blocksForDate(vd);
     const allDay = all.filter(b => b.allDay);
     const laid = layOut(all.filter(b => !b.allDay));
@@ -2933,6 +2944,9 @@
       const w = 100 / (x.of || 1), left = w * (x.lane || 0);
       body += '<div class="dblk'+(done ? ' done' : '')+(live ? ' live' : '')+(justDone === b.id ? ' just' : '')+
         (shownKey === String(b.uid || b.id) ? ' sel' : '')+
+        // Too short for the usual padding. Said here because only here is the
+        // height known; CSS cannot ask how tall something turned out.
+        (hgt < 34 ? ' squat' : '')+
         // Picked means you chose it, not just that it is on now. On a touch
         // screen only a picked block can be moved.
         (openDayBlock && openDayBlock === String(b.uid || b.id) ? ' picked' : '')+'" '+
@@ -2941,12 +2955,12 @@
         (isTask ? ' draggable="true" data-dragtask="'+b.task.id+'"' : '')+
         ' style="top:'+px(x.s)+'px;height:'+hgt+'px;left:calc('+left+'% + 3px);width:calc('+w+'% - 6px);'+
         'background:'+col+'2E;border-left-color:'+col+'">'+
-        (hgt >= 30 ? '<button class="dtick" '+doneAct+' style="'+(done ? 'background:'+col+';border-color:'+col : 'border-color:'+col)+'" '+
+        (hgt >= 22 ? '<button class="dtick" '+doneAct+' style="'+(done ? 'background:'+col+';border-color:'+col : 'border-color:'+col)+'" '+
           'aria-label="'+(done ? 'Undo ' : 'Tick off ')+esc(b.t)+'">'+TICK+'</button>' : '')+
         '<button class="dmain" data-dayblock="'+esc(b.uid || b.id)+'">'+
           '<b>'+esc(b.t)+(isRoutine ? ' <em class="dcount">'+rp.done+'/'+rp.total+'</em>' : '')+'</b>'+
-          (hgt >= 46 ? '<em>'+clockOf(b.s)+' – '+clockOf(b.e)+'</em>' : '')+
-          (waiting.length && hgt >= 62 ? '<em class="dtasks">'+waiting.length+' task'+(waiting.length !== 1 ? 's' : '')+
+          (hgt >= 40 ? '<em>'+clockOf(b.s)+' – '+clockOf(b.e)+'</em>' : '')+
+          (waiting.length && hgt >= 56 ? '<em class="dtasks">'+waiting.length+' task'+(waiting.length !== 1 ? 's' : '')+
             (totalMins(waiting) ? ' · '+dur(totalMins(waiting)) : '')+'</em>' : '')+
         '</button>'+
         // A goal step belongs to its goal, so it is not draggable here.
@@ -2965,8 +2979,8 @@
     if (isToday && t >= DS && t <= DE) body += '<div class="cbnow" style="top:'+px(t)+'px"></div>';
 
     h += allDayStrip(dmeets);
-    h += '<div class="daygrid"><div class="calhrs" style="height:'+DAY_H+'px">'+hrs+'</div>'+
-      '<div class="dcol'+(dtimed.length ? ' hasmeet lanes-'+dtimed.widest : '')+'" style="height:'+DAY_H+'px" '+
+    h += '<div class="daygrid"><div class="calhrs" style="height:'+GRID_H+'px">'+hrs+'</div>'+
+      '<div class="dcol'+(dtimed.length ? ' hasmeet lanes-'+dtimed.widest : '')+'" style="height:'+GRID_H+'px" '+
       'data-newon="'+dk+'">'+body+'</div></div>';
     return h;
   }
@@ -8148,8 +8162,6 @@
   // Panels live outside #soft-app, so they survive its re-renders and are
   // painted separately. Cleared entirely when the screen is too narrow, or when
   // the main column is showing something that owns the whole screen.
-  let schedPlaced = false;   // has the schedule been scrolled to now yet
-
   function paintPanels(){
     const L = document.getElementById('ath-left'), R = document.getElementById('ath-right');
     if (!L || !R) return;
@@ -8166,22 +8178,9 @@
 
     // Left: the schedule, on every view. The date strip belongs to it rather
     // than to whatever you happen to be looking at, so it is asked for anyway.
-    const wasAt = L.scrollTop;
     L.hidden = false;
     L.innerHTML = '<div class="sched">' + dateNav(vd, now, true) +
       dayRail(vd, now, 'grid') + '</div>';
-    if (schedPlaced) L.scrollTop = wasAt;
-    else {
-      // The line at now on today, the first block on any other day, and on an
-      // empty day nothing, which leaves it at the top where it belongs.
-      const mark = L.querySelector('.cbnow') || L.querySelector('.dblk');
-      if (mark){
-        L.scrollTop = Math.max(0, L.scrollTop +
-          (mark.getBoundingClientRect().top - L.getBoundingClientRect().top) -
-          Math.round(L.clientHeight / 3));
-        schedPlaced = true;
-      }
-    }
 
     // Right: capture, and what you have just clicked on. The scratchpad is
     // first because emptying your head into it is the thing you do without
@@ -8196,10 +8195,10 @@
     const det = dayDetailHTML(vd, now, upcomingHomes(vd));
     R.hidden = false;
     R.innerHTML =
+      timerHTML() +
       (det ? '<div class="panel blk"><div class="panel-h">In this block</div>' + det + '</div>' : '') +
       '<div class="panel"><div class="panel-h">Scratchpad</div>' + parkHTML(dk, true) + '</div>' +
-      placePanelHTML(vd) +
-      timerHTML();
+      placePanelHTML(vd);
   }
 
   /* ---------- how long a thought has been sitting there ----------

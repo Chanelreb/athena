@@ -522,6 +522,10 @@
   :is(#soft-app, .ath-side) .dblk { touch-action: pan-y; cursor: grab; }
   :is(#soft-app, .ath-side) .dblk.dragging { z-index: 20; cursor: grabbing; box-shadow: 0 8px 22px rgba(0,0,0,.45); opacity: .95; }
   html[data-theme="light"] :is(#soft-app, .ath-side) .dblk.dragging { box-shadow: 0 8px 22px rgba(70,66,58,.28); }
+  :is(#soft-app, .ath-side) .dblk.squat { padding: 2px 6px; gap: 6px; }
+  :is(#soft-app, .ath-side) .dblk.squat .dtick { width: 14px; height: 14px; margin-top: 0; }
+  :is(#soft-app, .ath-side) .dblk.squat .dtick svg { inset: 2px; }
+  :is(#soft-app, .ath-side) .dblk.squat .dmain b { font-size: 12px; }
   :is(#soft-app, .ath-side) .drz { position: absolute; left: 0; right: 0; bottom: 0; height: 9px; cursor: ns-resize; }
   :is(#soft-app, .ath-side) .dblk.done { opacity: .45; }
   :is(#soft-app, .ath-side) .dblk.live { box-shadow: 0 0 0 1px var(--live); }
@@ -2018,16 +2022,12 @@
        have an evening nobody could reach. */
     #ath-left:not([hidden]) {
       display: block; flex: 0 1 300px; min-width: 250px; max-width: 320px;
-      position: sticky; top: 20px;
-      max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain;
     }
   }
   @media (min-width: 1180px) {
     #ath-shell { gap: 22px; }
     #ath-right:not([hidden]) {
       display: block; flex: 0 1 400px; min-width: 270px; max-width: 420px;
-      position: sticky; top: 20px;
-      max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain;
     }
   }
   /* Seven days side by side is a different job from one day. The other two
