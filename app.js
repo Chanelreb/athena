@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-13.6';
+  const BUILD = '2026-10-13.7';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3298,42 +3298,19 @@
     // category has no block today there is nowhere for it to land, and it would
     // otherwise vanish from this screen entirely. Say so, rather than quietly
     // breaking the promise.
-    const blockedCats = {};
-    // All-day blocks count as a home. Goal steps and timed tasks do not: neither
-    // collects a queue of its own, so neither is anywhere a task can land.
-    all.forEach(b => { if (!b.step && !b.task) blockedCats[b.c] = 1; });
-    // "No block today" is only worth saying when there is no block coming
-    // either. A Life admin task with a Life admin block tomorrow and a deadline
-    // next week is not stranded, it is simply not today's problem, and flagging
-    // it here just teaches people to ignore this section.
-    const homeless = openTasks(vd)
-      .filter(tk => {
-        // taskAtOn rather than tk.at: an appointment whose day has been and gone
-        // has no slot today, so it is back to needing somewhere to go.
-        // taskAtOn rather than tk.at: an appointment whose day has been and gone
-        // has no slot today, so it is back to needing somewhere to go.
-        if (taskAtOn(tk, vd) || blockedCats[tk.cat] || !taskAvailableOn(tk, vd)) return false;
-        const next = (soon[tk.cat] || [])[0];
-        // Overdue falls out of this on its own: a block coming tomorrow is not
-        // "in time" for something that was due yesterday.
-        return !(next && (!tk.due || next <= tk.due));
-      })
-      .sort(taskSorter(vd));
+    // Only where there is no To place panel to say it in, which is a phone.
+    const homeless = twoPanels() ? [] : homelessTasks(vd);
     if (homeless.length){
       const names = {};
       homeless.forEach(tk => { const c = S.categories.find(x => x.id === tk.cat); names[c ? c.label : 'Other'] = 1; });
       const where = esc(Object.keys(names).join(', '));
       const many = homeless.length !== 1;
-      h += '<div class="homeless' + (twoPanels() ? ' brief' : '') + '"><div class="homeless-h">'+
+      h += '<div class="homeless"><div class="homeless-h">'+
         '<b>'+homeless.length+' task'+(many ? 's' : '')+' with nowhere to go</b>'+
         '<span>Nothing scheduled for '+where+' between now and when '+
-        (many ? 'these are' : 'this is')+' due.' +
-        (twoPanels()
-          ? ' ' + (many ? 'They are' : 'It is') + ' in <b>To place</b>, ready to drag onto the day.'
-          : ' Tick them off here, or give them somewhere to live.') +
-        '</span></div>'+
-        // The list itself only where there is no panel showing the same rows.
-        (twoPanels() ? '' : '<div class="tlist">'+homeless.map(tk => taskRow(tk, vd, true)).join('')+'</div>')+
+        (many ? 'these are' : 'this is')+' due. Tick them off here, or give them '+
+        'somewhere to live.</span></div>'+
+        '<div class="tlist">'+homeless.map(tk => taskRow(tk, vd, true)).join('')+'</div>'+
         '<button class="linkish" data-newon="'+dk+'">Add a block for today</button></div>';
     }
 
@@ -7825,7 +7802,7 @@
   let timer = { mins: 25, endsAt: null, leftMs: 25 * 60000, done: 0, doneOn: '', target: '', startedAt: null };
   // Opened by hand, for this visit only. Not stored: a timer you unfolded on
   // Tuesday should not still be taking up the day on Thursday.
-  let timerOpen = false;
+  let timerOpen = null;      // null until she opens or puts it away herself
   let timerTick = null;
 
   /* ---- what things actually took ----
@@ -8121,10 +8098,13 @@
       const live = targets.find(x => x.live);
       if (live) timer.target = live.id;
     }
-    // Folded when nothing is running. A clock reading 25:00 and a row of
-    // buttons is a lot of a phone screen to spend on a thing you are not
-    // currently doing, and the one control that matters is Start.
-    const open = running || !idle || timerOpen;
+    // Folded when nothing is running, on a phone: a clock reading 25:00 and a
+    // row of buttons is a lot of a small screen to spend on a thing you are
+    // not currently doing, and the one control that matters is Start. In a
+    // column of its own there is room, and the fold was costing the ring,
+    // which is the part worth looking at. Her own choice beats both.
+    const open = running || !idle ||
+      (timerOpen == null ? twoPanels() : timerOpen);
     let h = '<div class="panel tmr'+(running ? ' going' : '')+(open ? '' : ' folded')+
       (justDone === 'timer' ? ' just' : '')+'">';
     h += '<div class="panel-h">Focus' +
@@ -8164,6 +8144,24 @@
   /* The pile still to be given a place. Rows are draggable, which is a desktop
      affordance and deliberately so: touch has no equivalent, so on a phone a
      task is placed by opening it and setting a time, which works everywhere. */
+  /* Tasks with nowhere to land: their category has no block today, and none
+     is coming before they are due. All-day blocks count as somewhere. A goal
+     step and a timed task do not: neither collects a queue, so neither is a
+     place a task can land. */
+  function homelessTasks(vd){
+    const soon = upcomingHomes(vd), blocked = {};
+    blocksForDate(vd).forEach(b => { if (!b.step && !b.task) blocked[b.c] = 1; });
+    return openTasks(vd).filter(tk => {
+      // taskAtOn rather than tk.at: an appointment whose day has been and gone
+      // has no slot today, so it is back to needing somewhere to go.
+      if (taskAtOn(tk, vd) || blocked[tk.cat] || !taskAvailableOn(tk, vd)) return false;
+      const next = (soon[tk.cat] || [])[0];
+      // Overdue falls out of this on its own: a block tomorrow is not "in
+      // time" for something that was due yesterday.
+      return !(next && (!tk.due || next <= tk.due));
+    }).sort(taskSorter(vd));
+  }
+
   function placePanelHTML(vd){
     const list = unplacedTasks(vd);
     let h = '<div class="panel place"><div class="panel-h">To place'+
@@ -8187,6 +8185,19 @@
           (bits.length ? '<em>'+esc(bits.join(' · '))+'</em>' : '')+'</button></div>';
       }).join('') + '</div>';
       h += '<p class="place-hint">Drag one onto a block to do it then, or onto empty time to fix a slot.</p>';
+    }
+    // Said here rather than over on the day, because this is where the tasks
+    // it is about actually are and where the thing that fixes it belongs.
+    const stuck = homelessTasks(vd);
+    if (stuck.length){
+      const names = {};
+      stuck.forEach(tk => { const c = S.categories.find(x => x.id === tk.cat); names[c ? c.label : 'Other'] = 1; });
+      const many = stuck.length !== 1;
+      h += '<div class="homeless"><div class="homeless-h">'+
+        '<b>'+stuck.length+' with nowhere to go</b>'+
+        '<span>Nothing scheduled for '+esc(Object.keys(names).join(', '))+' between now and when '+
+        (many ? 'these are' : 'this is')+' due.</span></div>'+
+        '<button class="linkish" data-newon="'+dayKey(vd)+'">Add a block for today</button></div>';
     }
     return h + '</div>';
   }
@@ -8270,7 +8281,6 @@
     return touched;
   }
 
-  const parkStaleList = () => (S.parked || []).filter(parkStale);
 
   function parkAgeWords(p){
     const n = parkAge(p);
@@ -8283,15 +8293,6 @@
     return 'parked ' + Math.round(n / 30) + ' months ago';
   }
 
-  function parkPromptHTML(){
-    const old = parkStaleList();
-    if (!old.length) return '';
-    const n = old.length;
-    return '<div class="sitprompt"><div class="sp-row">' +
-      '<span>' + (n === 1 ? 'A thought has' : n + ' thoughts have') + ' been sitting in your scratchpad ' +
-      'for over a week. Two minutes now and none of them is lost.</span>' +
-      '<button class="go" data-parkgo>Clear them</button></div></div>';
-  }
 
   function parkHTML(dk, inPanel){
     let h = '<div class="park'+(inPanel ? ' inpanel' : '')+'"><div class="park-row">'+
@@ -9135,7 +9136,7 @@
          bottom of the screen. Most pressing first, the rest once that one has
          been dealt with, which is the order somebody would answer them in
          anyway. */
-      const asks = [morningPromptHTML(now), sessionPromptHTML(now), parkPromptHTML()];
+      const asks = [morningPromptHTML(now), sessionPromptHTML(now)];
       h += asks.find(x => x) || '';
       // No side panel on a phone, so the clock has lived only on a laptop.
       // A focus timer you cannot reach from the thing that is distracting you
@@ -9152,7 +9153,7 @@
     // every view, because the middle is the working column and the assistant
     // works on whatever is in it. On a phone it is the Day only, and a button
     // elsewhere, where a line would be asking about a week you cannot see.
-    if (panelsOn() || view === 'day') h += askBarHTML();
+    if (panelsOn() || view === 'day') h += '<div class="askbig">' + askBarHTML() + '</div>';
     else h += askFabHTML();
 
     if (view === 'day')    h += weekShown() ? weekView(vd, now)
@@ -12301,15 +12302,6 @@
     if (t('[data-pomo]')){ pomoOpen = true; render(); return; }
     if (t('[data-pomoclose]')){ pomoOpen = false; render(); return; }
     if (t('[data-pomoset]')){ pomoOpen = false; timerReset(25); timerStart(); render(); return; }
-    if (t('[data-parkgo]')){
-      const el = document.querySelector('.park');
-      if (el){ el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
-      else { view = 'day'; render(); setTimeout(() => {
-        const p = document.querySelector('.park');
-        if (p) p.scrollIntoView({ block: 'center' });
-      }, 60); }
-      return;
-    }
     if ((m = t('[data-clearblock]'))){ clearOne(m.dataset.clearblock); return; }
     if ((m = t('[data-clearday]'))){ clearDay(parseDay(m.dataset.clearday)); return; }
     if (t('[data-resetopen]')){ commitSettings(); resetting = { ack: false }; render(); return; }

@@ -1117,17 +1117,20 @@
   #soft-app .modal .del-go[disabled] { opacity: .45; cursor: default; }
 
   /* tasks with nowhere to land today */
-  /* Beside a panel that already lists them, this is a sentence rather than
-     a card, so the same three tasks are not on screen twice. */
-  #soft-app .homeless.brief { background: none; border-style: dashed; }
-  #soft-app .homeless.brief .homeless-h { margin-bottom: 4px; }
+  /* Inside the panel that holds them, a card would be a card inside a card.
+     A rule above the sentence says the same and spends nothing. */
+  .ath-side .homeless {
+    background: none; border: 0; border-top: 1px solid var(--line);
+    border-radius: 0; padding: 12px 0 0; margin: 14px 0 0;
+  }
+  .ath-side .homeless .homeless-h { margin-bottom: 6px; }
   #soft-app .homeless {
     margin-top: 20px; padding: 14px 15px; border-radius: 13px;
     border: 1px dashed var(--line); background: var(--raise);
   }
-  #soft-app .homeless-h b { display: block; font-size: 14px; margin-bottom: 3px; }
-  #soft-app .homeless-h span { display: block; color: var(--dim); font-size: 12.5px; line-height: 1.5; margin-bottom: 10px; }
-  #soft-app .homeless .linkish { margin-top: 10px; font-size: 13px; }
+  :is(#soft-app, .ath-side) .homeless-h b { display: block; font-size: 14px; margin-bottom: 3px; }
+  :is(#soft-app, .ath-side) .homeless-h span { display: block; color: var(--dim); font-size: 12.5px; line-height: 1.5; margin-bottom: 10px; }
+  :is(#soft-app, .ath-side) .homeless .linkish { margin-top: 10px; font-size: 13px; }
 
   /* the Day tab's own Today / Whole week switch */
   #soft-app .seg.sub { flex: 0 0 auto; }
@@ -1437,6 +1440,35 @@
   #soft-app .fold-b { padding-top: 6px; }
   /* The habits heading used to be an h2 and carried its own size. */
   #soft-app .fold-q { vertical-align: middle; margin-left: 2px; }
+
+  /* ---- the assistant, given room ---- */
+  :is(#soft-app, .ath-side) .askbig {
+    background: var(--raise); border: 1px solid var(--line);
+    border-radius: 18px; padding: 16px 18px 15px; margin: 18px 0 22px;
+  }
+  :is(#soft-app, .ath-side) .askbig .asklabel {
+    font-size: 17px; font-weight: 600; letter-spacing: 0;
+    text-transform: none; color: var(--text); gap: 10px; margin: 0 0 12px;
+  }
+  :is(#soft-app, .ath-side) .askbig .asklabel .amark { width: 26px; height: 26px; color: var(--live); }
+  :is(#soft-app, .ath-side) .askbig .askbar { margin: 0; gap: 10px; }
+  :is(#soft-app, .ath-side) .askbig .askbar input {
+    background: var(--bg); border-radius: 14px; padding: 15px 16px; font-size: 16px;
+  }
+  :is(#soft-app, .ath-side) .askbig .askbar .go { padding: 0 22px; font-size: 15px; }
+  :is(#soft-app, .ath-side) .askbig .askmic { width: 48px; height: 48px; }
+  :is(#soft-app, .ath-side) .askbig .asktips { margin: 12px 0 0; }
+  :is(#soft-app, .ath-side) .askbig .asktip { background: var(--bg); }
+  :is(#soft-app, .ath-side) .askbig .askhint { margin: 11px 0 0; }
+  :is(#soft-app, .ath-side) .askbig .askthread { margin: 0 0 12px; }
+  :is(#soft-app, .ath-side) .askbig .asay.her p { background: var(--bg); }
+
+  @media (max-width: 560px) {
+    :is(#soft-app, .ath-side) .askbig { padding: 14px 14px 13px; border-radius: 16px; }
+    :is(#soft-app, .ath-side) .askbig .askbar { flex-wrap: wrap; }
+    :is(#soft-app, .ath-side) .askbig .askbar input { flex: 1 1 100%; }
+    :is(#soft-app, .ath-side) .askbig .askbar .askmic { margin-left: auto; }
+  }
 
   /* ---- the assistant's own line ---- */
   :is(#soft-app, .ath-side) .asklabel {
@@ -1993,6 +2025,7 @@
      its own centring. From 1000px a rail appears beside the day; from 1360px the
      timer moves to the other side so the main column really is in the middle. */
   #ath-shell { display: flex; justify-content: center; align-items: flex-start; gap: 16px; }
+  #ath-shell > #soft-app { min-width: 0; }
   /* The panels carry the same tokens as the app, because they share its parts:
      the scratchpad in a panel is the same scratchpad, drawn by the same rules. */
   .ath-side {
