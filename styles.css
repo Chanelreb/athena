@@ -1444,6 +1444,55 @@
   /* The habits heading used to be an h2 and carried its own size. */
   #soft-app .fold-q { vertical-align: middle; margin-left: 2px; }
 
+  /* ---- the bar along the bottom of a phone ----
+     Fixed rather than at the end of the page, because a bar you have to
+     scroll four screens to reach is not navigation. Backed and blurred so
+     the day passing underneath it does not read as part of it, and padded
+     into the safe area so it clears the home indicator. */
+  #soft-app .bbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: flex; align-items: stretch;
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  #soft-app .bb {
+    flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 3px;
+    background: none; border: 0; padding: 9px 2px 8px; cursor: pointer;
+    color: var(--ghost); font: inherit;
+  }
+  #soft-app .bb svg { width: 22px; height: 22px; display: block; }
+  #soft-app .bb .amark { width: 22px; height: 22px; }
+  #soft-app .bb span {
+    font-size: 10.5px; letter-spacing: .01em; line-height: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+  }
+  #soft-app .bb.on { color: var(--live); }
+  /* Room for it at the foot of every page, or the last thing on the day sits
+     underneath it and cannot be reached. */
+  #soft-app.hasbar { padding-bottom: calc(66px + env(safe-area-inset-bottom)); }
+
+  /* ---- the four places that used to be tabs ---- */
+  #soft-app .modal.more-sheet { max-width: 460px; }
+  #soft-app .morelist { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 6px; }
+  #soft-app .morerow {
+    display: block; width: 100%; text-align: left; cursor: pointer; font: inherit;
+    background: var(--raise); border: 1px solid var(--line); border-radius: 12px;
+    padding: 13px 14px; color: var(--text);
+  }
+  #soft-app .morerow.on { border-color: var(--live); }
+  #soft-app .morerow b { display: block; font-size: 15px; font-weight: 500; }
+  #soft-app .morerow em {
+    display: block; font-style: normal; font-size: 12.5px;
+    color: var(--dim); margin-top: 3px; line-height: 1.45;
+  }
+
+  /* On its own tab the conversation has the screen, so it uses it. */
+  #soft-app .askbig.asktab { margin-top: 4px; }
+  #soft-app .askbig.asktab .askthread { max-height: 62vh; }
+
   /* ---- the assistant, given room ---- */
   :is(#soft-app, .ath-side) .askbig {
     background: var(--raise); border: 1px solid var(--line);

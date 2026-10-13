@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-13.9';
+  const BUILD = '2026-10-13.10';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -438,6 +438,15 @@
   }
   let ok = true;
   let view = 'day';
+
+  /* ---------- the phone's own navigation ---------- */
+  let pane = 'today';                  // today | grid | ask | capture
+  let moreOpen = false;                // the rest of the app, on a phone
+  const paned = () => !panelsOn();     // is the bottom bar in charge
+  /* True for everything on a laptop, and on a phone only for the part that is
+     showing. Every use of it reads as "draw this where it belongs", and on a
+     wide screen that is the layout that was already there. */
+  const inPane = p => !paned() || (view === 'day' && pane === p);
   let openDay = null;                 // week strips: which day is expanded
   let openGoal = null;
   let openBlockTasks = null;          // which block has its task list expanded
@@ -8090,6 +8099,60 @@
       '<span>' + esc(word) + '</span></div>';
   }
 
+  const BB = {
+    today:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+             'stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/>' +
+             '<path d="M8.5 12.2l2.4 2.4 4.6-5"/></svg>',
+    grid:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+             'stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="3"/>' +
+             '<path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>',
+    capture: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+             'stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1-4.2L15.2 5.6a2 2 0 012.8 0l.4.4a2 2 0 010 2.8L8.2 19 4 20z"/></svg>',
+    more:    '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5.5" cy="12" r="1.7"/>' +
+             '<circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></svg>'
+  };
+  const PANES = [['today','Today'], ['grid','Day'], ['ask','Ask'], ['capture','Capture']];
+
+  /* Where a thumb already is. The row along the top said where you could go
+     and showed nothing; this says the same in the place your hand is anyway,
+     and gives the top of the screen back to the thing you came to look at. */
+  function bottomBarHTML(){
+    if (!paned()) return '';
+    // While the sheet is open you are in More, whatever is behind it.
+    const onDay = view === 'day' && !moreOpen;
+    let h = '<nav class="bbar" aria-label="Athena">';
+    PANES.forEach(p => {
+      const lit = onDay && pane === p[0];
+      h += '<button class="bb' + (lit ? ' on' : '') + '" data-pane="' + p[0] + '"' +
+        (lit ? ' aria-current="page"' : '') + '>' +
+        (p[0] === 'ask' ? HELM : BB[p[0]]) + '<span>' + p[1] + '</span></button>';
+    });
+    h += '<button class="bb' + (onDay ? '' : ' on') + '" data-moreopen>' +
+      BB.more + '<span>More</span></button>';
+    return h + '</nav>';
+  }
+
+  /* The four places that used to be tabs. They are not things you are in and
+     out of all day, which is exactly why they were costing a fifth of the
+     screen to sit there being available. */
+  function moreSheetHTML(){
+    const items = [
+      ['blocks', 'Blocks',  'The shape of your week'],
+      ['tasks',  'Tasks',   'Everything on your list'],
+      ['grow',   'Grow',    'Habits, goals, routines and what you said you would do'],
+      ['notes',  'Notes',   'What you have kept']
+    ];
+    let h = '<div class="modal-back" data-moreclose></div>';
+    h += '<div class="modal more-sheet"><div class="modal-h">More</div>';
+    h += '<div class="morelist">' + items.map(x =>
+      '<button class="morerow' + (view === x[0] ? ' on' : '') + '" data-view="' + x[0] + '">' +
+      '<b>' + x[1] + '</b><em>' + esc(x[2]) + '</em></button>').join('') + '</div>';
+    h += '<div class="modal-actions">' +
+      '<button class="ghost" data-settings>Settings</button><span style="flex:1"></span>' +
+      '<button class="go" data-moreclose>Close</button></div>';
+    return h + '</div>';
+  }
+
   function timerHTML(){
     const left = timerLeft(), running = timerRunning();
     const idle = !running && left === timer.mins * 60000;
@@ -8300,6 +8363,23 @@
     return 'parked ' + Math.round(n / 30) + ' months ago';
   }
 
+
+  /* Dumping a thought and anything still waiting for a place, which is two of
+     the three things Chanel said she opens Athena for on a phone. No dragging
+     here: that has never worked on a touch screen, so a task waiting for a
+     time is opened and given one. */
+  function captureHTML(vd){
+    // Named, because the bar lighting up is not quite enough to land on a
+    // bare text box and know what it is for.
+    let h = '<h2 class="dayhab-h">Scratchpad</h2>' + parkHTML(dayKey(vd));
+    const list = unplacedTasks(vd);
+    h += '<h2 class="dayhab-h">To place' + (list.length ? ' <b>' + list.length + '</b>' : '') + '</h2>';
+    h += list.length
+      ? '<div class="tlist">' + list.map(tk => taskRow(tk, vd, true)).join('') + '</div>'
+      : '<p class="park-empty">Nothing waiting. Everything for this day has a time or a block.</p>';
+    h += '<div class="dayadd"><button class="ai-btn" data-aiopen>\u2726 Dump a list</button></div>';
+    return h;
+  }
 
   function parkHTML(dk, inPanel){
     let h = '<div class="park'+(inPanel ? ' inpanel' : '')+'"><div class="park-row">'+
@@ -9078,6 +9158,9 @@
     let h = '';
 
     h += clashBar;
+    // On a phone this is Today's own header rather than a lid on all four
+    // tabs: the same 241 pixels, four times over, saying nothing new.
+    if (inPane('today')){
     // The daily drawing now sits with the greeting where it belongs, and the
     // settings control is a cog that looks like what it does.
     h += '<div class="greet"><div class="gtxt"><h1>'+greet+name+
@@ -9107,15 +9190,19 @@
       h += '<div class="quote"><p>'+esc(line.t)+'</p>'+
         (line.by ? '<cite>'+esc(line.by)+'</cite>' : '')+'</div>';
     }
+    }
 
     // Blocks are a top-level place now, not a mode hidden inside the week. Today
     // and the whole week are two views of the same calendar, so they share a tab
     // and a toggle instead of spending two slots in the row.
-    h += '<div class="segrow"><div class="seg">'+
-      [['day','Day'],['blocks','Blocks'],['tasks','Tasks'],['grow','Grow'],['notes','Notes']].map(v =>
-        '<button data-view="'+v[0]+'"'+(view===v[0]?' class="on"':'')+'>'+v[1]+'</button>').join('')+
-      '</div>'+
-      (view==='day' ? '<div class="seg sub">'+
+    const seg =
+      (paned() ? '' : '<div class="seg">'+
+        [['day','Day'],['blocks','Blocks'],['tasks','Tasks'],['grow','Grow'],['notes','Notes']].map(v =>
+          '<button data-view="'+v[0]+'"'+(view===v[0]?' class="on"':'')+'>'+v[1]+'</button>').join('')+
+        '</div>')+
+      // The day and the week are two views of the same calendar, so the toggle
+      // sits with the calendar rather than taking a slot of its own.
+      (view==='day' && inPane('grid') ? '<div class="seg sub">'+
         [['today','Today'],['week','Whole week']].map(m =>
           '<button data-daymode="'+m[0]+'"'+(dayMode===m[0]?' class="on"':'')+'>'+m[1]+'</button>').join('')+
         '</div>' : '')+
@@ -9124,17 +9211,19 @@
           '<button data-growmode="'+m[0]+'"'+(growMode===m[0]?' class="on"':'')+'>'+m[1]+'</button>').join('')+
         '</div>' : '')+
       (weekShown() && canGrid() ? '<button class="expand" data-expand="1">'+(expanded?'Collapse to strips':'Expand to full grid')+'</button>' : '')+
-      (weekShown() && !canGrid() ? '<button class="expand" data-weekmode="1">'+(weekMode==='days'?'See all 7 days':'See 3 days')+'</button>' : '')+
-      '</div>';
+      (weekShown() && !canGrid() ? '<button class="expand" data-weekmode="1">'+(weekMode==='days'?'See all 7 days':'See 3 days')+'</button>' : '');
+    if (seg) h += '<div class="segrow">' + seg + '</div>';
     app.classList.toggle('wide', weekShown() && gridShown());
+    // Room at the foot of the page for the bar that is fixed over it.
+    app.classList.toggle('hasbar', paned());
 
-    if (!panelsOn()) h += dateNav(vd, now);
+    if (paned() && inPane('grid')) h += dateNav(vd, now);
     // Above the ask box, above the day, above everything. A deadline that is
     // filed neatly among eleven other things is a deadline you will miss.
-    if (view === 'day') h += hardBannerHTML(now);
+    if (view === 'day' && inPane('today')) h += hardBannerHTML(now);
     // Only on today. A check-in about a Thursday you are merely looking at is
     // not a check-in.
-    if (view === 'day' && !weekShown() && dayKey(vd) === dayKey(now)){
+    if (view === 'day' && inPane('today') && !weekShown() && dayKey(vd) === dayKey(now)){
       // What today is for, above what today merely contains.
       h += rocksHTML(now);
       /* One at a time. All three could be due at once, and three cards of
@@ -9160,11 +9249,19 @@
     // every view, because the middle is the working column and the assistant
     // works on whatever is in it. On a phone it is the Day only, and a button
     // elsewhere, where a line would be asking about a week you cannot see.
-    if (panelsOn() || view === 'day') h += '<div class="askbig">' + askBarHTML() + '</div>';
-    else h += askFabHTML();
+    if (!paned()) h += '<div class="askbig">' + askBarHTML() + '</div>';
+    else if (inPane('ask')) h += '<div class="askbig asktab">' + askBarHTML() + '</div>';
 
-    if (view === 'day')    h += weekShown() ? weekView(vd, now)
-                                            : dayRail(vd, now, panelsOn() ? 'page' : 'all');
+    if (view === 'day'){
+      if (weekShown())      h += weekView(vd, now);
+      else if (!paned())    h += dayRail(vd, now, 'page');
+      // Today is what the day asks of you: what is on offer, the habits, the
+      // shape of it, what has nowhere to go. Day is the grid you tick blocks
+      // off on. The split is the one dayRail could already make.
+      else if (pane === 'today')   h += dayRail(vd, now, 'page');
+      else if (pane === 'grid')    h += dayRail(vd, now, 'grid');
+      else if (pane === 'capture') h += captureHTML(vd);
+    }
     else if (view === 'blocks') h += blocksManagerHTML(now);
     else if (view === 'tasks')  h += tasksView(now);
     else if (view === 'grow')   h += growMode === 'goals' ? goalsView(now)
@@ -9175,7 +9272,7 @@
 
     // Parked thoughts live under the Day view, unless a wide screen has taken
     // them into a panel, where they are always to hand.
-    if (view === 'day' && !twoPanels()){ h += parkHTML(dayKey(vd)); }
+    if (view === 'day' && !twoPanels() && !paned()){ h += parkHTML(dayKey(vd)); }
 
     // One banner, in order of how much it matters. Stacking three warnings that
     // all mean "not syncing" just teaches people to ignore the strip.
@@ -9223,6 +9320,8 @@
     if (tour) h += tourHTML();
     if (askOpen) h += askSheetHTML();
     if (point) h += pointHTML();
+    if (moreOpen) h += moreSheetHTML();
+    h += bottomBarHTML();
 
     paint(h);
   }
@@ -11885,7 +11984,7 @@
   // Swipe left/right on the Day view to step through days (phones).
   let swX = null, swY = null;
   app.addEventListener('touchstart', e => {
-    const swipeable = (view === 'day');
+    const swipeable = (view === 'day' && inPane('grid'));
     // Not from a picked block either: that finger is moving the block, and a
     // sideways wobble while doing it should not flip to another day.
     if (!swipeable || editing || settingsOpen || aiOpen || ob || taskEdit || searchOpen || tomorrowOpen || askChanges || e.touches.length !== 1 ||
@@ -12260,6 +12359,15 @@
     }
     if ((m = t('[data-offergo]'))){ offerGo(m.dataset.offergo); return; }
     if ((m = t('[data-offeroff]'))){ offerDismiss(m.dataset.offeroff); return; }
+    if ((m = t('[data-pane]'))){
+      pane = m.dataset.pane;
+      // Coming back to the Day from somewhere under More.
+      view = 'day'; moreOpen = false;
+      if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, 0);
+      render(); return;
+    }
+    if (t('[data-moreopen]')){ moreOpen = true; render(); return; }
+    if (t('[data-moreclose]')){ moreOpen = false; render(); return; }
     if (t('[data-askopen]')){ askOpen = true; askErr = ''; render(); return; }
     if (t('[data-askclosesheet]')){ askOpen = false; earStop(); render(); return; }
     if ((m = t('[data-asktip]'))){
@@ -12386,6 +12494,7 @@
       openEditor({ date: m.dataset.newon }); return;
     }
 
+    if (t('[data-view]') && moreOpen) moreOpen = false;
     if ((m = t('[data-view]'))){ view = m.dataset.view; openDay = null; lastAdded = null; render(); return; }
     if ((m = t('[data-shift]'))){ dayShift += +m.dataset.shift; openDay = null; render(); return; }
     if (t('[data-today]')){ dayShift = 0; openDay = null; render(); return; }
@@ -13097,6 +13206,7 @@
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'fd_name'){ e.preventDefault(); const b = app.querySelector('[data-foldersave]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newfolder'){ e.preventDefault(); const b = app.querySelector('[data-foldermake]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && moreOpen){ moreOpen = false; render(); return; }
     if (e.key === 'Escape' && askOpen && !askChanges){ askOpen = false; earStop(); render(); return; }
     if (e.key === 'Escape' && point){ pointClose(); return; }
     if (e.key === 'Escape' && tour){ tourClose(); return; }
