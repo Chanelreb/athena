@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-13.8';
+  const BUILD = '2026-10-13.9';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -9148,7 +9148,7 @@
       // No side panel on a phone, so the clock has lived only on a laptop.
       // A focus timer you cannot reach from the thing that is distracting you
       // is not much of a focus timer.
-      if (!twoPanels()) h += timerHTML();
+      if (!twoPanels() && (panelsOn() || timerRunning())) h += timerHTML();
       // Today's check is off the day for now, at Chanel's ask: it turned up
       // unexplained and she was not sure what it was for. Nothing is lost by
       // it going. The commitments themselves are still under Grow, with the
