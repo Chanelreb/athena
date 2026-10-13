@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-13.7';
+  const BUILD = '2026-10-13.8';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3221,7 +3221,9 @@
       // A second miss goes above the chips, not among them. The whole idea is
       // that it is the one thing worth doing next, and a chip in a row of
       // chips is the one thing you scroll past.
-      h += offerHTML(now);
+      // The offer sits above To place where there is a column for it, since
+      // that is where it would land what it is offering to move.
+      if (!twoPanels()) h += offerHTML(now);
       h += slipHTML(now);
       // Habits sit with the ring they count toward. Only today's: a tick here
       // always lands on today, so offering them on another day would mislead.
@@ -8236,11 +8238,16 @@
       return;
     }
     const det = dayDetailHTML(vd, now, upcomingHomes(vd));
+    // Athena offering to do something, directly above the panel it would do
+    // it to. Today only: an offer about open time is about the open time you
+    // actually have, not a Thursday you are looking at.
+    const offer = dayKey(vd) === dayKey(now) ? offerHTML(now) : '';
     R.hidden = false;
     R.innerHTML =
       timerHTML() +
       (det ? '<div class="panel blk"><div class="panel-h">In this block</div>' + det + '</div>' : '') +
       '<div class="panel"><div class="panel-h">Scratchpad</div>' + parkHTML(dk, true) + '</div>' +
+      offer +
       placePanelHTML(vd);
   }
 

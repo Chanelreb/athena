@@ -1373,28 +1373,31 @@
   /* Quieter than the habit recovery card on purpose. That one is answering a
      promise you made to yourself; this one is Athena volunteering, and the
      volunteered thing should carry less weight than the asked for one. */
-  #soft-app .offer {
+  :is(#soft-app, .ath-side) .offer {
     position: relative; margin: 14px 0 4px;
     padding: 13px 15px; border-radius: 12px;
     border: 1px solid var(--line); background: var(--raise);
   }
-  #soft-app .offer p {
+  :is(#soft-app, .ath-side) .offer p {
     margin: 0 0 11px; padding-right: 26px;
     font-size: 13.5px; line-height: 1.5; color: var(--text);
   }
-  #soft-app .offer b { font-weight: 600; }
-  #soft-app .offer .go {
+  :is(#soft-app, .ath-side) .offer b { font-weight: 600; }
+  :is(#soft-app, .ath-side) .offer .go {
     background: var(--live); color: var(--on-live); border: 0; border-radius: 10px;
     padding: 9px 15px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
   }
-  #soft-app .offerx {
+  /* The rails carry an id, so this takes one too: the rule it is beating
+     is written :is(#soft-app, …) and :is() weighs its heaviest argument. */
+  :is(#ath-left, #ath-right) .offer { margin: 0 0 16px; }
+  :is(#soft-app, .ath-side) .offerx {
     position: absolute; top: 5px; right: 5px;
     width: 30px; height: 30px; padding: 0;
     display: flex; align-items: center; justify-content: center;
     background: none; border: 0; border-radius: 9px; cursor: pointer;
     font-size: 18px; line-height: 1; color: var(--dim); opacity: .7;
   }
-  #soft-app .offerx:hover { opacity: 1; background: rgba(0,0,0,.08); }
+  :is(#soft-app, .ath-side) .offerx:hover { opacity: 1; background: rgba(0,0,0,.08); }
 
   /* ---- asking from anywhere ---- */
   /* Bottom right. Bottom centre is the undo bar's, and an assistant that
