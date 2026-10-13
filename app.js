@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-13.5';
+  const BUILD = '2026-10-13.6';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -2877,21 +2877,53 @@
 
   // Blocks that overlap each other share the width. Worked out per cluster, so
   // one clash at 9am does not squeeze the whole day into half-width columns.
-  function layOut(list){
-    const items = list.map(b => ({ b: b, s: Math.max(mins(b.s), DS), e: Math.min(mins(b.e), DE) }))
-      .filter(x => x.e > x.s).sort((a, b) => a.s - b.s || b.e - a.e);
+
+  /* ---------- the day, blocks and meetings together ----------
+     They used to be laid out separately and given half the column each:
+     blocks down the left, meetings down the right, for the whole day, the
+     moment the day had a single meeting anywhere in it.
+
+     In a 600 pixel column that was generous. In a 300 pixel one it is two
+     cramped halves. Measured on a real day: the meeting half came to 85
+     pixels to hold "BSTAR Commercial Workshop: New Clients Leading and
+     Active Referral Partnerships", and the blocks were cut to about twenty
+     characters each by one half hour meeting at eight in the morning.
+
+     The flaw is that the split was global and the overlap is local. So it is
+     one pass over both now, and width is shared only where two things
+     genuinely sit across each other in time. A morning with nothing booked
+     over it is full width. An hour with a meeting across it is two halves,
+     for that run of overlapping things and no further.
+
+     Nothing is hidden. A cluster four deep draws four quarters rather than
+     three and a counter, because four narrow things is a true picture of a
+     day with four things across each other and a counter is not.
+
+     x.b for a block and x.ev for a meeting, so the two renderers read
+     exactly the fields they always did. The week has its own layout and its
+     own lanes: seven days of room is a different problem. */
+  function layDay(blocks, meets){
+    const items = blocks.map(b => ({ kind:'block', b: b, s: Math.max(mins(b.s), DS), e: Math.min(mins(b.e), DE) }))
+      .concat(meets.map(m => Object.assign({}, m, {
+        kind: 'meet', s: Math.max(m.sm, DS), e: Math.min(m.em, DE) })))
+      .filter(x => x.e > x.s)
+      // Start time, then longest first, then yours before somebody else's so
+      // a block takes the left-hand lane when the two begin together.
+      .sort((x, y) => x.s - y.s || y.e - x.e ||
+        (x.kind === y.kind ? 0 : x.kind === 'block' ? -1 : 1));
     let i = 0;
     while (i < items.length){
       let end = items[i].e, j = i + 1;
       while (j < items.length && items[j].s < end){ end = Math.max(end, items[j].e); j++; }
-      const cluster = items.slice(i, j);
-      const lanes = [];
-      cluster.forEach(x => {
-        let lane = 0;
-        while (lane < lanes.length && lanes[lane] > x.s) lane++;
-        lanes[lane] = x.e;
-        x.lane = lane;
-      });
+      const cluster = items.slice(i, j), lanes = [];
+      // Yours first, so the left of the column is always your own day.
+      cluster.filter(x => x.kind === 'block')
+        .concat(cluster.filter(x => x.kind === 'meet'))
+        .forEach(x => {
+          let lane = 0;
+          while (lane < lanes.length && lanes[lane] > x.s) lane++;
+          lanes[lane] = x.e; x.lane = lane;
+        });
       cluster.forEach(x => { x.of = lanes.length; });
       i = j;
     }
@@ -2906,7 +2938,11 @@
     const px = m => (m - DS) / SPAN * GRID_H;
     const all = blocksForDate(vd);
     const allDay = all.filter(b => b.allDay);
-    const laid = layOut(all.filter(b => !b.allDay));
+    // Anything all day, or longer than most of one, is a banner above the
+    // grid rather than a column down it, so it never enters the layout.
+    const dmeets = meetingsOn(vd);
+    const laidAll = layDay(all.filter(b => !b.allDay), dmeets.filter(m => !isBanner(m)));
+    const laid = laidAll.filter(x => x.kind === 'block');
     // Outline the block whose contents are showing, so you can see which it is.
     const shown = detailBlock(vd, now), shownKey = shown ? String(shown.uid || shown.id) : '';
 
@@ -2968,19 +3004,15 @@
         (isStep ? '' : '<i class="drz"></i>')+
         '</div>';
     });
-    const dmeets = meetingsOn(vd), dtimed = layMeets(dmeets.filter(m => !isBanner(m)));
-    // Blocks are wrapped so the meetings can take a lane beside them. With no
-    // meetings the wrapper is the full width and the day looks exactly as it
-    // always did.
-    body = lines + '<div class="clane">' + body + '</div>';
-    if (dtimed.length)
-      body += '<div class="cmlane">' + dtimed.map(m => meetHTML(m, px)).join('') +
-        moreHTML(dtimed, px) + '</div>';
+    // Blocks and meetings sit in the same column and were given their widths
+    // by the same pass, so neither needs a lane of its own to live in.
+    body = lines + body +
+      laidAll.filter(x => x.kind === 'meet').map(m => meetHTML(m, px)).join('');
     if (isToday && t >= DS && t <= DE) body += '<div class="cbnow" style="top:'+px(t)+'px"></div>';
 
     h += allDayStrip(dmeets);
     h += '<div class="daygrid"><div class="calhrs" style="height:'+GRID_H+'px">'+hrs+'</div>'+
-      '<div class="dcol'+(dtimed.length ? ' hasmeet lanes-'+dtimed.widest : '')+'" style="height:'+GRID_H+'px" '+
+      '<div class="dcol" style="height:'+GRID_H+'px" '+
       'data-newon="'+dk+'">'+body+'</div></div>';
     return h;
   }
@@ -6619,7 +6651,7 @@
 
   /* Meetings that overlap need lanes of their own, or they print on top of
      one another and you get three titles in the same six millimetres. Same
-     idea as layOut does for blocks, but these already know their minutes.
+     idea as layDay does for the day, but these already know their minutes.
 
      Three lanes is the most that stays readable on a phone. Past that the
      extras are counted rather than drawn, because four unreadable slivers

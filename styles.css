@@ -412,12 +412,11 @@
   /* How much room the meetings take depends on how stacked they are. One
      at a time and your blocks keep most of the day; three deep and the day
      really is mostly other people, so it looks like it. */
-  :is(#soft-app, .ath-side) .calcol.hasmeet .clane,
-  :is(#soft-app, .ath-side) .dcol.hasmeet .clane { right: 42%; }
-  :is(#soft-app, .ath-side) .calcol.lanes-2 .clane, :is(#soft-app, .ath-side) .dcol.lanes-2 .clane { right: 52%; }
-  :is(#soft-app, .ath-side) .calcol.lanes-3 .clane, :is(#soft-app, .ath-side) .dcol.lanes-3 .clane { right: 60%; }
-  :is(#soft-app, .ath-side) .calcol.lanes-2 .cmlane, :is(#soft-app, .ath-side) .dcol.lanes-2 .cmlane { width: 52%; }
-  :is(#soft-app, .ath-side) .calcol.lanes-3 .cmlane, :is(#soft-app, .ath-side) .dcol.lanes-3 .cmlane { width: 60%; }
+  :is(#soft-app, .ath-side) .calcol.hasmeet .clane { right: 42%; }
+  :is(#soft-app, .ath-side) .calcol.lanes-2 .clane { right: 52%; }
+  :is(#soft-app, .ath-side) .calcol.lanes-3 .clane { right: 60%; }
+  :is(#soft-app, .ath-side) .calcol.lanes-2 .cmlane { width: 52%; }
+  :is(#soft-app, .ath-side) .calcol.lanes-3 .cmlane { width: 60%; }
 
   /* Deeper than three and the rest are counted rather than drawn as slivers. */
   :is(#soft-app, .ath-side) .cmore {
