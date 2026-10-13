@@ -2017,7 +2017,7 @@
        taller than the screen: a day that runs to ten at night would otherwise
        have an evening nobody could reach. */
     #ath-left:not([hidden]) {
-      display: block; flex: 0 1 400px; min-width: 310px; max-width: 440px;
+      display: block; flex: 0 1 300px; min-width: 250px; max-width: 320px;
       position: sticky; top: 20px;
       max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain;
     }
@@ -2025,7 +2025,8 @@
   @media (min-width: 1180px) {
     #ath-shell { gap: 22px; }
     #ath-right:not([hidden]) {
-      display: block; flex: 0 0 300px; position: sticky; top: 20px;
+      display: block; flex: 0 1 400px; min-width: 270px; max-width: 420px;
+      position: sticky; top: 20px;
       max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain;
     }
   }
