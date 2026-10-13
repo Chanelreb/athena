@@ -377,15 +377,15 @@
   #soft-app .calhead .hs span { text-align: center; font-size: 12.5px; color: var(--dim); }
   #soft-app .calhead .hs span.td { color: var(--live); font-weight: 600; }
   #soft-app .cal { display: flex; }
-  #soft-app .calhrs { flex: 0 0 46px; position: relative; }
-  #soft-app .calhrs u {
+  :is(#soft-app, .ath-side) .calhrs { flex: 0 0 46px; position: relative; }
+  :is(#soft-app, .ath-side) .calhrs u {
     position: absolute; right: 9px; font-style: normal; font-size: 11px;
     color: var(--ghost); transform: translateY(-50%); font-variant-numeric: tabular-nums;
   }
   #soft-app .calcols { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
   #soft-app .calcol { position: relative; background: var(--raise); border-radius: 9px; }
   #soft-app .calcol.td { background: var(--live-soft); }
-  #soft-app .gl { position: absolute; left: 0; right: 0; height: 1px; background: var(--line); opacity: .45; }
+  :is(#soft-app, .ath-side) .gl { position: absolute; left: 0; right: 0; height: 1px; background: var(--line); opacity: .45; }
   #soft-app .cb {
     position: absolute; left: 3px; right: 3px; border: 0; border-left: 3px solid;
     border-radius: 6px; padding: 5px 6px; font: inherit; font-size: 11.5px;
@@ -397,7 +397,7 @@
   #soft-app .cb { touch-action: pan-y; }
   #soft-app .cb.dragging { z-index: 20; box-shadow: 0 8px 22px rgba(0,0,0,.45); opacity: .95; }
   #soft-app .rz { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: ns-resize; }
-  #soft-app .cbnow { position: absolute; left: 0; right: 0; height: 2px; background: var(--live); z-index: 3; }
+  :is(#soft-app, .ath-side) .cbnow { position: absolute; left: 0; right: 0; height: 2px; background: var(--live); z-index: 3; }
 
   /* ---------- what is already in your calendar ----------
      A meeting sits in a lane of its own down the right of the day rather than
@@ -408,16 +408,16 @@
 
      Hatched and outlined rather than filled, so at a glance a booked hour
      never reads as an hour you chose. */
-  #soft-app .clane { position: absolute; inset: 0; }
+  :is(#soft-app, .ath-side) .clane { position: absolute; inset: 0; }
   /* How much room the meetings take depends on how stacked they are. One
      at a time and your blocks keep most of the day; three deep and the day
      really is mostly other people, so it looks like it. */
-  #soft-app .calcol.hasmeet .clane,
-  #soft-app .dcol.hasmeet .clane { right: 42%; }
-  #soft-app .calcol.lanes-2 .clane, #soft-app .dcol.lanes-2 .clane { right: 52%; }
-  #soft-app .calcol.lanes-3 .clane, #soft-app .dcol.lanes-3 .clane { right: 60%; }
-  #soft-app .calcol.lanes-2 .cmlane, #soft-app .dcol.lanes-2 .cmlane { width: 52%; }
-  #soft-app .calcol.lanes-3 .cmlane, #soft-app .dcol.lanes-3 .cmlane { width: 60%; }
+  :is(#soft-app, .ath-side) .calcol.hasmeet .clane,
+  :is(#soft-app, .ath-side) .dcol.hasmeet .clane { right: 42%; }
+  :is(#soft-app, .ath-side) .calcol.lanes-2 .clane, :is(#soft-app, .ath-side) .dcol.lanes-2 .clane { right: 52%; }
+  :is(#soft-app, .ath-side) .calcol.lanes-3 .clane, :is(#soft-app, .ath-side) .dcol.lanes-3 .clane { right: 60%; }
+  :is(#soft-app, .ath-side) .calcol.lanes-2 .cmlane, :is(#soft-app, .ath-side) .dcol.lanes-2 .cmlane { width: 52%; }
+  :is(#soft-app, .ath-side) .calcol.lanes-3 .cmlane, :is(#soft-app, .ath-side) .dcol.lanes-3 .cmlane { width: 60%; }
 
   /* Deeper than three and the rest are counted rather than drawn as slivers. */
   #soft-app .cmore {
@@ -425,7 +425,7 @@
     color: var(--meet); background: var(--bg); border: 1px solid var(--meet);
     border-radius: 999px; padding: 1px 6px; z-index: 2;
   }
-  #soft-app .cmlane { position: absolute; top: 0; bottom: 0; right: 0; width: 42%; }
+  :is(#soft-app, .ath-side) .cmlane { position: absolute; top: 0; bottom: 0; right: 0; width: 42%; }
   #soft-app .cmeet {
     position: absolute; left: 3px; right: 3px; border-radius: 6px;
     padding: 5px 6px; font-size: 11.5px; line-height: 1.25;
@@ -511,44 +511,44 @@
   #soft-app .rvlist li.more { color: var(--ghost); font-size: 12px; }
 
   /* ===== the day as a grid ===== */
-  #soft-app .daygrid { display: flex; margin-top: 6px; }
-  #soft-app .dcol {
+  :is(#soft-app, .ath-side) .daygrid { display: flex; margin-top: 6px; }
+  :is(#soft-app, .ath-side) .dcol {
     flex: 1; position: relative; background: var(--raise); border-radius: 12px;
   }
-  #soft-app .dblk {
+  :is(#soft-app, .ath-side) .dblk {
     position: absolute; border-left: 3px solid; border-radius: 7px;
     overflow: hidden; display: flex; align-items: flex-start; gap: 7px; padding: 5px 7px;
   }
-  #soft-app .dblk { touch-action: pan-y; cursor: grab; }
-  #soft-app .dblk.dragging { z-index: 20; cursor: grabbing; box-shadow: 0 8px 22px rgba(0,0,0,.45); opacity: .95; }
-  html[data-theme="light"] #soft-app .dblk.dragging { box-shadow: 0 8px 22px rgba(70,66,58,.28); }
-  #soft-app .drz { position: absolute; left: 0; right: 0; bottom: 0; height: 9px; cursor: ns-resize; }
-  #soft-app .dblk.done { opacity: .45; }
-  #soft-app .dblk.live { box-shadow: 0 0 0 1px var(--live); }
-  #soft-app .dblk.just { animation: pop .45s ease; }
-  #soft-app .dtick {
+  :is(#soft-app, .ath-side) .dblk { touch-action: pan-y; cursor: grab; }
+  :is(#soft-app, .ath-side) .dblk.dragging { z-index: 20; cursor: grabbing; box-shadow: 0 8px 22px rgba(0,0,0,.45); opacity: .95; }
+  html[data-theme="light"] :is(#soft-app, .ath-side) .dblk.dragging { box-shadow: 0 8px 22px rgba(70,66,58,.28); }
+  :is(#soft-app, .ath-side) .drz { position: absolute; left: 0; right: 0; bottom: 0; height: 9px; cursor: ns-resize; }
+  :is(#soft-app, .ath-side) .dblk.done { opacity: .45; }
+  :is(#soft-app, .ath-side) .dblk.live { box-shadow: 0 0 0 1px var(--live); }
+  :is(#soft-app, .ath-side) .dblk.just { animation: pop .45s ease; }
+  :is(#soft-app, .ath-side) .dtick {
     flex: 0 0 auto; width: 16px; height: 16px; border-radius: 50%; margin-top: 1px;
     border: 1.5px solid var(--ghost); background: var(--bg);
     display: grid; place-items: center; padding: 0; cursor: pointer; position: relative;
   }
-  #soft-app .dtick::before { content: ''; position: absolute; inset: -8px; border-radius: 50%; }
-  #soft-app .dtick svg { width: 8px; height: 8px; opacity: 0; }
-  #soft-app .dblk.done .dtick svg { opacity: 1; }
-  #soft-app .dmain {
+  :is(#soft-app, .ath-side) .dtick::before { content: ''; position: absolute; inset: -8px; border-radius: 50%; }
+  :is(#soft-app, .ath-side) .dtick svg { width: 8px; height: 8px; opacity: 0; }
+  :is(#soft-app, .ath-side) .dblk.done .dtick svg { opacity: 1; }
+  :is(#soft-app, .ath-side) .dmain {
     flex: 1; min-width: 0; background: none; border: 0; padding: 0; margin: 0;
     font: inherit; color: var(--text); text-align: left; cursor: pointer; overflow: hidden;
   }
-  #soft-app .dmain b {
+  :is(#soft-app, .ath-side) .dmain b {
     display: block; font-weight: 500; font-size: 13px; line-height: 1.25;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  #soft-app .dmain em {
+  :is(#soft-app, .ath-side) .dmain em {
     display: block; font-style: normal; font-size: 10.5px; opacity: .75;
     font-variant-numeric: tabular-nums; margin-top: 2px;
   }
-  #soft-app .dmain .dcount { display: inline; margin-left: 6px; opacity: .8; }
-  #soft-app .dmain .dtasks { opacity: 1; color: var(--live); }
-  #soft-app .dblk.done .dmain b { text-decoration: line-through; }
+  :is(#soft-app, .ath-side) .dmain .dcount { display: inline; margin-left: 6px; opacity: .8; }
+  :is(#soft-app, .ath-side) .dmain .dtasks { opacity: 1; color: var(--live); }
+  :is(#soft-app, .ath-side) .dblk.done .dmain b { text-decoration: line-through; }
 
   /* the detail that will not fit inside a block */
   :is(#soft-app, .ath-side) .ddet {
@@ -589,7 +589,7 @@
     text-align: left; cursor: pointer;
   }
   #soft-app .wlist .wl:last-child { border-bottom: 0; }
-  #soft-app .wlist .wl .sw { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  :is(#soft-app, .ath-side) .wlist .wl .sw { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
   #soft-app .wlist .wl span { flex: 1; }
   #soft-app .wlist .wl.on span { color: var(--ghost); }
   #soft-app .wlist .wl em {
@@ -614,9 +614,9 @@
   #soft-app .item.live .editdot { color: var(--live); opacity: .8; }
 
   /* all-day chips */
-  #soft-app .allday { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 16px; }
-  #soft-app .adchip { display: inline-flex; align-items: center; gap: 7px; background: var(--raise); border: 1px solid var(--line); color: var(--text); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13.5px; cursor: pointer; }
-  #soft-app .adchip .sw { width: 8px; height: 8px; border-radius: 50%; }
+  :is(#soft-app, .ath-side) .allday { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 16px; }
+  :is(#soft-app, .ath-side) .adchip { display: inline-flex; align-items: center; gap: 7px; background: var(--raise); border: 1px solid var(--line); color: var(--text); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13.5px; cursor: pointer; }
+  :is(#soft-app, .ath-side) .adchip .sw { width: 8px; height: 8px; border-radius: 50%; }
 
   /* inline "add" affordances */
   #soft-app .dayadd { margin-top: 18px; display: flex; gap: 8px; }
@@ -742,17 +742,17 @@
   #soft-app .ob-skip { display: block; margin: 20px auto 0; }
 
   /* ===== Day / week navigation ===== */
-  #soft-app .datenav { display: flex; align-items: center; gap: 8px; margin: 2px 0 18px; }
-  #soft-app .dnav {
+  :is(#soft-app, .ath-side) .datenav { display: flex; align-items: center; gap: 8px; margin: 2px 0 18px; }
+  :is(#soft-app, .ath-side) .dnav {
     flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
     background: var(--raise); border: 1px solid var(--line); color: var(--dim);
     font: inherit; font-size: 18px; line-height: 1; cursor: pointer;
   }
-  #soft-app .dnav:hover { color: var(--text); border-color: var(--ghost); }
-  #soft-app .dnlabel { flex: 1; min-width: 0; text-align: center; }
-  #soft-app .dnlabel b { display: block; font-family: var(--serif); font-weight: 400; font-size: 16.5px; }
-  #soft-app .dnlabel small { display: block; color: var(--ghost); font-size: 11.5px; margin-top: 1px; }
-  #soft-app .dntoday {
+  :is(#soft-app, .ath-side) .dnav:hover { color: var(--text); border-color: var(--ghost); }
+  :is(#soft-app, .ath-side) .dnlabel { flex: 1; min-width: 0; text-align: center; }
+  :is(#soft-app, .ath-side) .dnlabel b { display: block; font-family: var(--serif); font-weight: 400; font-size: 16.5px; }
+  :is(#soft-app, .ath-side) .dnlabel small { display: block; color: var(--ghost); font-size: 11.5px; margin-top: 1px; }
+  :is(#soft-app, .ath-side) .dntoday {
     flex: 0 0 auto; background: var(--live-soft); border: 1px solid var(--live); color: var(--live);
     border-radius: 10px; padding: 8px 12px; font: inherit; font-size: 12.5px; cursor: pointer;
   }
@@ -2010,30 +2010,33 @@
   @media (min-width: 1000px) {
     #ath-shell { gap: 18px; }
     /* The app centres itself with auto margins, which inside a flex row eat all
-       the free space and push the panels to the edges. In the shell it is a
+       the free space and push the columns to the edges. In the shell it is a
        plain flex item and the shell does the centring. */
-    #ath-shell > #soft-app { margin: 0; flex: 0 1 600px; }
-    /* A panel column stays put while the day scrolls, so it must never be
-       taller than the screen: a long list to place would otherwise have a
-       bottom nobody could reach. It scrolls on its own instead. */
+    #ath-shell > #soft-app { margin: 0; flex: 1 1 500px; min-width: 0; max-width: 620px; }
+    /* A column stays put while its own contents scroll, so it must never be
+       taller than the screen: a day that runs to ten at night would otherwise
+       have an evening nobody could reach. */
+    #ath-left:not([hidden]) {
+      display: block; flex: 1 1 430px; min-width: 340px; max-width: 560px;
+      position: sticky; top: 20px;
+      max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain;
+    }
+  }
+  @media (min-width: 1180px) {
+    #ath-shell { gap: 22px; }
     #ath-right:not([hidden]) {
       display: block; flex: 0 0 300px; position: sticky; top: 20px;
       max-height: calc(100vh - 40px); overflow-y: auto; overscroll-behavior: contain;
     }
   }
-  /* Both panels the same width, or the middle column is not actually the middle. */
-  @media (min-width: 1360px) {
-    #ath-shell { gap: 22px; }
-    /* A column rather than a block, because the conversation in it claims the
-       height going spare and the lists under it take what is left. Hidden
-       rather than auto: the two things inside do their own scrolling, and a
-       rail that also scrolled would slide the box you type into out of
-       reach. */
-    #ath-left:not([hidden]) {
-      display: flex; flex-direction: column; flex: 0 0 300px; position: sticky; top: 20px;
-      max-height: calc(100vh - 40px); overflow: hidden;
-    }
-  }
+  /* Seven days side by side is a different job from one day. The other two
+     columns are already hidden by then; this is what lets the middle stop
+     being a middle and take the screen. */
+  #ath-shell.solo > #soft-app { flex: 1 1 auto; max-width: 1180px; }
+
+  /* The schedule in its column. No card around it: the grid is already a
+     shape, and a border round a shape is two borders. */
+  .ath-side .sched { padding-top: 2px; }
   .ath-side .panel {
     background: var(--bg); border: 1px solid var(--line);
     border-radius: 16px; padding: 16px 16px 18px; margin-bottom: 16px;
@@ -2170,10 +2173,10 @@
   .ath-side .ptask em { display: block; font-style: normal; font-size: 11.5px; color: var(--dim); margin-top: 2px; }
   .ath-side .place-hint { font-size: 11.5px; color: var(--ghost); line-height: 1.5; margin: 11px 0 0; }
   /* while something is in the air, show where it can land */
-  body.dragging-task #soft-app .dcol { outline: 2px dashed var(--live); outline-offset: 3px; }
-  body.dragging-task #soft-app .dblk { transition: box-shadow .12s; }
-  #soft-app .dblk.dropping { box-shadow: 0 0 0 2px var(--live); }
-  #soft-app .dcol.dropping { outline-style: solid; }
+  body.dragging-task :is(#soft-app, .ath-side) .dcol { outline: 2px dashed var(--live); outline-offset: 3px; }
+  body.dragging-task :is(#soft-app, .ath-side) .dblk { transition: box-shadow .12s; }
+  :is(#soft-app, .ath-side) .dblk.dropping { box-shadow: 0 0 0 2px var(--live); }
+  :is(#soft-app, .ath-side) .dcol.dropping { outline-style: solid; }
   /* Drawn inside the panel: the column now scrolls, and an outline outside its
      edge would be clipped away. */
   body.dragging-task .ath-side .place { outline: 2px dashed var(--live); outline-offset: -4px; border-radius: 16px; }
@@ -2376,18 +2379,18 @@
   #ath-left .ddet-h span, #ath-right .ddet-h span { flex: 1 1 100%; order: 3; }
   .ath-side .blk-empty { font-size: 12.5px; color: var(--ghost); line-height: 1.5; margin: 0; }
   /* the block whose contents are showing */
-  #soft-app .dblk.sel:not(.dropping):not(.dragging) { box-shadow: 0 0 0 2px var(--dim); }
-  #soft-app .dblk.sel.live:not(.dropping):not(.dragging) { box-shadow: 0 0 0 2px var(--live); }
+  :is(#soft-app, .ath-side) .dblk.sel:not(.dropping):not(.dragging) { box-shadow: 0 0 0 2px var(--dim); }
+  :is(#soft-app, .ath-side) .dblk.sel.live:not(.dropping):not(.dragging) { box-shadow: 0 0 0 2px var(--live); }
 
   /* ===== Moving a block on a touch screen =====
      A finger on an ordinary block scrolls the day (pan-y above). A block you
      have tapped is picked: it takes the finger, so it can be moved. */
-  #soft-app .dblk.picked { touch-action: none; }
-  #soft-app .dblk.picked:not(.dropping):not(.dragging) { box-shadow: 0 0 0 2px var(--live); }
+  :is(#soft-app, .ath-side) .dblk.picked { touch-action: none; }
+  :is(#soft-app, .ath-side) .dblk.picked:not(.dropping):not(.dragging) { box-shadow: 0 0 0 2px var(--live); }
   @media (pointer: coarse) {
     /* a fingertip needs more than 9px to catch the bottom edge */
-    #soft-app .dblk.picked .drz { height: 18px; }
-    #soft-app .dblk.picked .drz::after {
+    :is(#soft-app, .ath-side) .dblk.picked .drz { height: 18px; }
+    :is(#soft-app, .ath-side) .dblk.picked .drz::after {
       content: ""; position: absolute; left: 50%; bottom: 4px; transform: translateX(-50%);
       width: 26px; height: 3px; border-radius: 2px; background: var(--dim);
     }
@@ -3210,43 +3213,6 @@
      rather than a stack of identical cards. */
   /* Above the box now. Capped and scrolling, because a long conversation
      must not push the thing you type into off the bottom of the screen. */
-  /* ---- the assistant as a column ---- */
-  /* In a rail it is not a line above the day, it is the thing on the left you
-     talk to: its own height, its own scroll, and the box sitting on the bottom
-     edge where the newest line lands right on top of it. */
-  :is(#ath-left, #ath-right) .panel.askpanel { display: flex; flex-direction: column; }
-  :is(#ath-left, #ath-right) .askpanel .panel-h { display: flex; align-items: center; gap: 8px; }
-  :is(#ath-left, #ath-right) .askpanel .panel-h .amark { width: 14px; height: 14px; color: var(--live); }
-  /* The panel's heading already says it, so the bar's own label would say it
-     twice, the way it used to in the sheet. */
-  :is(#ath-left, #ath-right) .askpanel .asklabel { display: none; }
-  :is(#ath-left, #ath-right) .askpanel .askbody { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-  :is(#ath-left, #ath-right) .askpanel .asktop { flex: 0 0 auto; margin: 0 0 6px; }
-  :is(#ath-left, #ath-right) .askpanel .askthread { max-height: 40vh; margin: 0 0 10px; }
-  /* Three hundred pixels will not take a field, a microphone and a button on
-     one line and leave anywhere to type, so the field takes the whole row and
-     the two buttons go under it, on the right. */
-  :is(#ath-left, #ath-right) .askpanel .askbar { flex-wrap: wrap; margin: 0; }
-  :is(#ath-left, #ath-right) .askpanel .askbar input { flex: 1 1 100%; }
-  :is(#ath-left, #ath-right) .askpanel .askbar .askmic { margin-left: auto; }
-  :is(#ath-left, #ath-right) .askpanel .asktips { margin: 10px 0 0; }
-  :is(#ath-left, #ath-right) .askpanel .asktip { font-size: 12px; padding: 5px 9px; }
-  :is(#ath-left, #ath-right) .askpanel .askhint { font-size: 12px; margin: 9px 0 0; max-width: none; }
-  :is(#ath-left, #ath-right) .askpanel .askear { margin: 9px 0 0; }
-  @media (min-width: 1360px) {
-    /* The rail stops scrolling as one thing and becomes two: the conversation
-       keeps its own, the lists under it keep theirs. Otherwise a long enough
-       conversation pushes the box you type into off the bottom of the rail,
-       which is the one thing a chat column must never do. Only once there is
-       a conversation, though: before that the panel is a box and three
-       suggestions and has no business being tall. */
-    #ath-left .panel.askpanel.chatting {
-      flex: 1 1 auto; min-height: 300px; max-height: 60vh; overflow: hidden;
-    }
-    #ath-left .askpanel.chatting .askthread { flex: 1 1 auto; min-height: 0; max-height: none; }
-    #ath-left .askunder { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-  }
-
   :is(#soft-app, .ath-side) .askthread {
     display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px;
     max-height: 46vh; overflow-y: auto; padding-right: 2px;

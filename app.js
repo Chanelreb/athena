@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-12.6';
+  const BUILD = '2026-10-13.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3143,7 +3143,7 @@
     return h + '</div>';
   }
 
-  function dayRail(vd, now){
+  function dayRail(vd, now, want){
     const isToday = dayKey(vd) === dayKey(now);
     // Only "today" has a live moment; other days render as plain, unstyled time.
     const t = isToday ? (now.getHours()*60 + now.getMinutes()) : -1;
@@ -3217,13 +3217,17 @@
       h += '<p class="breakhint">'+dur(run.mins)+' back to back from '+clockOf(run.from)+
         '. <button class="linkish" data-addbreak="'+run.at+'|'+dk+'">Put a break in</button></p>';
 
+    // Everything so far is the day described rather than the day itself, and
+    // it stays in the middle column with the assistant.
+    const head = h; h = '';
+
     // The day drawn as a grid: hour lines, blocks placed and sized by the clock,
     // a line at now. Detail that will not fit inside a block opens underneath it.
     h += dayGridHTML(vd, now, soon);
-    // On a wide screen the detail lives in the right-hand panel, beside the
-    // grid. Drawn here as well, it would sit a whole day's height below, out
-    // of sight, looking like it had not changed.
-    if (!panelsOn()) h += dayDetailHTML(vd, now, soon);
+    // Where there is a capture column the detail lives in it, beside the grid.
+    // Drawn here as well it would sit a whole day's height below, out of
+    // sight, looking like it had not changed.
+    if (!twoPanels()) h += dayDetailHTML(vd, now, soon);
 
     // On a phone, the block you tapped gets a bar at the foot of the screen.
     // Tapping does not scroll you down to the detail, because that would carry
@@ -3239,6 +3243,10 @@
           '<button class="pb-x" data-dayclose aria-label="Put it down">×</button></div>';
       }
     }
+
+    // The grid, and on a phone the two things that only make sense directly
+    // under it. This is the part that moves to a column of its own.
+    const grid = h; h = '';
 
     // Athena promises that tasks find their own way into your day. When a task's
     // category has no block today there is nowhere for it to land, and it would
@@ -3270,16 +3278,16 @@
       homeless.forEach(tk => { const c = S.categories.find(x => x.id === tk.cat); names[c ? c.label : 'Other'] = 1; });
       const where = esc(Object.keys(names).join(', '));
       const many = homeless.length !== 1;
-      h += '<div class="homeless' + (panelsOn() ? ' brief' : '') + '"><div class="homeless-h">'+
+      h += '<div class="homeless' + (twoPanels() ? ' brief' : '') + '"><div class="homeless-h">'+
         '<b>'+homeless.length+' task'+(many ? 's' : '')+' with nowhere to go</b>'+
         '<span>Nothing scheduled for '+where+' between now and when '+
         (many ? 'these are' : 'this is')+' due.' +
-        (panelsOn()
+        (twoPanels()
           ? ' ' + (many ? 'They are' : 'It is') + ' in <b>To place</b>, ready to drag onto the day.'
           : ' Tick them off here, or give them somewhere to live.') +
         '</span></div>'+
         // The list itself only where there is no panel showing the same rows.
-        (panelsOn() ? '' : '<div class="tlist">'+homeless.map(tk => taskRow(tk, vd, true)).join('')+'</div>')+
+        (twoPanels() ? '' : '<div class="tlist">'+homeless.map(tk => taskRow(tk, vd, true)).join('')+'</div>')+
         '<button class="linkish" data-newon="'+dk+'">Add a block for today</button></div>';
     }
 
@@ -3292,7 +3300,10 @@
       (isToday ? '<button'+((now.getHours() >= eveHour() && !tomorrowSorted()) ? ' class="go"' : '')+
         ' data-tomorrow>Set up tomorrow</button>' : '')+
       (reviewOpen ? '' : '<button data-review>How today went</button>')+'</div>';
-    return h;
+
+    // 'grid' is the left column, 'page' is the middle with the grid taken out,
+    // and nothing at all is the phone, where the three are one column again.
+    return want === 'grid' ? grid : want === 'page' ? head + h : head + grid + h;
   }
 
   /* ---------- setting up tomorrow ----------
@@ -7751,7 +7762,7 @@
      timer to the other side so the main column sits in the middle. Nothing here
      is a new place to look: it is the same scratchpad, just always to hand.
      ========================================================================== */
-  const SIDE_ONE = 1000, SIDE_TWO = 1360;
+  const SIDE_ONE = 1000, SIDE_TWO = 1180;
   const panelsOn = () => typeof window !== 'undefined' && window.innerWidth >= SIDE_ONE;
   const twoPanels = () => typeof window !== 'undefined' && window.innerWidth >= SIDE_TWO;
 
@@ -7840,7 +7851,7 @@
   // Wherever the clock is actually drawn. In the rail on a wide screen, in
   // the day on a phone, and repainting the wrong one leaves the buttons
   // showing the state before you pressed them.
-  const timerPaint = () => { if (panelsOn()) paintPanels(); else render(); };
+  const timerPaint = () => { if (twoPanels()) paintPanels(); else render(); };
 
   function timerStart(){
     timer.endsAt = Date.now() + (timer.leftMs > 0 ? timer.leftMs : timer.mins * 60000);
@@ -8137,43 +8148,58 @@
   // Panels live outside #soft-app, so they survive its re-renders and are
   // painted separately. Cleared entirely when the screen is too narrow, or when
   // the main column is showing something that owns the whole screen.
+  let schedPlaced = false;   // has the schedule been scrolled to now yet
+
   function paintPanels(){
     const L = document.getElementById('ath-left'), R = document.getElementById('ath-right');
     if (!L || !R) return;
     const busy = loadFailed || bootBroken || ob || needsOnboarding() || (cloud && !session);
-    if (!panelsOn() || busy){
+    // Seven days side by side is a different job from one day, and it needs
+    // the whole screen to be readable or draggable at all.
+    const solo = weekShown();
+    if (shell.classList) shell.classList.toggle('solo', solo && panelsOn() && !busy);
+    if (!panelsOn() || busy || solo){
       L.hidden = R.hidden = true; L.innerHTML = R.innerHTML = '';
       return;
     }
-    const vd = viewDate(), dk = dayKey(vd);
-    const park = '<div class="panel"><div class="panel-h">Scratchpad</div>'+parkHTML(dk, true)+'</div>';
-    // The pile to place and a block's contents only exist on the Day view:
-    // there is nothing to drop onto or pick from anywhere else.
-    const dayOn = view === 'day' && !weekShown();
-    const place = dayOn ? placePanelHTML(vd) : '';
-    // What is in a block sits beside the grid you pick it from. On a phone
-    // there is no panel, and it opens under the grid instead.
-    let blk = '';
-    if (dayOn){
-      const det = dayDetailHTML(vd, clock(), upcomingHomes(vd));
-      blk = '<div class="panel blk"><div class="panel-h">In this block</div>'+
-        (det || '<p class="blk-empty">Click a block on the day to see what is waiting in it.</p>')+'</div>';
+    const vd = viewDate(), dk = dayKey(vd), now = clock();
+
+    // Left: the schedule, on every view. The date strip belongs to it rather
+    // than to whatever you happen to be looking at, so it is asked for anyway.
+    const wasAt = L.scrollTop;
+    L.hidden = false;
+    L.innerHTML = '<div class="sched">' + dateNav(vd, now, true) +
+      dayRail(vd, now, 'grid') + '</div>';
+    if (schedPlaced) L.scrollTop = wasAt;
+    else {
+      // The line at now on today, the first block on any other day, and on an
+      // empty day nothing, which leaves it at the top where it belongs.
+      const mark = L.querySelector('.cbnow') || L.querySelector('.dblk');
+      if (mark){
+        L.scrollTop = Math.max(0, L.scrollTop +
+          (mark.getBoundingClientRect().top - L.getBoundingClientRect().top) -
+          Math.round(L.clientHeight / 3));
+        schedPlaced = true;
+      }
     }
-    const ask = askPanelHTML();
-    if (twoPanels()){
-      // Left is the assistant and then capture: the conversation on top with
-      // the height going spare, the scratchpad and the pile to place beneath.
-      // Right is the clock, with whichever block you are looking at under it.
-      // The two under it are wrapped because they scroll together, separately
-      // from the conversation: see #ath-left in the stylesheet.
-      L.hidden = R.hidden = false;
-      L.innerHTML = ask + '<div class="askunder">' + park + place + '</div>';
-      R.innerHTML = timerHTML() + blk;
-    } else {
-      // One rail only: the same order, top to bottom.
-      L.hidden = true; L.innerHTML = '';
-      R.hidden = false; R.innerHTML = ask + timerHTML() + blk + park + place;
+
+    // Right: capture, and what you have just clicked on. The scratchpad is
+    // first because emptying your head into it is the thing you do without
+    // being prompted, and a box you have to go looking for is a box you use
+    // once. A block's contents jump above it when there is a block picked,
+    // because that one is an answer to something you just did and has to be
+    // where you are already looking.
+    if (!twoPanels()){
+      R.hidden = true; R.innerHTML = '';
+      return;
     }
+    const det = dayDetailHTML(vd, now, upcomingHomes(vd));
+    R.hidden = false;
+    R.innerHTML =
+      (det ? '<div class="panel blk"><div class="panel-h">In this block</div>' + det + '</div>' : '') +
+      '<div class="panel"><div class="panel-h">Scratchpad</div>' + parkHTML(dk, true) + '</div>' +
+      placePanelHTML(vd) +
+      timerHTML();
   }
 
   /* ---------- how long a thought has been sitting there ----------
@@ -8469,7 +8495,7 @@
     shell.addEventListener('dragend', () => {
       dragTask = null;
       document.body.classList.remove('dragging-task');
-      app.querySelectorAll('.dropping').forEach(el => el.classList.remove('dropping'));
+      shell.querySelectorAll('.dropping').forEach(el => el.classList.remove('dropping'));
     });
     shell.addEventListener('dragover', e => {
       if (!dragTask) return;
@@ -8478,7 +8504,7 @@
       e.preventDefault();
       try { e.dataTransfer.dropEffect = 'move'; } catch(_){}
       const mark = zone.classList.contains('place') ? null : zone;
-      app.querySelectorAll('.dropping').forEach(el => { if (el !== mark) el.classList.remove('dropping'); });
+      shell.querySelectorAll('.dropping').forEach(el => { if (el !== mark) el.classList.remove('dropping'); });
       if (mark) mark.classList.add('dropping');
     });
     shell.addEventListener('drop', e => {
@@ -8489,7 +8515,7 @@
       const tk = findTask(dragTask);
       dragTask = null;
       document.body.classList.remove('dragging-task');
-      app.querySelectorAll('.dropping').forEach(el => el.classList.remove('dropping'));
+      shell.querySelectorAll('.dropping').forEach(el => el.classList.remove('dropping'));
       if (!tk) return;
       const vd = viewDate(), dk = dayKey(vd);
 
@@ -8883,17 +8909,19 @@
   let pickObs = null;
   function watchPickbar(){
     if (pickObs){ pickObs.disconnect(); pickObs = null; }
-    const bar = app.querySelector('.pickbar'), det = app.querySelector('.ddet');
+    const bar = app.querySelector('.pickbar'), det = shell.querySelector('.ddet');
     if (!bar || !det || typeof IntersectionObserver === 'undefined') return;
     pickObs = new IntersectionObserver(es => { bar.classList.toggle('away', es[0].isIntersecting); });
     pickObs.observe(det);
   }
 
   // Prev / next / back-to-today for the Day and Week views.
-  function dateNav(vd, now){
+  function dateNav(vd, now, anyway){
     // Only the calendar is tied to a date. Blocks, tasks, habits and goals are
-    // not, so they get no date strip at all.
-    if (view !== 'day') return '';
+    // not, so they get no date strip at all — unless it is sitting above the
+    // schedule in its own column, where it is the calendar's strip and not the
+    // view's, and the view it happens to be beside is none of its business.
+    if (view !== 'day' && !anyway) return '';
     const step = weekShown() ? (phoneGrid() ? 3 : 7) : 1;
     let label, rel = '';
     if (!weekShown()){
@@ -9061,7 +9089,7 @@
       '</div>';
     app.classList.toggle('wide', weekShown() && gridShown());
 
-    h += dateNav(vd, now);
+    if (!panelsOn()) h += dateNav(vd, now);
     // Above the ask box, above the day, above everything. A deadline that is
     // filed neatly among eleven other things is a deadline you will miss.
     if (view === 'day') h += hardBannerHTML(now);
@@ -9081,7 +9109,7 @@
       // No side panel on a phone, so the clock has lived only on a laptop.
       // A focus timer you cannot reach from the thing that is distracting you
       // is not much of a focus timer.
-      if (!panelsOn()) h += timerHTML();
+      if (!twoPanels()) h += timerHTML();
       // Today's check is off the day for now, at Chanel's ask: it turned up
       // unexplained and she was not sure what it was for. Nothing is lost by
       // it going. The commitments themselves are still under Grow, with the
@@ -9089,13 +9117,15 @@
       // ones that have come due. Put this line back to have it again.
       // h += dailyCheckHTML(now);
     }
-    // Only where there is no rail to hold it. On a phone it is one line above
-    // everything it can change, and a button on the views where a line would
-    // be asking about a week you are not looking at. On a laptop it has a
-    // column, so the day says nothing about it at all.
-    if (!panelsOn()) h += (view === 'day' ? askBarHTML() : askFabHTML());
+    // In the middle, above everything it can change. On a wide screen that is
+    // every view, because the middle is the working column and the assistant
+    // works on whatever is in it. On a phone it is the Day only, and a button
+    // elsewhere, where a line would be asking about a week you cannot see.
+    if (panelsOn() || view === 'day') h += askBarHTML();
+    else h += askFabHTML();
 
-    if (view === 'day')    h += weekShown() ? weekView(vd, now) : dayRail(vd, now);
+    if (view === 'day')    h += weekShown() ? weekView(vd, now)
+                                            : dayRail(vd, now, panelsOn() ? 'page' : 'all');
     else if (view === 'blocks') h += blocksManagerHTML(now);
     else if (view === 'tasks')  h += tasksView(now);
     else if (view === 'grow')   h += growMode === 'goals' ? goalsView(now)
@@ -9106,7 +9136,7 @@
 
     // Parked thoughts live under the Day view, unless a wide screen has taken
     // them into a panel, where they are always to hand.
-    if (view === 'day' && !panelsOn()){ h += parkHTML(dayKey(vd)); }
+    if (view === 'day' && !twoPanels()){ h += parkHTML(dayKey(vd)); }
 
     // One banner, in order of how much it matters. Stacking three warnings that
     // all mean "not syncing" just teaches people to ignore the strip.
@@ -9664,22 +9694,8 @@
     return h + '</div>';
   }
 
-  /* The assistant as a column rather than a line. The panel heading carries
-     the helmet and the name, so the bar's own label is hidden inside here:
-     see .askpanel .asklabel in the stylesheet.
-
-     'chatting' is what lets the panel stretch. Before there is a conversation
-     it is a box and three suggestions and wants to be short; once there is
-     one it should take the height going spare and scroll inside itself. */
-  function askPanelHTML(){
-    const live = askThread.length && !askChanges;
-    return '<div class="panel askpanel' + (live ? ' chatting' : '') + '">' +
-      '<div class="panel-h">' + HELM + '<span>Ask Athena</span></div>' +
-      '<div class="askbody">' + askBarHTML() + '</div></div>';
-  }
-
   // Not on the day, where the bar is already sitting in the open, and not on
-  // any screen wide enough to have given it a column of its own.
+  // any screen wide enough for the bar to be on every view.
   function askFabHTML(){
     if (panelsOn() || view === 'day' || askOpen || askChanges) return '';
     return '<button class="askfab" data-askopen aria-label="Ask Athena">' +
@@ -11679,7 +11695,7 @@
   let ddrag = null;
   const snap15 = m => Math.round(m / 15) * 15;
 
-  app.addEventListener('pointerdown', e => {
+  shell.addEventListener('pointerdown', e => {
     if (view !== 'day' || weekShown() || editing || aiOpen || noteEdit || taskEdit || ob) return;
     const el = e.target.closest && e.target.closest('.dblk');
     if (!el || e.target.closest('.dtick')) return;      // ticking is not dragging
@@ -11688,7 +11704,7 @@
     // other block lets the page scroll. A mouse cannot be mistaken for a
     // scroll, so it moves any block straight away.
     if (e.pointerType === 'touch' && !el.classList.contains('picked')) return;
-    const col = app.querySelector('.dcol'); if (!col) return;
+    const col = shell.querySelector('.dcol'); if (!col) return;
     const vd = viewDate();
     const b = blocksForDate(vd).find(x => String(x.uid || x.id) === el.dataset.blockid);
     if (!b || b.step) return;                           // a goal step is not yours to move here
@@ -11706,7 +11722,7 @@
     ddrag.pid = e.pointerId;
   });
 
-  app.addEventListener('pointermove', e => {
+  shell.addEventListener('pointermove', e => {
     if (!ddrag) return;
     const dy = e.clientY - ddrag.y0;
     if (!ddrag.moved && Math.abs(dy) < 4) return;
@@ -11726,7 +11742,7 @@
     ddrag.el.classList.add('dragging');
   });
 
-  app.addEventListener('pointerup', () => {
+  shell.addEventListener('pointerup', () => {
     if (!ddrag) return;
     const d = ddrag; ddrag = null;
     if (!d.moved) return;
@@ -11749,10 +11765,10 @@
   });
   // If the browser takes the gesture back (a scroll after all), put the block
   // back where it was rather than leave it stranded half way.
-  app.addEventListener('pointercancel', () => { if (ddrag){ ddrag = null; render(); } });
+  shell.addEventListener('pointercancel', () => { if (ddrag){ ddrag = null; render(); } });
 
   let drag = null, noClick = false;
-  app.addEventListener('pointerdown', e => {
+  shell.addEventListener('pointerdown', e => {
     // weekShown(), not view === 'week'. The week lives inside the Day tab now,
     // and this check quietly stopped matching when that changed, which killed
     // dragging in the week grid with nothing to say so.
@@ -11763,7 +11779,7 @@
     if (e.pointerType === 'touch') return;
     const cb = e.target.closest('.cb'); if (!cb) return;
     if (cb.classList.contains('cbstep')) return; // goal-step blocks aren't draggable
-    const cols = app.querySelector('.calcols'); if (!cols) return;
+    const cols = shell.querySelector('.calcols'); if (!cols) return;
     e.preventDefault();
     drag = {
       el: cb, uid: cb.dataset.uid, dk: cb.dataset.dk,
@@ -11778,7 +11794,7 @@
     drag.newS = drag.s; drag.newE = drag.e; drag.newPos = drag.pos;
     cb.setPointerCapture(e.pointerId);
   });
-  app.addEventListener('pointermove', e => {
+  shell.addEventListener('pointermove', e => {
     if (!drag) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (!drag.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
@@ -11798,7 +11814,7 @@
         ((drag.newS - drag.s) * pxMin) + 'px)';
     }
   });
-  app.addEventListener('pointerup', () => {
+  shell.addEventListener('pointerup', () => {
     if (!drag) return;
     if (drag.moved){
       const ev = findEvent(drag.uid);
@@ -12855,7 +12871,7 @@
     }
     // The bar a phone shows for a picked block: jump down to what is in it.
     // (Its × is data-dayclose, which puts the block down.)
-    if (t('[data-blkjump]')){ const d = app.querySelector('.ddet'); if (d) d.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (t('[data-blkjump]')){ const d = shell.querySelector('.ddet'); if (d) d.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (t('[data-dayclose]')){ openDayBlock = ''; render(); return; }
     if (t('[data-review]')){ reviewOpen = true; render(); return; }
     if (t('[data-reviewclose]')){ reviewOpen = false; render(); return; }
