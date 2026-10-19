@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-13.10';
+  const BUILD = '2026-10-19.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3327,7 +3327,8 @@
 
     if (reviewOpen) h += dayReviewHTML(vd);
 
-    h += '<div class="dayadd"><button data-newon="'+dk+'">+ New event</button>'+
+    h += '<div class="dayadd">' + snapBtn('ai-btn') +
+      '<button data-newon="'+dk+'">+ New event</button>'+
       '<button class="ai-btn" data-aiopen>✦ Dump a list</button>'+
       // An ordinary button all day, and the obvious one to press once the
       // evening it belongs to has arrived and it has not been answered yet.
@@ -4267,6 +4268,162 @@
       im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('unreadable')); };
       im.src = url;
     });
+  }
+
+  /* ---------- reading a photograph of something ---------- */
+  let readBusy = '';        // what it is doing, while it is doing it
+  let readErr = '';
+  let readFound = null;     // { out, path, w, h } waiting to be confirmed
+
+  const b64 = blob => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    // The reader hands back a data: URL and the API wants the part after the
+    // comma, which is the base64 on its own.
+    r.onload = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = () => reject(new Error('could not read that file'));
+    r.readAsDataURL(blob);
+  });
+
+  async function readSnap(file){
+    if (!file) return;
+    if (!cloud || !session){
+      readErr = 'Not signed in on this device, so there is nowhere safe to put a photo.';
+      render(); return;
+    }
+    readErr = ''; readFound = null; readBusy = 'Shrinking the photo\u2026'; render();
+    try {
+      const shrunk = await shrinkImage(file);
+      readBusy = 'Keeping a copy\u2026'; render();
+      // The photograph is kept, and not only so it can be shown back. What
+      // Athena read is a summary of a document, and a summary is the wrong
+      // thing to check an amount against. The original has to still be there.
+      const id = 'bl_' + uid8();
+      const path = session.user.id + '/bills/' + id + '.jpg';
+      const up = await sb.storage.from('note-images')
+        .upload(path, shrunk.blob, { contentType: 'image/jpeg', upsert: false });
+      if (up.error) throw up.error;
+      readBusy = 'Reading it\u2026'; render();
+      const data = await b64(shrunk.blob);
+      const { data: sess } = await sb.auth.getSession();
+      const token = sess && sess.session ? sess.session.access_token : '';
+      const r = await fetch(api('ai'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({
+          mode: 'read', image: data, media: 'image/jpeg',
+          categories: S.categories.map(c => c.label).join(', '),
+          today: dayKey(clock())
+        })
+      });
+      let j = {};
+      try { j = await r.json(); } catch (_){}
+      readBusy = '';
+      if (!r.ok){
+        readErr = (j && j.error) || 'That did not work. Try again in a moment.';
+        // The copy is no use without a reading, so it does not sit there.
+        try { await sb.storage.from('note-images').remove([path]); } catch (_){}
+        render(); return;
+      }
+      let out = {};
+      try { out = JSON.parse(j.text); } catch (_){
+        readErr = 'Athena replied in a shape Athena did not understand.';
+        try { await sb.storage.from('note-images').remove([path]); } catch (_){}
+        render(); return;
+      }
+      if (out.kind === 'unreadable'){
+        readErr = 'Athena could not read that one. ' +
+          (out.saw ? out.saw + ' ' : '') + 'Try it again with more light, square on.';
+        try { await sb.storage.from('note-images').remove([path]); } catch (_){}
+        render(); return;
+      }
+      readFound = { out: out, path: path, w: shrunk.w, h: shrunk.h };
+      render();
+    } catch (e){
+      readBusy = '';
+      readErr = 'That did not work. ' + ((e && e.message) ? e.message : '') + ' \u00b7 v' + BUILD;
+      render();
+    }
+  }
+
+  /* Nothing is created until this runs, and this only runs from a button she
+     pressed. Every field is taken off the form rather than out of the reading,
+     so a correction she made in the card is the thing that gets saved. */
+  function readCardHTML(){
+    if (!readFound) return '';
+    const o = readFound.out || {};
+    const cats = S.categories || [];
+    const guess = cats.find(c => c.label === o.category) || cats[0] || { id: '' };
+    const what = o.kind === 'bill' ? 'a bill'
+      : o.kind === 'invitation' ? 'an invitation'
+      : o.kind === 'appointment' ? 'an appointment' : 'something';
+    let h = '<div class="modal-back" data-readdrop></div>';
+    h += '<div class="modal readcard"><div class="modal-h">Athena read this as ' + what + '</div>';
+    h += '<div class="rd-grid">';
+    h += '<div class="rd-shot"><img data-imgpath="' + esc(readFound.path) + '" alt="The photo you took"></div>';
+    h += '<div class="rd-fields">';
+    h += '<label class="fld"><span>What it is</span>' +
+      '<input id="rd_title" type="text" value="' + esc(o.title || '') + '" autocomplete="off"></label>';
+    h += '<label class="fld"><span>Amount</span>' +
+      '<input id="rd_amount" type="text" value="' + esc(o.amount || '') + '" autocomplete="off" ' +
+      'placeholder="Not printed on it"></label>';
+    h += '<label class="fld"><span>Due</span>' +
+      '<input id="rd_due" type="date" value="' + esc(o.due || '') + '"></label>';
+    h += '<label class="fld"><span>Part of your life</span><select id="rd_cat">' +
+      cats.map(c => '<option value="' + esc(c.id) + '"' +
+        (c.id === guess.id ? ' selected' : '') + '>' + esc(c.label) + '</option>').join('') +
+      '</select></label>';
+    h += '</div></div>';
+    // What it actually read, in its own words. This is the line that catches a
+    // glare across the total or a date it could not make out, and it is also
+    // where anything strange printed on the bill gets reported rather than
+    // quietly acted on.
+    if (o.saw) h += '<p class="rd-saw"><b>Athena says:</b> ' + esc(o.saw) + '</p>';
+    if (!o.due) h += '<p class="rd-warn">No due date was printed on it, so there is none here. ' +
+      'Without one this is a task on your list rather than something Athena will remind you about.</p>';
+    if (o.confidence === 'low') h += '<p class="rd-warn">Athena is not confident about this reading. ' +
+      'Check it against the photo before you keep it.</p>';
+    h += '<p class="ai-howto">Nothing has been added yet. Correct anything that is wrong. ' +
+      'The photo stays attached, so you can check it against this later.</p>';
+    h += '<div class="modal-actions"><button class="ghost" data-readdrop>Not this</button>' +
+      '<span style="flex:1"></span><button class="go" data-readkeep>Add it</button></div>';
+    return h + '</div>';
+  }
+
+  function readKeep(){
+    if (!readFound) return;
+    const g = id => (document.getElementById(id) || {}).value || '';
+    const title = g('rd_title').trim().slice(0, 200);
+    if (!title){ readErr = 'Give it a name first.'; render(); return; }
+    const due = g('rd_due');
+    const amount = g('rd_amount').trim().slice(0, 60);
+    const cat = g('rd_cat') || (S.categories[0] || {}).id || '';
+    const bits = [];
+    if (readFound.out.who) bits.push(readFound.out.who);
+    if (amount) bits.push(amount);
+    if (readFound.out.reference) bits.push('Ref ' + readFound.out.reference);
+    const tk = {
+      id: 'tk_' + uid8(), title: title, note: bits.join(' \u00b7 '),
+      cat: cat, priority: due ? 'high' : 'normal', due: due || '',
+      dateType: 'by', mins: 0, repeat: null, at: null,
+      // The photograph travels with the task, so the thing Athena read off is
+      // still there when she goes to pay it.
+      img: readFound.path,
+      createdAt: new Date().toISOString(), doneAt: null
+    };
+    // A due date makes it a deadline, which is what puts it in front of her
+    // on the morning it matters rather than in a list she has to go and read.
+    if (hardOK(tk)) tk.hard = true;
+    S.tasks.push(tk);
+    lastAdded = tk.id;
+    readFound = null; readErr = '';
+    save(); render();
+  }
+
+  function readDrop(){
+    if (readFound && readFound.path){
+      try { sb.storage.from('note-images').remove([readFound.path]); } catch (_){}
+    }
+    readFound = null; readErr = ''; render();
   }
 
   // Takes a list, because a drop can carry several at once and doing them one
@@ -7414,6 +7571,7 @@
     if (!compact) bits.push('<i class="tcat"><b style="background:'+col+'"></b>'+esc(catOf(tk.cat).label)+'</i>');
     if (tk.due){ const dl = dueLabel(tk.due, d, tk.dateType); bits.push('<i class="'+(dl.late?'due-late':dl.soon?'due-soon':'')+'">'+esc(dl.text)+'</i>'); }
     if (tk.at) bits.push('<i class="tat">'+clockOf(tk.at)+'</i>');
+    if (tk.img) bits.push('<i class="tshot">Photo</i>');
     if (tk.hard && hardOK(tk)) bits.push('<i class="thard">Closes '+clockOf(hardClose(tk))+'</i>');
     // Planned against actual, once there is an actual. This is the whole point
     // of tracking: the estimate stops being a guess nobody ever checks.
@@ -7692,6 +7850,13 @@
       hard: !!tk.hard, by: tk.by || HARD_BY };
     render();
   }
+  /* Only ever a path into the bucket, and the bucket is signed per read, so
+     an old render cannot leak a URL that still works. hydrateImages does the
+     signing, the same as it does for a note. */
+  const billShotHTML = tk => (tk && tk.img)
+    ? '<div class="billshot"><img data-imgpath="' + esc(tk.img) + '" alt="The photo of this"></div>'
+    : '';
+
   function taskEditorHTML(){
     const e = taskEdit;
     const CATOPTS = S.categories.map(c => "<option value='"+c.id+"'"+(c.id===e.cat?' selected':'')+">"+esc(c.label)+"</option>").join('');
@@ -7704,6 +7869,7 @@
       : MINOPTS;
     let h = '<div class="modal-back" data-closetask></div><div class="modal"><div class="modal-h">'+
       (e.fromPark != null ? 'From your thought' : 'Edit task')+'</div>';
+    h += billShotHTML(findTask(e.id));
     if (e.guessed) h += '<p class="ai-intro">Athena has filled this in from what you wrote. '+
       (e.appt ? 'Check the day and the time first.' : 'Change anything it got wrong.')+' Then save.</p>';
     else if (e.fromPark != null) h += '<p class="ai-intro">'+
@@ -8116,6 +8282,10 @@
   /* Where a thumb already is. The row along the top said where you could go
      and showed nothing; this says the same in the place your hand is anyway,
      and gives the top of the screen back to the thing you came to look at. */
+  const snapBtn = cls => '<button class="' + cls + '" data-snap>Snap a bill</button>';
+  const snapInputHTML = () =>
+    '<input id="snapfile" type="file" accept="image/*" capture="environment" hidden>';
+
   function bottomBarHTML(){
     if (!paned()) return '';
     // While the sheet is open you are in More, whatever is behind it.
@@ -8371,7 +8541,8 @@
   function captureHTML(vd){
     // Named, because the bar lighting up is not quite enough to land on a
     // bare text box and know what it is for.
-    let h = '<h2 class="dayhab-h">Scratchpad</h2>' + parkHTML(dayKey(vd));
+    let h = '<div class="dayadd snaprow">' + snapBtn('ai-btn big') + '</div>';
+    h += '<h2 class="dayhab-h">Scratchpad</h2>' + parkHTML(dayKey(vd));
     const list = unplacedTasks(vd);
     h += '<h2 class="dayhab-h">To place' + (list.length ? ' <b>' + list.length + '</b>' : '') + '</h2>';
     h += list.length
@@ -8546,6 +8717,13 @@
       if (!e.target.id || e.target.type === 'file') return;
       drafts[e.target.id] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     };
+    shell.addEventListener('change', e => {
+      if (e.target && e.target.id === 'snapfile'){
+        const f = e.target.files && e.target.files[0];
+        e.target.value = '';          // so the same photo twice still fires
+        readSnap(f);
+      }
+    });
     shell.addEventListener('input',  keep);
     shell.addEventListener('change', keep);
     // Capture, and once: it has to run before any handler that might speak,
@@ -9320,6 +9498,11 @@
     if (tour) h += tourHTML();
     if (askOpen) h += askSheetHTML();
     if (point) h += pointHTML();
+    if (readBusy) h += '<div class="celebrate"><span>' + esc(readBusy) + '</span></div>';
+    if (readErr) h += '<div class="undobar readerr"><span>' + esc(readErr) + '</span>' +
+      '<button data-readclear>Close</button></div>';
+    if (readFound) h += readCardHTML();
+    h += snapInputHTML();
     if (moreOpen) h += moreSheetHTML();
     h += bottomBarHTML();
 
@@ -12149,6 +12332,13 @@
     }
     if ((m = t('[data-deltask]'))){
       markUndo('Task deleted');
+      // The photograph goes with it. Undo puts the task back and not the
+      // photo, which is the right way round: a task is yours to get back, a
+      // picture of a bill is not worth keeping against the chance.
+      const going = findTask(m.dataset.deltask);
+      if (going && going.img && cloud && session){
+        try { sb.storage.from('note-images').remove([going.img]); } catch (_){}
+      }
       S.tasks = (S.tasks || []).filter(x => x.id !== m.dataset.deltask);
       taskEdit = null; clearModalDrafts(); save(); render(); return;
     }
@@ -12366,6 +12556,14 @@
       if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, 0);
       render(); return;
     }
+    if (t('[data-snap]')){
+      const f = document.getElementById('snapfile');
+      if (f){ f.value = ''; f.click(); }
+      return;
+    }
+    if (t('[data-readkeep]')){ readKeep(); return; }
+    if (t('[data-readdrop]')){ readDrop(); return; }
+    if (t('[data-readclear]')){ readErr = ''; render(); return; }
     if (t('[data-moreopen]')){ moreOpen = true; render(); return; }
     if (t('[data-moreclose]')){ moreOpen = false; render(); return; }
     if (t('[data-askopen]')){ askOpen = true; askErr = ''; render(); return; }
@@ -13206,6 +13404,7 @@
     if (e.key === 'Enter' && e.target.id === 'nt_quick'){ e.preventDefault(); const b = app.querySelector('[data-notequick]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'fd_name'){ e.preventDefault(); const b = app.querySelector('[data-foldersave]'); if (b) b.click(); return; }
     if (e.key === 'Enter' && e.target.id === 'ne_newfolder'){ e.preventDefault(); const b = app.querySelector('[data-foldermake]'); if (b) b.click(); return; }
+    if (e.key === 'Escape' && readFound){ readDrop(); return; }
     if (e.key === 'Escape' && moreOpen){ moreOpen = false; render(); return; }
     if (e.key === 'Escape' && askOpen && !askChanges){ askOpen = false; earStop(); render(); return; }
     if (e.key === 'Escape' && point){ pointClose(); return; }

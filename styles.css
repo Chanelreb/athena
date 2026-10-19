@@ -1444,6 +1444,47 @@
   /* The habits heading used to be an h2 and carried its own size. */
   #soft-app .fold-q { vertical-align: middle; margin-left: 2px; }
 
+  /* ---- reading a photograph of something ----
+     The photograph and the reading side by side, because the job in front of
+     her is comparing the two. On a phone they stack, photograph first: a
+     field you have not seen the evidence for is a field you cannot check. */
+  #soft-app .modal.readcard { width: min(680px, calc(100vw - 28px)); }
+  #soft-app .rd-grid { display: flex; gap: 16px; align-items: flex-start; margin: 4px 0 12px; }
+  #soft-app .rd-shot {
+    flex: 0 0 200px; border: 1px solid var(--line); border-radius: 12px;
+    overflow: hidden; background: var(--raise);
+  }
+  #soft-app .rd-shot img { display: block; width: 100%; height: auto; }
+  #soft-app .rd-fields { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  #soft-app .rd-saw {
+    font-size: 13px; line-height: 1.55; color: var(--dim); margin: 0 0 10px;
+    border-left: 2px solid var(--line); padding-left: 10px;
+  }
+  #soft-app .rd-saw b { color: var(--text); font-weight: 600; }
+  #soft-app .rd-warn {
+    font-size: 13px; line-height: 1.55; margin: 0 0 10px; padding: 10px 12px;
+    border: 1px solid var(--live); border-radius: 10px; color: var(--text);
+    background: var(--live-soft);
+  }
+  @media (max-width: 560px) {
+    #soft-app .rd-grid { flex-direction: column; }
+    #soft-app .rd-shot { flex: 0 0 auto; width: 100%; max-height: 42vh; }
+    #soft-app .rd-shot img { object-fit: contain; max-height: 42vh; }
+  }
+  /* A row of one, so the button sits like the others rather than stretching. */
+  #soft-app .dayadd.snaprow { margin: 0 0 16px; }
+  #soft-app .ai-btn.big { font-size: 14.5px; padding: 12px 18px; }
+  /* And the photograph where you actually need it: open on the thing you are
+     about to pay. */
+  :is(#soft-app, .ath-side) .tmeta .tshot { color: var(--ghost); }
+  #soft-app .billshot {
+    margin: 12px 0 4px; border: 1px solid var(--line); border-radius: 12px;
+    overflow: hidden; background: var(--raise);
+  }
+  #soft-app .billshot img { display: block; width: 100%; height: auto; max-height: 50vh; object-fit: contain; }
+  /* Errors from reading are a bar, not a card: there is nothing to decide. */
+  #soft-app .undobar.readerr { background: var(--raise); border: 1px solid var(--live); }
+
   /* ---- the bar along the bottom of a phone ----
      Fixed rather than at the end of the page, because a bar you have to
      scroll four screens to reach is not navigation. Backed and blurred so
