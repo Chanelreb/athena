@@ -40,7 +40,14 @@ const MS_SECRET = process.env.MS_CLIENT_SECRET || '';
 // every personal account.
 const MS_AUTH = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
 const MS_TOKEN = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
-const SCOPES = 'openid profile offline_access User.Read Calendars.Read';
+/* What a fresh connection asks for. Calendars.ReadWrite is a bigger grant
+   than Calendars.Read and Microsoft will show her so on the consent screen,
+   which is correct: it is a bigger thing to agree to. */
+const SCOPES = 'openid profile offline_access User.Read Calendars.ReadWrite';
+
+/* The one calendar Athena is allowed to touch. Matched by name because that
+   is the only handle that survives her deleting it and us making it again. */
+const CAL_NAME = 'Athena';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ubtumwzsaqcjxegklirp.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_RO1Hl4ZETOTScUPvs0nD4w_xUdoYSLR';
@@ -150,7 +157,7 @@ async function usableToken(jwt, row){
   if (row.access_token && row.expires_at && new Date(row.expires_at).getTime() - now > 120000)
     return unseal(row.access_token);
   const t = await msToken({
-    grant_type: 'refresh_token', refresh_token: unseal(row.refresh_token), scope: SCOPES
+    grant_type: 'refresh_token', refresh_token: unseal(row.refresh_token)
   });
   const expires = new Date(now + ((+t.expires_in || 3600) * 1000)).toISOString();
   await db(jwt, 'ms_accounts?id=eq.' + encodeURIComponent(row.id), {
@@ -174,6 +181,56 @@ async function usableToken(jwt, row){
 // they are actually living in, and the browser reads it as exactly that.
 const tzOK = /^[A-Za-z][A-Za-z0-9_+\-]*(\/[A-Za-z0-9_+\-]+){0,2}$/;
 const cleanTZ = z => (typeof z === 'string' && z.length <= 64 && tzOK.test(z)) ? z : 'UTC';
+
+/* Athena's own calendar inside her Outlook, made the first time it is needed.
+   Found by name, so if she deletes it in Outlook the next write makes a new
+   one rather than failing on a remembered id that is not there any more. */
+async function athenaCalendar(tok){
+  const r = await fetch('https://graph.microsoft.com/v1.0/me/calendars?$select=id,name&$top=200', {
+    headers: { Authorization: 'Bearer ' + tok }
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw graphError(r, j, 'list the calendars');
+  const found = (j.value || []).find(c => String(c.name) === CAL_NAME);
+  if (found) return found.id;
+  const mk = await fetch('https://graph.microsoft.com/v1.0/me/calendars', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + tok, 'content-type': 'application/json' },
+    body: JSON.stringify({ name: CAL_NAME })
+  });
+  const made = await mk.json().catch(() => ({}));
+  if (!mk.ok) throw graphError(mk, made, 'make a calendar called ' + CAL_NAME);
+  return made.id;
+}
+
+/* Graph says no in several ways and only one of them is worth acting on: a
+   token that was granted before Athena could write. That is a reconnect, not
+   a fault, and it has to be told apart from a genuine refusal. */
+function graphError(r, j, doing){
+  const said = (j && j.error && (j.error.message || j.error.code)) || '';
+  const e = new Error('Microsoft would not ' + doing + (said ? ': ' + said : '') + '.');
+  if (r.status === 403 || /ErrorAccessDenied|insufficient|scope/i.test(said)) e.needsWrite = true;
+  e.status = r.status;
+  return e;
+}
+
+/* Every write goes through here, and the calendar id is never a parameter:
+   it is resolved from the token each time. An event is addressed through
+   /me/calendars/{athena}/events/{id}, so anything that lives in her real
+   diary simply is not found, which is the behaviour we want and not a check
+   we have to remember to write. */
+async function inAthena(tok, path, init){
+  const cal = await athenaCalendar(tok);
+  const url = 'https://graph.microsoft.com/v1.0/me/calendars/' + cal + '/events' + (path || '');
+  const r = await fetch(url, Object.assign({}, init, {
+    headers: Object.assign({ Authorization: 'Bearer ' + tok, 'content-type': 'application/json' },
+      (init && init.headers) || {})
+  }));
+  if (r.status === 204) return {};
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw graphError(r, j, 'write to the ' + CAL_NAME + ' calendar');
+  return j;
+}
 
 const wall = t => (t && t.dateTime) ? String(t.dateTime) : null;
 
@@ -312,12 +369,108 @@ export default async function handler(req, res){
       return;
     }
 
+    /* Which account Athena writes through. With one connected there is no
+       question; with several, writing to whichever happened to be first is
+       how a work meeting ends up in a personal calendar, so it has to be
+       named and the server refuses to pick. */
+    async function writeRow(){
+      const rows = await db(jwt, 'ms_accounts?select=id,label,ms_id,refresh_token,access_token,expires_at');
+      if (!rows || !rows.length){ const e = new Error('No calendar is connected yet.'); e.status = 400; throw e; }
+      const want = String(body.account || '');
+      if (want){
+        const hit = rows.find(r => String(r.ms_id) === want || String(r.id) === want);
+        if (!hit){ const e = new Error('That calendar is not connected any more.'); e.status = 400; throw e; }
+        return hit;
+      }
+      if (rows.length > 1){
+        const e = new Error('More than one calendar is connected, so Athena needs telling which one to write to.');
+        e.status = 400; throw e;
+      }
+      return rows[0];
+    }
+
+    /* Does this connection have the newer permission yet? Asked by trying the
+       cheapest thing that needs it. Anything she connected before today said
+       yes to reading and nothing else, and the honest answer is to say so and
+       offer the screen again rather than to fail at the moment she presses a
+       button expecting something to happen. */
+    if (action === 'canwrite'){
+      const row = await writeRow();
+      try {
+        const tok = await usableToken(jwt, row);
+        const id = await athenaCalendar(tok);
+        res.status(200).json({ ok: true, account: row.label, calendar: CAL_NAME, calendarId: id });
+      } catch (e){
+        if (e.needsWrite){
+          res.status(200).json({ ok: false, account: row.label, needsWrite: true });
+          return;
+        }
+        throw e;
+      }
+      return;
+    }
+
+    /* Put one event into the Athena calendar, or change one already there.
+       Times are a wall clock and a zone, the same pair Graph hands back when
+       reading, so nothing has to be converted on the way out and be wrong
+       by an hour twice a year. */
+    if (action === 'put'){
+      const row = await writeRow();
+      const tok = await usableToken(jwt, row);
+      const title = String(body.title || '').trim().slice(0, 200);
+      const start = String(body.start || '').slice(0, 30);
+      const end = String(body.end || '').slice(0, 30);
+      const tz = cleanTZ(body.tz);
+      const msId = String(body.msId || '').slice(0, 300);
+      if (!title || !start || !end){ res.status(400).json({ error: 'An event needs a name and a time.' }); return; }
+      const ev = {
+        subject: title,
+        body: { contentType: 'text', content: String(body.note || '').slice(0, 2000) },
+        start: { dateTime: start, timeZone: tz },
+        end: { dateTime: end, timeZone: tz },
+        isAllDay: !!body.allDay,
+        showAs: 'busy',
+        // Nobody is invited and nothing is sent. This is a note to herself
+        // about her own time, and an event that emails her colleagues would
+        // be a different and much larger thing to agree to.
+        isReminderOn: false
+      };
+      const out = msId
+        ? await inAthena(tok, '/' + encodeURIComponent(msId), { method: 'PATCH', body: JSON.stringify(ev) })
+        : await inAthena(tok, '', { method: 'POST', body: JSON.stringify(ev) });
+      res.status(200).json({ ok: true, msId: out.id || msId, account: row.label, calendar: CAL_NAME });
+      return;
+    }
+
+    /* And take one out again. Addressed through the Athena calendar, so an id
+       belonging to anything in her real diary is simply not found here. */
+    if (action === 'drop'){
+      const row = await writeRow();
+      const tok = await usableToken(jwt, row);
+      const msId = String(body.msId || '').slice(0, 300);
+      if (!msId){ res.status(400).json({ error: 'Nothing to remove.' }); return; }
+      try {
+        await inAthena(tok, '/' + encodeURIComponent(msId), { method: 'DELETE' });
+      } catch (e){
+        // Already gone is the outcome asked for, so it is not an error.
+        if (e.status !== 404) throw e;
+      }
+      res.status(200).json({ ok: true });
+      return;
+    }
+
     res.status(400).json({ error: 'Unknown action.' });
   } catch (e){
     const msg = (e && e.message) || 'Something went wrong talking to Microsoft.';
     // A refresh token that has been revoked or expired is the one failure the
     // app can actually act on, so it is named rather than lumped in.
     const dead = /invalid_grant|AADSTS70008|AADSTS50173/i.test(msg) || e.code === 'invalid_grant';
-    res.status(dead ? 409 : 502).json({ error: msg, reconnect: dead });
+    // Connected before Athena could write, so the grant it holds is a reading
+    // one. Nothing is broken; she has simply not been asked yet.
+    if (e.needsWrite && !dead){
+      res.status(403).json({ error: msg, needsWrite: true });
+      return;
+    }
+    res.status(e.status === 400 ? 400 : (dead ? 409 : 502)).json({ error: msg, reconnect: dead });
   }
 }

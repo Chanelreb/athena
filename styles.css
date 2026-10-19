@@ -566,7 +566,8 @@
     font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px;
   }
   :is(#soft-app, .ath-side) .ddet-x:hover { color: var(--text); }
-  :is(#soft-app, .ath-side) .ddet-act { margin-top: 10px; }
+  /* Two actions now, so they need telling apart. */
+  :is(#soft-app, .ath-side) .ddet-act { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 14px; }
   :is(#soft-app, .ath-side) .ddet-act .linkish { font-size: 12.5px; }
   :is(#soft-app, .ath-side) .ddet .rsteps { margin: 0; }
 

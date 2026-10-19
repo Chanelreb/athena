@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-19.1';
+  const BUILD = '2026-10-19.2';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -3111,7 +3111,17 @@
       h += '<button class="taskchip later'+(open?' on':'')+'" data-blocklater="'+key(b)+'">+'+later.length+' later<em>'+(open?'▴':'▾')+'</em></button>';
       if (open) h += '<div class="tlist inblock">'+later.map(tk => taskRow(tk, vd, true)).join('')+'</div>';
     }
-    return h + '<div class="ddet-act"><button class="linkish" data-editinst="'+b.id+'|'+dk+'">Edit this block</button></div></div>';
+    let act = '<div class="ddet-act"><button class="linkish" data-editinst="'+b.id+'|'+dk+'">Edit this block</button>';
+    if (cal.accounts.length && !b.step && !b.task && !b.routine){
+      const evt = findEvent(b.id);
+      if (mirrorId(evt, dk))
+        act += '<button class="linkish" data-unmirror="'+b.id+'|'+dk+'">Take out of Outlook</button>';
+      else if (writeAccount())
+        act += '<button class="linkish" data-mirror="'+b.id+'|'+dk+'">Put in Outlook</button>';
+      else
+        act += '<button class="linkish" data-settings>Choose a calendar to add to</button>';
+    }
+    return h + act + '</div></div>';
   }
 
   /* The longest stretch of blocks with no real gap between them. Athena can see
@@ -6658,6 +6668,98 @@
   // browser reads as local. Changing the name throws that cache away rather
   // than leaving a day looking wrong until the next refresh.
   const CAL_KEY = 'athena:cal2', CAL_STATE = 'athena:msstate';
+
+  /* Which Outlook event, if any, each occurrence of a block has become.
+     Keyed by day, because a repeating block is a different event in Outlook
+     every week and one id could not stand for all of them.
+       evt.ms = { '2026-10-20': 'AAMkAG...' }                               */
+  const mirrorId = (evt, dk) => (evt && evt.ms && evt.ms[dk]) || '';
+  function setMirror(evt, dk, id){
+    if (!evt) return;
+    if (id){ evt.ms = evt.ms || {}; evt.ms[dk] = id; }
+    else if (evt.ms){ delete evt.ms[dk]; if (!Object.keys(evt.ms).length) delete evt.ms; }
+  }
+
+  /* Where a write would go. One connected and there is no question; more than
+     one and it has to have been named, because the server will not guess and
+     neither should the button. */
+  const writeAccount = () => {
+    if (!cal.accounts.length) return null;
+    if (cal.accounts.length === 1) return cal.accounts[0];
+    const want = (S.profile && S.profile.msWrite) || '';
+    return cal.accounts.find(ac => String(ac.id) === String(want)) || null;
+  };
+
+  let calWriteBusy = '';
+  let calWriteErr = '';
+  let calNeedsWrite = false;   // connected, but before Athena could write
+
+  async function msPost(payload){
+    const { data } = await sb.auth.getSession();
+    const token = data && data.session ? data.session.access_token : '';
+    const r = await fetch(api('ms'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json().catch(() => ({}));
+    return { ok: r.ok, status: r.status, j: j };
+  }
+
+  /* One occurrence out to Outlook, or back again. Everything it needs is
+     worked out here rather than passed in, so the only thing a caller can
+     ask for is this block on this day. */
+  async function mirrorBlock(id, dk, remove){
+    if (!cloud || !session){ calWriteErr = 'Sign in first.'; render(); return; }
+    const evt = findEvent(id);
+    if (!evt){ calWriteErr = 'That block is not there any more.'; render(); return; }
+    const picked = writeAccount();
+    const acct = picked ? picked.id : '';
+    calWriteErr = ''; calNeedsWrite = false;
+    calWriteBusy = remove ? 'Taking it out of Outlook\u2026' : 'Putting it in Outlook\u2026';
+    render();
+    try {
+      const had = mirrorId(evt, dk);
+      let out;
+      if (remove){
+        if (!had){ calWriteBusy = ''; render(); return; }
+        out = await msPost({ action: 'drop', account: acct, msId: had });
+      } else {
+        const D = parseDay(dk);
+        const o = (evt.ex && evt.ex[dk]) || {};
+        const s = o.start != null ? o.start : evt.start;
+        const e = o.end != null ? o.end : evt.end;
+        out = await msPost({
+          action: 'put', account: acct, msId: had,
+          title: (o.title != null ? o.title : evt.title) || 'Athena block',
+          note: 'Put here by Athena.',
+          start: dk + 'T' + s + ':00',
+          end: dk + 'T' + e + ':00',
+          allDay: !!evt.allDay,
+          tz: appTZ()
+        });
+      }
+      calWriteBusy = '';
+      if (!out.ok){
+        if (out.j && out.j.needsWrite){
+          calNeedsWrite = true;
+          calWriteErr = 'Athena can read your calendar but has not been given permission to add to it. ' +
+            'Connect it again in Settings and Microsoft will ask you this time.';
+        } else {
+          calWriteErr = (out.j && out.j.error) || 'Microsoft would not take that just now.';
+        }
+        render(); return;
+      }
+      // Only once Microsoft has actually said yes.
+      const live = findEvent(id);
+      setMirror(live, dk, remove ? '' : (out.j.msId || ''));
+      save(); render();
+    } catch (err){
+      calWriteBusy = '';
+      calWriteErr = 'That did not work. ' + ((err && err.message) || '') + ' \u00b7 v' + BUILD;
+      render();
+    }
+  }
   const CAL_STALE = 10 * 60 * 1000;      // refetch at most every ten minutes
   let cal = { accounts: [], events: [], at: 0, err: '', busy: false, tz: appTZ() };
 
@@ -8718,6 +8820,12 @@
       drafts[e.target.id] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     };
     shell.addEventListener('change', e => {
+      if (e.target && e.target.dataset && e.target.dataset.mswrite !== undefined){
+        if (!S.profile) S.profile = blank().profile;
+        S.profile.msWrite = e.target.value || '';
+        calNeedsWrite = false; save(); render();
+        return;
+      }
       if (e.target && e.target.id === 'snapfile'){
         const f = e.target.files && e.target.files[0];
         e.target.value = '';          // so the same photo twice still fires
@@ -9498,6 +9606,9 @@
     if (tour) h += tourHTML();
     if (askOpen) h += askSheetHTML();
     if (point) h += pointHTML();
+    if (calWriteBusy) h += '<div class="celebrate"><span>' + esc(calWriteBusy) + '</span></div>';
+    if (calWriteErr) h += '<div class="undobar readerr"><span>' + esc(calWriteErr) + '</span>' +
+      '<button data-calwclear>Close</button></div>';
     if (readBusy) h += '<div class="celebrate"><span>' + esc(readBusy) + '</span></div>';
     if (readErr) h += '<div class="undobar readerr"><span>' + esc(readErr) + '</span>' +
       '<button data-readclear>Close</button></div>';
@@ -11068,7 +11179,11 @@
     if (!cal.accounts.length){
       h += '<p class="setnote">Athena can read your Outlook or Microsoft 365 calendar and show your meetings alongside your day, ' +
         'so what you plan fits around what is already booked. You can connect your work and your personal account, both at once.</p>';
-      h += '<p class="setnote">Reading only. Athena never writes to your calendar, never sends anything, and never opens your email.</p>';
+      h += '<p class="setnote">Athena reads your calendar. It can also add things to it, but only ever to a ' +
+        'separate calendar of its own called <b>Athena</b>, which it makes the first time it needs one. ' +
+        'It cannot change or delete anything you or anyone else put in your real calendar, because it is not ' +
+        'able to reach them. Nothing is ever added without you asking for it, nothing is sent to anybody, ' +
+        'and your email is never opened.</p>';
     } else {
       h += '<div class="callist">';
       cal.accounts.forEach(ac => {
@@ -11076,6 +11191,24 @@
           '<button class="linkish" data-calforget="' + esc(ac.id) + '">Disconnect</button></div>';
       });
       h += '</div>';
+      // With more than one connected, which one Athena adds to has to be
+      // said out loud. Guessing is how a work block lands in a personal
+      // calendar, and the server refuses to guess for the same reason.
+      if (cal.accounts.length > 1){
+        const picked = (S.profile && S.profile.msWrite) || '';
+        h += '<label class="fld"><span>Athena adds to</span><select data-mswrite>' +
+          '<option value=""' + (picked ? '' : ' selected') + '>Nothing, for now</option>' +
+          cal.accounts.map(ac => '<option value="' + esc(ac.id) + '"' +
+            (String(ac.id) === String(picked) ? ' selected' : '') + '>' + esc(ac.label) + '</option>').join('') +
+          '</select></label>';
+      }
+      h += '<p class="setnote">Athena adds only to a calendar of its own called <b>Athena</b>, and only when you ' +
+        'ask it to on a particular block. It cannot touch anything else in there. Untick that calendar in ' +
+        'Outlook and everything Athena has added disappears with it.</p>';
+      if (calNeedsWrite)
+        h += '<div class="errdetail"><b>Athena cannot add anything yet</b><span>This calendar was connected ' +
+          'before Athena could add to one, so it only has permission to read. Connect it again below and ' +
+          'Microsoft will ask you about adding this time.</span></div>';
       const n = cal.events.length;
       h += '<p class="setnote">' + (n ? n + ' thing' + (n === 1 ? '' : 's') + ' in the next week' : 'Nothing in the next week') +
         (cal.at ? ', read ' + agoWords(cal.at) : '') + '. ' +
@@ -12564,6 +12697,13 @@
     if (t('[data-readkeep]')){ readKeep(); return; }
     if (t('[data-readdrop]')){ readDrop(); return; }
     if (t('[data-readclear]')){ readErr = ''; render(); return; }
+    if ((m = t('[data-mirror]'))){
+      const p = m.dataset.mirror.split('|'); mirrorBlock(p[0], p[1], false); return;
+    }
+    if ((m = t('[data-unmirror]'))){
+      const p = m.dataset.unmirror.split('|'); mirrorBlock(p[0], p[1], true); return;
+    }
+    if (t('[data-calwclear]')){ calWriteErr = ''; calNeedsWrite = false; render(); return; }
     if (t('[data-moreopen]')){ moreOpen = true; render(); return; }
     if (t('[data-moreclose]')){ moreOpen = false; render(); return; }
     if (t('[data-askopen]')){ askOpen = true; askErr = ''; render(); return; }
