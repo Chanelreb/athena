@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-19.2';
+  const BUILD = '2026-10-21.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1335,6 +1335,89 @@
      Ticking something should feel good. One item at a time gets the "just done"
      treatment, a ring shows the day closing, and finishing the lot earns a
      moment. All of it respects prefers-reduced-motion via CSS. */
+  /* ---------- the sound a thing makes when it goes down ---------- */
+  /* A pentatonic, so no two of them can clash and the order never matters. */
+  const TING = [69, 71, 74, 76, 78, 81, 83, 86];
+  const TING_RUN = 3500;        // after this long it is a new run, from the bottom
+  let ting = null;              // { ctx }, made on the first tick
+  let tingAt = 0, tingRun = 0;
+
+  const tingOn = () => voicePrefs().ticks !== false;
+
+  /* One note. Sine for the body, a quieter partial above it that dies first,
+     which is the whole difference between a tone and something struck. */
+  function tingNote(midi, delay, vol, len){
+    const ctx = ting.ctx, at = ctx.currentTime + (delay || 0);
+    const f = 440 * Math.pow(2, (midi - 69) / 12);
+    const dur = len || 0.3;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(vol, at + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    g.connect(ctx.destination);
+    const body = ctx.createOscillator();
+    body.type = 'sine'; body.frequency.value = f;
+    body.connect(g); body.start(at); body.stop(at + dur + 0.05);
+    const bg = ctx.createGain();
+    bg.gain.setValueAtTime(0.0001, at);
+    bg.gain.exponentialRampToValueAtTime(vol * 0.28, at + 0.005);
+    bg.gain.exponentialRampToValueAtTime(0.0001, at + Math.min(dur, 0.16));
+    bg.connect(ctx.destination);
+    const o2 = ctx.createOscillator();
+    o2.type = 'sine'; o2.frequency.value = f * 3.01;
+    o2.connect(bg); o2.start(at); o2.stop(at + dur + 0.05);
+  }
+
+  /* What each kind of thing sounds like. A rock is the only one that gets two
+     notes, because three rocks is what the day was actually for and ticking
+     one should not sound the same as ticking a habit. */
+  function tingPlay(kind){
+    if (!tingOn()) return;
+    // The same rule the voice follows: a laptop lid is a request for silence.
+    if (typeof document !== 'undefined' && document.hidden) return;
+    try {
+      const Ctx = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
+      if (!Ctx) return;
+      // Made inside the click that asked for it, which is the gesture iOS
+      // wants before it will let anything make a sound at all.
+      if (!ting) ting = { ctx: new Ctx() };
+      if (ting.ctx.state === 'suspended') ting.ctx.resume();
+
+      if (kind === 'undo'){
+        // Lower, softer, and outside the run: undoing is not a step backwards
+        // through the phrase, it is simply not a step.
+        tingNote(TING[0] - 12, 0, 0.045, 0.22);
+        return;
+      }
+      const now = Date.now();
+      if (now - tingAt > TING_RUN) tingRun = 0; else tingRun++;
+      tingAt = now;
+      const n = TING[Math.min(tingRun, TING.length - 1)];
+      if (kind === 'all'){
+        // The day, kept. The only flourish in here, and it can only happen
+        // once a day.
+        tingNote(TING[0], 0, 0.075);
+        tingNote(TING[2], 0.09, 0.075);
+        tingNote(TING[4], 0.18, 0.085, 0.5);
+      } else if (kind === 'pip'){
+        tingNote(n, 0, 0.05, 0.2);
+      } else if (kind === 'timer'){
+        // A round done, which is a longer thing than a tick and sounds it.
+        tingNote(n, 0, 0.08, 0.42);
+        tingNote(n + 5, 0.1, 0.07, 0.5);
+      } else if (kind === 'rock'){
+        tingNote(n, 0, 0.085);
+        tingNote(n + 7, 0.055, 0.06, 0.42);
+      } else {
+        tingNote(n, 0, 0.085);
+      }
+    } catch(_){ /* a browser that will not make a sound is not a problem */ }
+  }
+
+  /* How a thing feels, as against how it sounds. Shorter than it reads: 12
+     milliseconds is a tap you register rather than a buzz you notice. */
+  const TING_BUZZ = { habit: 12, block: 16, task: 12, step: 14, rock: [10, 40, 18], undo: 8 };
+
   let justDone = null, justDoneTimer = null;
   // Set only on the tick that completes the set, so the jar settles once
   // rather than on every render for the rest of the day.
@@ -1351,8 +1434,11 @@
   }
   // Flag one item so only it animates, and let a task linger a beat before it
   // clears out of the open list.
-  function markJustDone(id){
+  function markJustDone(id, kind){
     justDone = id;
+    tingPlay(kind || 'task');
+    const b = TING_BUZZ[kind || 'task'];
+    if (b) buzz(b);
     clearTimeout(justDoneTimer);
     justDoneTimer = setTimeout(() => { justDone = null; render(); }, 620);
   }
@@ -1382,26 +1468,50 @@
 
      Finished, the ring fills and the words become All kept, because eight of
      eight is not a sum anybody needs to read. */
+  // Where the ring was last time it was drawn, so it has somewhere to sweep
+  // from. null means it has never been drawn and should simply appear.
+  let ringWas = null, ringDay = '';
+
   function dayProgressHTML(){
     const p = dayProgress();
     if (!p.total) return '';
     const pct = p.done / p.total;
+    const dk = dayKey(clock());
+    if (dk !== ringDay){ ringWas = null; ringDay = dk; }
     const R = 15, C = 2 * Math.PI * R;
     const all = p.done === p.total;
     const said = all ? 'All ' + p.total + ' kept today' : p.done + ' of ' + p.total + ' kept today';
-    return '<div class="hprog' + (all ? ' full' : '') + '" role="img" title="' + esc(said) + '" ' +
+    const out = '<div class="hprog' + (all ? ' full' : '') + '" role="img" title="' + esc(said) + '" ' +
       'aria-label="' + esc(said) + '">' +
       '<span class="hpr">' +
         '<svg viewBox="0 0 36 36" aria-hidden="true">' +
           '<circle class="rbg" cx="18" cy="18" r="' + R + '"></circle>' +
+          // Drawn at the old proportion and told where it is going. sweepRing
+          // moves it there on the next frame, which is the frame the browser
+          // needs to have seen the old one to animate at all.
           '<circle class="rfg" cx="18" cy="18" r="' + R + '" stroke-dasharray="' + C.toFixed(1) + '" ' +
-            'stroke-dashoffset="' + (C * (1 - pct)).toFixed(1) + '"></circle>' +
+            'stroke-dashoffset="' + (C * (1 - (ringWas == null ? pct : ringWas))).toFixed(1) + '" ' +
+            'data-to="' + (C * (1 - pct)).toFixed(1) + '"></circle>' +
         '</svg>' +
         (all ? '<span class="hpt">' + TICK + '</span>' : '') +
       '</span>' +
       '<span class="hpw"><b>' + (all ? 'All ' + p.total : p.done + ' of ' + p.total) + '</b>' +
       '<small>kept today</small></span>' +
       '</div>';
+    ringWas = pct;
+    return out;
+  }
+
+  /* The frame after the paint. Setting it inside the same frame would be the
+     same as having drawn it there, which is the bug this exists to fix. */
+  function sweepRing(){
+    const el = app.querySelector('.rfg[data-to]');
+    if (!el) return;
+    const to = el.getAttribute('data-to');
+    el.removeAttribute('data-to');
+    if (el.getAttribute('stroke-dashoffset') === to) return;
+    const go = () => { el.setAttribute('stroke-dashoffset', to); };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(go); else go();
   }
   // Called after any tick. Fires once per day, only on the transition to done.
   /* Only ever returns something it can stand behind. Ordered by how much the
@@ -1442,6 +1552,7 @@
     if (p.total > 0 && p.done === p.total && celebratedFor !== dk){
       celebratedFor = dk;
       celebrate = 'That is the day, kept.';
+      tingPlay('all');
       buzz([14, 60, 24]);
       clearTimeout(celebrateTimer);
       celebrateTimer = setTimeout(() => { celebrate = null; render(); }, 4200);
@@ -2361,7 +2472,7 @@
   // Unhurried, and a little below the pitch these ship at. Both deliberately
   // gentle rather than dramatic: past about 0.85 on either, a voice stops
   // sounding calm and starts sounding unwell.
-  const voiceDefaults = () => ({ on: false, name: '', rate: 0.92, pitch: 0.92, music: true });
+  const voiceDefaults = () => ({ on: false, name: '', rate: 0.92, pitch: 0.92, music: true, ticks: true });
   const voicePrefs = () => Object.assign(voiceDefaults(), (S.profile && S.profile.voice) || {});
   const voiceOn = () => !!voicePrefs().on;
   const voiceCan = () => typeof window !== 'undefined' && !!window.speechSynthesis &&
@@ -3920,7 +4031,7 @@
     markUndo('Small version');
     const m = S.completions[dk] || (S.completions[dk] = {});
     m[id] = h.target > 1 ? Math.max(1, (+m[id] || 0)) : true;
-    markJustDone(id);
+    markJustDone(id, 'habit');
     announce(h.l + ', kept');
     save(); render();
   }
@@ -5775,7 +5886,7 @@
     if (!c) return;
     const today = dayKey(clock());
     c.asked = c.asked || {};
-    if (how === 'done'){ c.state = 'done'; c.closedAt = today; markJustDone(c.id); }
+    if (how === 'done'){ c.state = 'done'; c.closedAt = today; markJustDone(c.id, 'rock'); }
     else if (how === 'let go'){ c.state = 'let go'; c.closedAt = today; }
     else c.asked[today] = 'not yet';
     save();
@@ -7433,14 +7544,14 @@
 
      Ellipses at slight angles rather than hand drawn paths: they read as
      stones, and they render the same everywhere. */
-  function jarHTML(total, done, cheer){
+  function jarHTML(total, done, cheer, landed){
     const STONES = [
       { cx:22,   cy:47,   rx:12, ry:7.5, rot:-6 },
       { cx:20.5, cy:35.5, rx:10, ry:6.5, rot:9 },
       { cx:23,   cy:25.5, rx:8,  ry:5.5, rot:-11 }
     ].slice(0, Math.max(1, Math.min(3, total)));
     const stones = STONES.map((s, i) =>
-      '<ellipse class="jst' + (i < done ? ' on' : '') + '" cx="' + s.cx + '" cy="' + s.cy +
+      '<ellipse class="jst' + (i < done ? ' on' : '') + (i === landed ? ' landed' : '') + '" cx="' + s.cx + '" cy="' + s.cy +
       '" rx="' + s.rx + '" ry="' + s.ry + '" transform="rotate(' + s.rot + ' ' + s.cx + ' ' + s.cy + ')"/>').join('');
     // Sized to how many rocks there are. A full height jar holding one stone
     // is mostly empty glass, and it doubles the height of a box with one row
@@ -7501,7 +7612,10 @@
     if (rockEdit) h += rockEditHTML(dk, list);
     else if (list.length < ROCKS_MAX)
       h += '<button class="rk-add" data-rocknew>+ Add a rock</button>';
-    return h + '</div>' + jarHTML(list.length, kept, rockCheer === dk) + '</div>';
+    // The newest stone is the last one filled, and it is only animated when
+    // the rock that just went down is one of today's.
+    const landed = (justDone && list.some(r => r.id === justDone)) ? kept - 1 : -1;
+    return h + '</div>' + jarHTML(list.length, kept, rockCheer === dk, landed) + '</div>';
   }
 
   // What was set yesterday and not finished. Yesterday is read as yesterday
@@ -8177,7 +8291,7 @@
     timer.done = (timer.done || 0) + 1; timer.doneOn = dayKey(clock());
     timerSave();
     try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch(_){}
-    markJustDone('timer');
+    markJustDone('timer', 'timer');
     timerPaint(); timerNudgeClear();
   }
   function timerLoop(){
@@ -9051,6 +9165,12 @@
     });
 
     shell.addEventListener('change', e => {
+      if (e.target.id === 's_ticks'){
+        setVoice('ticks', !!e.target.checked);
+        // Played back on the way on, so the switch demonstrates itself.
+        if (e.target.checked) tingPlay('habit');
+        render(); return;
+      }
       if (e.target.id === 's_voiceon'){ setVoice('on', !!e.target.checked); speakStop(); render(); return; }
       // Redraw first, then speak. say() happens to render when it works, and
       // leaning on that meant a voice the engine refuses left the panel showing
@@ -9306,6 +9426,7 @@
     if (th) th.scrollTop = thEnd ? th.scrollHeight : thAt;
     if (typeof window !== 'undefined' && window.scrollTo && sy) window.scrollTo(0, sy);
     if (app.querySelector('img[data-imgpath]')) hydrateImages();
+    sweepRing();
     watchPickbar();
   }
 
@@ -10640,6 +10761,11 @@
 
   function voiceSettingsHTML(){
     let h = '<div class="modal-h" style="margin-top:8px">Athena out loud</div>';
+    h += '<label class="fld chk"><input id="s_ticks" type="checkbox"' +
+      (voicePrefs().ticks !== false ? ' checked' : '') + '>' +
+      '<span>A sound when you tick something off</span></label>';
+    h += '<p class="setnote">Quiet, and it climbs while you are on a run of them. ' +
+      'Silent when Athena is not the window you are looking at.</p>';
     if (!voiceCan()){
       h += '<p class="setnote">This browser cannot speak, so there is nothing to turn on here. ' +
         'Every other browser on the same device probably can.</p>';
@@ -12459,7 +12585,8 @@
       if (tk){
         const ref = dk2 ? parseDay(dk2) : now;
         toggleTask(tk, ref);
-        if (taskDone(tk, ref)){ markJustDone(id); buzz(12); }
+        if (taskDone(tk, ref)) markJustDone(id, 'task');
+        else tingPlay('undo');
       }
       save(); render(); return;
     }
@@ -12607,7 +12734,7 @@
         if (r.kind === 'task'){ const tk = findTask(r.ref); if (tk) toggleTask(tk, now); else r.doneAt = r.doneAt ? null : dk; }
         else if (r.kind === 'commitment'){ answerCommit(r.ref, 'done'); }
         else r.doneAt = r.doneAt ? null : dk;
-        markJustDone(r.id); buzz(12);
+        markJustDone(r.id, 'rock');
         // Read the list back, because ticking a rock that stands for a task
         // changed the task, not the rock.
         const after = rocksOn(dk) || [];
@@ -12919,7 +13046,7 @@
           if (all && on){ const mm = S.completions[dk2]; if (mm){ delete mm[hb.id]; if (!Object.keys(mm).length) delete S.completions[dk2]; } }
           else if (!all && !on){ const mm = S.completions[dk2] || (S.completions[dk2] = {}); mm[hb.id] = hb.target ? hb.target : true; }
         });
-        if (!all) markJustDone(r.id);
+        if (!all) markJustDone(r.id, 'rock');
         save(); render(); maybeCelebrate();
       }
       return;
@@ -13202,7 +13329,8 @@
       const ms = g && (g.milestones || []).find(x => x.id === mid);
       if (!ms) return;
       ms.doneAt = ms.doneAt ? null : today;
-      if (ms.doneAt){ markJustDone(mid); buzz(12); }
+      if (ms.doneAt) markJustDone(mid, 'step');
+      else tingPlay('undo');
       save(); render(); return;
     }
     if ((m = t('[data-addms]'))){
@@ -13254,21 +13382,25 @@
       const [id, dk] = m.dataset.done.split('|');
       const on = dk || today;
       toggleDone(id, on);
-      if (isDone(id, on)){ markJustDone(id); buzz(12); }
+      if (isDone(id, on)) markJustDone(id, 'block');
+      else tingPlay('undo');
       save(); maybeCelebrate(); render(); return;
     }
     if ((m = t('[data-pip]'))){
       const [id, tg, per] = m.dataset.pip.split(':');
       const on = per || today;
-      bumpCount(id, on, +tg); buzz(10);
-      if (isDone(id, on, +tg)) markJustDone(id);
+      bumpCount(id, on, +tg);
+      const got = (S.completions[on] || {})[id] || 0;
+      if (isDone(id, on, +tg)) markJustDone(id, 'habit');
+      else if (got > 0){ tingPlay('pip'); buzz(8); }
+      else tingPlay('undo');
       save(); maybeCelebrate(); render(); return;
     }
     if ((m = t('[data-step]'))){
       const [gid, sid] = m.dataset.step.split(':');
       toggleStep(gid, sid, now); buzz(12);
       const g = S.goals.find(x => x.id === gid), st = g && g.steps.find(s => s.id === sid);
-      if (st && stepDone(st, now)) markJustDone(sid);
+      if (st && stepDone(st, now)) markJustDone(sid, 'step');
       save(); maybeCelebrate(); render(); return;
     }
     if ((m = t('[data-stepweek]'))){
@@ -13277,7 +13409,7 @@
       const ref = dk ? parseDay(dk) : now;
       toggleStep(gid, sid, ref); buzz(12);
       const g = S.goals.find(x => x.id === gid), st = g && g.steps.find(s => s.id === sid);
-      if (st && stepDone(st, ref)) markJustDone(sid);
+      if (st && stepDone(st, ref)) markJustDone(sid, 'step');
       save(); maybeCelebrate(); render(); return;
     }
 

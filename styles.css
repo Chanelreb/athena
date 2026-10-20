@@ -1059,6 +1059,7 @@
     #soft-app .t-ms, #soft-app .t-dump .t-task,
     #soft-app .rkrow.just .rk-tick, #soft-app .rkrow.just .rk-tick svg path { animation: none; }
     #soft-app .hpr .rfg { transition: none; }
+    #soft-app .jar .jst.landed { animation: none; }
   }
 
   /* ===== Narrow phones (about 320px) =====
@@ -1305,6 +1306,9 @@
      things landing together reads as a glitch and three things landing one
      after another reads as weight. */
   #soft-app .jar.full .jbody { fill: color-mix(in srgb, var(--live) 11%, transparent); transition: fill .5s; }
+  /* One stone landing, which is three times more often than all three of
+     them landing together and had nothing to show for itself. */
+  #soft-app .jar .jst.landed { animation: athSettle .5s cubic-bezier(.33,1.5,.6,1) both; }
   #soft-app .jar.cheer .jst.on { animation: athSettle .5s cubic-bezier(.33,1.5,.6,1) both; }
   #soft-app .jar.cheer .jst.on:nth-of-type(2) { animation-delay: .07s; }
   #soft-app .jar.cheer .jst.on:nth-of-type(3) { animation-delay: .14s; }
