@@ -3268,6 +3268,10 @@
   #soft-app .mrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
   #soft-app .mrow .cd { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
   #soft-app .mr-t { flex: 1; min-width: 0; font-size: 14.5px; }
+  /* A rock that came from another day, so it does not sit among today’s
+     three looking like something chosen this morning. Not .mr-carry, which
+     is a different fact in a different row and only shares the word. */
+  #soft-app .mr-t.carried em { color: var(--live); }
   #soft-app .mr-t em { display: block; font-style: normal; font-size: 12.5px; color: var(--dim); margin-top: 1px; }
   #soft-app .mr-when {
     flex: 0 0 auto; background: var(--raise); border: 1px solid var(--line); color: var(--text);

@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-21.1';
+  const BUILD = '2026-10-23.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -6762,6 +6762,9 @@
 
   function openMorning(now){
     morning = { step: 'day', picks: [], custom: '' };
+    // Already in today's three. Three is the ceiling, so an unlucky day that
+    // left three open fills it and she drops what she no longer means.
+    morning.picks = rocksCarried(now).slice(0, 3);
     render();
   }
 
@@ -7138,6 +7141,46 @@
   }
 
   /* Things worth being a rock, in the order they deserve it. */
+  /* The most recent day that actually had rocks, not literally yesterday.
+     Skip a weekend and Friday's unfinished rock is still the honest answer
+     on Monday, where "yesterday" would be Sunday and would find nothing. */
+  function lastRockDay(now){
+    const today = dayKey(now), all = rocksAll();
+    return Object.keys(all).filter(d => d < today && (all[d] || []).length)
+      .sort().pop() || '';
+  }
+
+  /* What was set then and is still not done. A fortnight is the limit: a rock
+     carried back from last month is not a nudge, it is an accusation about a
+     different life, and nobody needs that at seven in the morning. */
+  const CARRY_DAYS = 14;
+  function rocksCarried(now){
+    const from = lastRockDay(now);
+    if (!from) return [];
+    if (daysBetween(from, dayKey(now)) > CARRY_DAYS) return [];
+    const on = parseDay(from);
+    return (rocksAll()[from] || [])
+      .filter(r => !rockDone(r, on))
+      .map(r => ({
+        key: 'carry:' + (r.id || r.text),
+        text: r.text, kind: r.kind, ref: r.ref || '', block: '',
+        from: from,
+        // How many days it has been asked for, this one included.
+        runs: (r.runs || 1) + 1,
+        why: carryWhy((r.runs || 1) + 1, from)
+      }));
+  }
+
+  /* Said plainly and without a telling-off. The number does the work: by the
+     fourth morning the sentence is a question she can answer by taking it
+     off, which is a real answer and not a failure. */
+  function carryWhy(runs, from){
+    const day = DAYS[parseDay(from).getDay()];
+    if (runs >= 4) return 'asked for ' + runs + ' days running';
+    if (runs === 3) return 'set twice already, still open';
+    return 'you set this ' + day + ' and it is still open';
+  }
+
   function rockCandidates(now){
     const b = dayBrief(now), out = [], seen = {};
     const add = (key, text, why, kind, ref) => {
@@ -7472,13 +7515,18 @@
       h += '<div class="rvbar-h">Your ' + (picked.length === 1 ? 'rock' : picked.length + ' rocks') + '</div>';
       picked.forEach((r, i) => {
         h += '<div class="mrow"><span class="rk-n">' + (i + 1) + '</span>' +
-          '<span class="mr-t">' + esc(r.text) + (r.why ? '<em>' + esc(r.why) + '</em>' : '') + '</span>' +
+          '<span class="mr-t' + (r.from ? ' carried' : '') + '">' + esc(r.text) +
+            (r.why ? '<em>' + esc(r.why) + '</em>' : '') + '</span>' +
           '<select class="mr-when" data-rockblock="' + i + '">' + blockOpts(now, r.block) + '</select>' +
           '<button class="del" data-rockdrop="' + i + '" aria-label="Take it off">×</button></div>';
       });
     }
 
-    const left = cands.filter(c => !picked.some(p => p.key === c.key));
+    // Matched on what the rock actually points at as well as on its key: a
+    // carried rock's key says carry, and the same task offered fresh says
+    // task, so the keys never collide and the thing shows up twice.
+    const left = cands.filter(c => !picked.some(p =>
+      p.key === c.key || (c.ref && p.ref === c.ref) || p.text === c.text));
     if (left.length && !full){
       h += '<div class="rvbar-h">Worth considering</div>';
       left.slice(0, 6).forEach(c => {
@@ -7519,7 +7567,10 @@
     markUndo('Morning check-in');
     const list = (morning.picks || []).map(r => ({
       id: 'rk_' + uid8(), text: r.text, why: r.why || '', kind: r.kind, ref: r.ref || '',
-      block: r.block || '', doneAt: null
+      block: r.block || '', doneAt: null,
+      // How many mornings this has been asked for. Carried through so the
+      // next one can say so, and so it keeps counting rather than resetting.
+      runs: r.runs || 1
     }));
     // A rock that is a task gets pinned to its block, so it turns up inside the
     // block on the day as well as at the top. The pin is the mechanism that
@@ -7620,19 +7671,13 @@
 
   // What was set yesterday and not finished. Yesterday is read as yesterday
   // was, so a rock ticked off then stays ticked off.
-  function rocksLeftYesterday(now){
-    const y = new Date(now); y.setDate(y.getDate() - 1);
-    const was = rocksOn(dayKey(y)) || [];
-    return was.filter(r => !rockDone(r, y));
-  }
-
   function morningPromptHTML(now){
     const set = rocksOn(dayKey(now));
     // Answered with nothing. Still an answer, so it does not nag, but it has
     // to leave a door open or the day is simply over for rocks.
     const saidNone = !!set && !set.length;
     if (!saidNone && !morningDue(now)) return '';
-    const left = rocksLeftYesterday(now);
+    const left = rocksCarried(now);
     // The card is .sp-row. Anything hung outside one floats loose on the
     // page looking like it belongs to whatever is underneath it.
     let h = '<div class="sitprompt"><div class="sp-row sp-rocks' + (saidNone ? ' quiet' : '') + '">' +
@@ -7643,9 +7688,17 @@
     if (left.length){
       // Said plainly, because the first question when today looks empty is
       // whether yesterday is still there.
-      h += '<div class="sp-carry"><span>Yesterday you set ' +
+      const when = daysBetween(left[0].from, dayKey(now)) === 1
+        ? 'Yesterday'
+        : 'On ' + DAYS[parseDay(left[0].from).getDay()];
+      // The run is the part worth saying out loud. A thing set four mornings
+      // running is not a rock any more, it is a decision being avoided, and
+      // nobody needs Athena to add the adjective.
+      const runs = Math.max.apply(null, left.map(r => r.runs || 1));
+      h += '<div class="sp-carry"><span>' + when + ' you set ' +
         (left.length === 1 ? 'one that is still open' : left.length + ' that are still open') + ': ' +
-        esc(left.map(r => r.text).join(', ')) + '</span>' +
+        esc(left.map(r => r.text).join(', ')) +
+        (runs >= 4 ? '. That is ' + runs + ' mornings running.' : '') + '</span>' +
         '<button class="ghost" data-mcarry>Carry ' + (left.length === 1 ? 'it' : 'them') + ' over</button></div>';
     }
     return h + '</div></div>';
@@ -12649,13 +12702,15 @@
     if (t('[data-mback]')){ morning.step = 'day'; render(); return; }
     if (t('[data-mcarry]')){
       const now = clock();
-      const left = rocksLeftYesterday(now);
+      const left = rocksCarried(now);
       if (!left.length) return;
-      markUndo('Yesterday\u2019s rocks carried over');
-      // New ids: these are today's rocks now, not a second view of yesterday's.
-      rocksAll()[dayKey(now)] = left.map(r => ({
+      markUndo('Rocks carried over');
+      // New ids: these are today's rocks now, not a second view of the day
+      // they came from. runs comes with them, so the count keeps counting
+      // whichever door was used.
+      rocksAll()[dayKey(now)] = left.slice(0, 3).map(r => ({
         id: 'rk_' + uid8(), text: r.text, why: r.why || '', kind: r.kind,
-        ref: r.ref || '', block: '', doneAt: null
+        ref: r.ref || '', block: '', doneAt: null, runs: r.runs || 1
       }));
       announce(left.length === 1 ? 'Carried over' : left.length + ' carried over');
       save(); render(); return;
