@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-23.1';
+  const BUILD = '2026-10-26.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -235,6 +235,9 @@
   // A span rather than an svg: the shape is a mask over the current colour,
   // so it follows the theme the same way a glyph would.
   const HELM = '<i class="amark" aria-hidden="true"></i>';
+  const CLIP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><path d="M19 11.5l-7.6 7.6a4.5 4.5 0 0 1-6.4-6.4' +
+    'l8-8a3 3 0 0 1 4.3 4.3l-8 8a1.5 1.5 0 0 1-2.2-2.1l7.3-7.3"/></svg>';
   const MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
     'stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/>' +
     '<path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg>';
@@ -8553,7 +8556,10 @@
      and gives the top of the screen back to the thing you came to look at. */
   const snapBtn = cls => '<button class="' + cls + '" data-snap>Snap a bill</button>';
   const snapInputHTML = () =>
-    '<input id="snapfile" type="file" accept="image/*" capture="environment" hidden>';
+    '<input id="snapfile" type="file" accept="image/*" capture="environment" hidden>' +
+    // No capture on this one. A bill is in front of you and an invitation is
+    // already on your phone, so this one should open the roll, not the lens.
+    '<input id="askfile" type="file" accept="image/*" hidden>';
 
   function bottomBarHTML(){
     if (!paned()) return '';
@@ -8986,7 +8992,41 @@
       if (!e.target.id || e.target.type === 'file') return;
       drafts[e.target.id] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     };
+    /* Pasted. Only into the ask box, so pasting a photo into the scratchpad
+       or a note goes on doing what it did. A paste carrying both text and an
+       image leaves the text alone and takes the image as well, which is what
+       copying a message out of a chat usually produces. */
+    shell.addEventListener('paste', e => {
+      const t = e.target;
+      if (!t || t.id !== 'ask_q') return;
+      const items = (e.clipboardData && e.clipboardData.items) || [];
+      for (let i = 0; i < items.length; i++){
+        if (items[i].kind !== 'file') continue;
+        const f = items[i].getAsFile();
+        if (f && /^image\//.test(f.type || '')){ askShotTake(f); return; }
+      }
+    });
+
+    /* Dropped on the box. preventDefault on dragover is the whole reason a
+       drop ever fires; without it the browser just opens the file. */
+    shell.addEventListener('dragover', e => {
+      const t = e.target;
+      if (t && (t.id === 'ask_q' || (t.closest && t.closest('.askbar')))) e.preventDefault();
+    });
+    shell.addEventListener('drop', e => {
+      const t = e.target;
+      if (!t || (t.id !== 'ask_q' && !(t.closest && t.closest('.askbar')))) return;
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f && /^image\//.test(f.type || '')){ e.preventDefault(); askShotTake(f); }
+    });
+
     shell.addEventListener('change', e => {
+      if (e.target && e.target.id === 'askfile'){
+        const f = e.target.files && e.target.files[0];
+        e.target.value = '';          // so the same picture twice still fires
+        askShotTake(f);
+        return;
+      }
       if (e.target && e.target.dataset && e.target.dataset.mswrite !== undefined){
         if (!S.profile) S.profile = blank().profile;
         S.profile.msWrite = e.target.value || '';
@@ -9907,6 +9947,32 @@
   // Capped, because the week brief is already the long part of the request.
   const ASK_TURNS = 12;
   let askBusy = false, askErr = '', askChanges = null, askPick = {}, askSaid = '';
+
+  /* What is waiting to go with the next question. One at a time: two would
+     need a way of saying which is which, and nothing anybody wants to do
+     here needs two. url is an object URL for the thumbnail, and is let go of
+     the moment it stops being shown. */
+  let askShot = null;
+
+  function askShotDrop(){
+    if (askShot && askShot.url){ try { URL.revokeObjectURL(askShot.url); } catch(_){} }
+    askShot = null;
+  }
+
+  async function askShotTake(file){
+    if (!file || !/^image\//.test(file.type || '')) return;
+    askShotDrop();
+    askErr = '';
+    try {
+      // The same shrink a note photo gets: 1600 on the long edge, which is
+      // plenty to read an invitation and small enough to send.
+      const sh = await shrinkImage(file);
+      askShot = { blob: sh.blob, w: sh.w, h: sh.h, url: URL.createObjectURL(sh.blob) };
+    } catch(_){
+      askErr = 'That picture could not be read. Try a screenshot of it instead.';
+    }
+    render();
+  }
   let askThread = [];
   function askSay(who, text){
     if (!text) return;
@@ -10146,22 +10212,29 @@
 
   async function askAthena(){
     const q = ((document.getElementById('ask_q') || {}).value || '').trim();
-    if (!q){ const i = document.getElementById('ask_q'); if (i) i.focus(); return; }
+    if (!q && !askShot){ const i = document.getElementById('ask_q'); if (i) i.focus(); return; }
     if (!cloud || !session){ askErr = 'Sign in first to ask Athena anything.'; render(); return; }
     askBusy = true; askErr = ''; askChanges = null; askSaid = q;
     const history = askHistory();
-    askSay('you', q);
+    // Taken now and let go of now, so a second question cannot quietly carry
+    // the first one's picture.
+    const shot = askShot;
+    askShot = null;
+    askSay('you', q || 'What is this?');
     clearDraft('ask_q');
     const box = document.getElementById('ask_q'); if (box) box.value = '';
     render();
     try {
       const { data } = await sb.auth.getSession();
       const token = data && data.session ? data.session.access_token : '';
+      const data64 = shot ? await b64(shot.blob) : '';
+      if (shot && shot.url){ try { URL.revokeObjectURL(shot.url); } catch(_){} }
       const r = await fetch(api('ai'), {
         method: 'POST',
         headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({
           mode: 'ask', ask: q, week: weekBrief(), chat: history,
+          image: data64, media: data64 ? 'image/jpeg' : '',
           categories: S.categories.map(c => c.label).join(', '),
           today: dayKey(clock())
         })
@@ -10350,9 +10423,17 @@
       if (askBusy) h += '<div class="asay her thinking"><p>Thinking…</p></div>';
       h += '</div>';
     }
+    if (askShot){
+      h += '<div class="askshot">' +
+        '<img src="' + esc(askShot.url) + '" alt="The picture you attached">' +
+        '<span>Attached. Ask about it, or just press Ask.</span>' +
+        '<button class="del" data-askshotx aria-label="Take the picture off">\u00d7</button></div>';
+    }
     h += '<div class="askbar">'+
       '<input id="ask_q" type="text" placeholder="Anything about your week…" autocomplete="off"'+
       (askBusy ? ' disabled' : '')+'>'+
+      '<button class="askmic askclip" data-askclip aria-label="Attach a picture" ' +
+        'title="Attach a picture">' + CLIP + '</button>'+
       (earCan()
         ? '<button class="askmic' + (earState === 'listening' ? ' hearing' : '') +
           (earChat && earState !== 'listening' ? ' waiting' : '') + '" data-askmic ' +
@@ -12871,6 +12952,12 @@
       if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, 0);
       render(); return;
     }
+    if (t('[data-askclip]')){
+      const f = document.getElementById('askfile');
+      if (f){ f.value = ''; f.click(); }
+      return;
+    }
+    if (t('[data-askshotx]')){ askShotDrop(); render(); return; }
     if (t('[data-snap]')){
       const f = document.getElementById('snapfile');
       if (f){ f.value = ''; f.click(); }
@@ -12903,7 +12990,10 @@
     if ((m = t('[data-fold]'))){ foldToggle(m.dataset.fold); return; }
     if (t('[data-askmic]')){ earToggle(); return; }
     if (t('[data-askgo]')){ earStop(); askAthena(); return; }
-    if (t('[data-askclear]')){ askChanges = null; askPick = {}; askThread = []; askErr = ''; askSaid = ''; render(); return; }
+    if (t('[data-askclear]')){
+      askChanges = null; askPick = {}; askThread = []; askErr = ''; askSaid = '';
+      askShotDrop(); render(); return;
+    }
     if ((m = t('[data-askpick]'))){ askPick[m.dataset.askpick] = !!m.checked; return; }
     if (t('[data-askapply]')){ askApply(); return; }
     if (t('[data-tomorrow]')){ tomorrowOpen = true; tmrw = {}; render(); return; }

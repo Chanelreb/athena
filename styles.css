@@ -1539,6 +1539,26 @@
   #soft-app .askbig.asktab { margin-top: 4px; }
   #soft-app .askbig.asktab .askthread { max-height: 62vh; }
 
+  /* ---- a picture attached to a question ---- */
+  /* Above the box with the words, because it is part of the question. Small
+     enough not to take over the panel it sits in, big enough to tell one
+     screenshot from another. */
+  :is(#soft-app, .ath-side) .askshot {
+    display: flex; align-items: center; gap: 10px; margin: 0 0 8px;
+    padding: 7px 8px; border: 1px solid var(--line); border-radius: 12px;
+    background: var(--bg);
+  }
+  :is(#soft-app, .ath-side) .askshot img {
+    flex: 0 0 auto; width: 46px; height: 46px; object-fit: cover;
+    border-radius: 8px; display: block;
+  }
+  :is(#soft-app, .ath-side) .askshot span {
+    flex: 1; min-width: 0; font-size: 12.5px; color: var(--dim); line-height: 1.4;
+  }
+  :is(#soft-app, .ath-side) .askshot .del { flex: 0 0 auto; }
+  /* The clip sits with the microphone and should not look louder than it. */
+  :is(#soft-app, .ath-side) .askmic.askclip svg { width: 19px; height: 19px; margin: auto; }
+
   /* ---- the assistant, given room ---- */
   :is(#soft-app, .ath-side) .askbig {
     background: var(--raise); border: 1px solid var(--line);
