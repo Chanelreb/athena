@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-26.1';
+  const BUILD = '2026-10-28.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -7679,12 +7679,23 @@
     // Answered with nothing. Still an answer, so it does not nag, but it has
     // to leave a door open or the day is simply over for rocks.
     const saidNone = !!set && !set.length;
-    if (!saidNone && !morningDue(now)) return '';
     const left = rocksCarried(now);
+    // Whether to ask her to set today's. Before her morning hour, no.
+    const asking = saidNone || morningDue(now);
+    // Nothing to ask and nothing left open is the one case with nothing to
+    // say, and then it says nothing.
+    if (!asking && !left.length) return '';
     // The card is .sp-row. Anything hung outside one floats loose on the
     // page looking like it belongs to whatever is underneath it.
-    let h = '<div class="sitprompt"><div class="sp-row sp-rocks' + (saidNone ? ' quiet' : '') + '">' +
-      (saidNone
+    let h = '<div class="sitprompt"><div class="sp-row sp-rocks' +
+      (saidNone || !asking ? ' quiet' : '') + '">' +
+      (!asking
+        // Before her morning hour, with something still open. No prompt to
+        // set today's, because that is what the hour is for, but the door is
+        // open in case she is up early and wants it.
+        ? '<span>Not quite your morning yet.</span>' +
+          '<button class="ghost" data-mopen>Set the day anyway</button>'
+        : saidNone
         ? '<span>No rocks today.</span><button class="ghost" data-mopen>Set some after all</button>'
         : '<span>Three rocks for today. Five minutes, and the day stops deciding for you.</span>' +
           '<button class="go" data-mopen>Set the day</button>');
