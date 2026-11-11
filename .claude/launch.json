@@ -1,11 +1,9 @@
 {
   "version": "0.0.1",
   "configurations": [
-    {
-      "name": "athena",
-      "runtimeExecutable": "node",
-      "runtimeArgs": ["serve.js", "8000"],
-      "port": 8000
-    }
+    { "name": "athena", "runtimeExecutable": "node", "runtimeArgs": ["serve.js", "8000"], "port": 8000 },
+    { "name": "athena-test", "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/chane/AppData/Local/Temp/claude/ef3926634a1bbbec/38809d5b-5a52-4758-b3b0-fc4e0c6dfe31/scratchpad/obshot/serve.js", "8124"],
+      "port": 8124 }
   ]
 }

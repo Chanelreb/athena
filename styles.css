@@ -886,6 +886,10 @@
   #soft-app .ai-trow .cd { top: 0; }
   #soft-app .ai-cat { flex: 0 0 auto; }
   #soft-app .ai-trow.guessed .ai-cat { border-color: var(--warn); color: var(--warn); }
+  /* Things Athena already has. Marked rather than hidden: the point is
+     that she can see it noticed. */
+  #soft-app .ai-group.ai-dupes .ai-row { opacity: .72; }
+  #soft-app .ai-group.ai-dupes .pt small { color: var(--live); }
   #soft-app .ai-guess { font-size: 12.5px; line-height: 1.45; color: var(--warn); margin: 0 0 8px; }
   #soft-app .ai-howto { font-size: 12.5px; line-height: 1.5; color: var(--dim); margin: 14px 0 0; }
   #soft-app .ai-howto b { color: var(--text); font-weight: 600; }

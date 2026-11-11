@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-10-28.1';
+  const BUILD = '2026-11-11.1';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -10138,6 +10138,22 @@
         return { kind:'task', id, act:'recategorise', cat:cid.id, name:tk.title,
           line:'File "' + tk.title + '" under ' + c.category };
       }
+      /* Giving a task a time is what the overdue offer has always asked for
+         and never had a way to say. Without it the model reached for "add",
+         which is how two of everything ended up on the list. */
+      if (act === 'settime'){
+        if (!okTime(c.start)) return null;
+        const on = okDate(c.date) ? c.date : dayKey(clock());
+        return { kind:'task', id, act:'settime', at:c.start, date:on, name:tk.title,
+          line:'Put "' + tk.title + '" at ' + clockOf(c.start) +
+            (on === dayKey(clock()) ? ' today' : ' on ' + goalDate(on)) };
+      }
+      if (act === 'cleartime'){
+        if (!tk.at) return null;
+        return { kind:'task', id, act:'cleartime', name:tk.title,
+          line:'Take the time off "' + tk.title + '", so it floats into any ' +
+            esc((catOf(tk.cat) || {}).label || 'matching') + ' block again' };
+      }
       if (act === 'rename' && c.title) return { kind:'task', id, act:'rename', title:String(c.title).slice(0,140),
         name:tk.title, line:'Rename "' + tk.title + '" to "' + c.title + '"' };
       if (act === 'done') return { kind:'task', id, act:'done', name:tk.title, line:'Tick off "' + tk.title + '"' };
@@ -10297,6 +10313,16 @@
         const tk = findTask(c.id);
         if (!tk) return;
         if (c.act === 'setdue'){ tk.due = c.date; tk.pin = null; tk.hold = false; }
+        else if (c.act === 'settime'){
+          // A task with a time is an appointment: it stops queueing inside a
+          // block and takes its own place in the day, which is what being
+          // placed means. normaliseAt is what the editor uses for the same
+          // field, so a time set here behaves like one typed in by hand.
+          tk.at = normaliseAt(c.at, tk);
+          if (c.date) tk.due = c.date;
+          tk.pin = null; tk.hold = false;
+        }
+        else if (c.act === 'cleartime'){ tk.at = null; tk.hold = false; }
         else if (c.act === 'setminutes') tk.mins = c.minutes;
         else if (c.act === 'setpriority') tk.priority = c.priority;
         else if (c.act === 'recategorise'){ tk.cat = c.cat; tk.pin = null; }
@@ -12227,11 +12253,40 @@
 
   // mode: 'place' fills blocks by length, 'list' holds the tasks back until
   // they are placed, '' is for an import with nothing to place.
+  /* Already on the list, open, and not the one being edited. Case and
+     surrounding space ignored, because "Claim licence rebates" and "Claim
+     Licence rebates" are not two jobs. */
+  const sameTitle = s => String(s || '').trim().toLowerCase();
+  function alreadyOpen(title){
+    const t = sameTitle(title);
+    if (!t) return null;
+    return (S.tasks || []).find(x => !x.doneAt && sameTitle(x.title) === t) || null;
+  }
+
+  /* Which of the proposed tasks Athena already has. Worked out when the
+     preview is drawn and again when it is applied, rather than remembered,
+     because a task can be ticked off or added between the two. */
+  function previewDupes(){
+    const out = [];
+    ((aiPreview && aiPreview.tasks) || []).forEach((tk, i) => {
+      const hit = alreadyOpen(tk.title);
+      if (hit) out.push({ i: i, tk: tk, had: hit });
+    });
+    return out;
+  }
+  // Set only by pressing the link, and cleared with the preview.
+  let aiDupesToo = false;
+
   function aiApply(mode){
     if (!aiPreview) return;
     markUndo('Added from your assistant');        // snapshot first, so undo takes back the lot
     S.tasks = S.tasks || [];
-    const tasks = (aiPreview.tasks || []).map(tk => { const c = Object.assign({}, tk); delete c.catGuessed; return c; });
+    // Checked here and not only in the preview: this is the line every add
+    // goes through, so this is the line that has to hold.
+    const skip = aiDupesToo ? [] : previewDupes().map(d => d.i);
+    const tasks = (aiPreview.tasks || [])
+      .filter((tk, i) => skip.indexOf(i) < 0)
+      .map(tk => { const c = Object.assign({}, tk); delete c.catGuessed; return c; });
     S.events.push.apply(S.events, aiPreview.events);
     S.tasks.push.apply(S.tasks, tasks);
     S.habits.push.apply(S.habits, aiPreview.habits);
@@ -12242,9 +12297,21 @@
       pile.forEach(tk => { tk.hold = true; });
       announce(pile.length + ' task' + (pile.length !== 1 ? 's' : '') + ' added to your list, waiting to be placed');
     } else announce('Added from your assistant');
-    aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; clearDraft('ai_paste');
+    if (skip.length) announce(skip.length === 1
+      ? 'One was already on your list, so it was left alone'
+      : skip.length + ' were already on your list, so they were left alone');
+    aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; aiDupesToo = false;
+    clearDraft('ai_paste');
     view = 'day';
     save(); render();
+  }
+
+  function dupeWas(tk){
+    const bits = ['already on your list'];
+    if (tk.due) bits.push((tk.dateType === 'on' ? 'on ' : 'by ') + goalDate(tk.due));
+    if (tk.at) bits.push('at ' + clockOf(tk.at));
+    if (tk.doneAt) bits.push('done');
+    return bits.join(' \u00b7 ');
   }
 
   function aiPreviewHTML(){
@@ -12259,7 +12326,21 @@
     // Tasks get a category you can change before anything lands, because the
     // category decides which blocks a task goes into, and a wrong one sends it
     // somewhere it does not belong. Anything Athena had to guess is marked.
-    const tks = p.tasks || [];
+    const dupes = previewDupes();
+    if (dupes.length && !aiDupesToo){
+      h += '<div class="ai-group ai-dupes"><div class="ai-glabel">' +
+        (dupes.length === 1 ? 'One is already on your list' :
+          dupes.length + ' are already on your list') + '</div>';
+      h += dupes.map(d => '<div class="ai-row"><span class="cd" style="background:' +
+        catColor(d.had.cat) + '"></span><span class="pt">' + esc(d.tk.title) +
+        '<small>' + esc(dupeWas(d.had)) + '</small></span></div>').join('');
+      h += '<p class="ai-guess">' + (dupes.length === 1 ? 'It will not be' : 'They will not be') +
+        ' added again. ' +
+        '<button class="linkish" data-aidupes>Add ' + (dupes.length === 1 ? 'it' : 'them') +
+        ' anyway</button></p></div>';
+    }
+    const tks = (p.tasks || []).filter((tk, i) =>
+      aiDupesToo || dupes.every(d => d.i !== i));
     if (tks.length){
       const opts = sel => S.categories.map(c =>
         '<option value="'+c.id+'"'+(c.id === sel ? ' selected' : '')+'>'+esc(c.label)+'</option>').join('');
@@ -12656,6 +12737,7 @@
     if (t('[data-gaimore]')){ goalAIMore(); return; }
     if (t('[data-gaiback]')){ if (goalAI){ goalAI.step = 'questions'; goalAI.error = ''; } render(); return; }
     if (t('[data-gaiapply]')){ goalAIApply(); return; }
+    if (t('[data-aidupes]')){ aiDupesToo = true; render(); return; }
     if (t('[data-aiopen]')){ aiOpen = true; aiStep = 'input'; aiPreview = null; aiError = ''; clearDraft('ai_paste'); clearDraft('ai_ask'); render(); return; }
     if (t('[data-aiclose]')){ aiOpen = false; aiPreview = null; aiStep = 'input'; aiError = ''; clearDraft('ai_paste'); clearDraft('ai_ask'); render(); return; }
     if (t('[data-aiask]')){ aiAskAthena(); return; }

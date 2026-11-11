@@ -172,7 +172,7 @@ export function anythingSchema(cats){
       target: z.enum(['event', 'task', 'goal', 'routine', 'habit']),
       id: z.string(),
       action: z.enum(['move', 'retime', 'rename', 'recategorise', 'setdue',
-        'setminutes', 'setpriority', 'done', 'skip', 'delete']),
+        'setminutes', 'setpriority', 'settime', 'cleartime', 'done', 'skip', 'delete']),
       date: z.string(), start: z.string(), end: z.string(),
       title: z.string(), category: z.string(), priority: z.string(),
       minutes: z.number(), why: z.string()
@@ -377,10 +377,12 @@ export default async function handler(req, res){
   const anythingSystem = [
     'You are Athena, the planner this person uses every day. They have typed one line into a box that does three different things, and your first job is to work out which.',
     'intent "add" when they are telling you about something new: appointments, things to do, a habit, a goal. Fill events, tasks, habits and goals exactly as you would for an import, leave changes empty, and put one short line in reply saying what you understood.',
+    'Only ever add something that is not already there. If what they describe is a task in the brief already, it is intent "change" on that task, whatever they want done to it. Never add a task whose title matches one they already have.',
     'intent "answer" when they are asking about their own week rather than changing it. Answer in reply, in at most three sentences, using their real blocks, tasks and times from the brief. Name actual things and actual times. Leave every list empty.',
     'intent "change" when they want something that already exists to be different. Put one entry in changes for each thing that has to move, and one short line in reply describing the lot in plain words.',
     'Never invent an id. Every id in changes must be copied exactly from the brief, and target must say which kind it is. If you cannot find the thing they mean, use intent "answer" and say which one you could not find.',
-    'What each action needs: "move" a date; "retime" a start and an end, or just a start for a routine; "rename" a title; "recategorise" a category; "setdue" a date; "setminutes" minutes; "setpriority" a priority; "skip" the date to miss; "done" and "delete" need nothing more. Leave every other field empty.',
+    'What each action needs: "move" a date; "retime" a start and an end, or just a start for a routine; "rename" a title; "recategorise" a category; "setdue" a date; "setminutes" minutes; "setpriority" a priority; "settime" a start, and a date if it is not today; "cleartime" nothing; "skip" the date to miss; "done" and "delete" need nothing more. Leave every other field empty.',
+    'Giving a task a time is "settime" on the task that already exists. Finding a slot for something, placing it, scheduling it, fitting it in: all of those are settime, and never a new task. If they ask you to place or schedule tasks they already have, every one of them is a change, and adding a second copy of a task they already have is always wrong. "cleartime" takes a time back off and lets it float into any block of its category again.',
     'Moving a repeating block moves that one day only and leaves the repeat alone. Changing its time changes it from now on. If they asked for something you cannot express with those actions, use intent "answer" and say so plainly rather than doing something close to it.',
     'why is one short phrase saying what that single change does, in their words, for them to read before they agree to it.',
     'Be careful with delete. Prefer skipping one day, or marking something done, unless they clearly meant to get rid of the thing itself.',
