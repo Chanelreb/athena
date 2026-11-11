@@ -520,7 +520,7 @@
   }
   :is(#soft-app, .ath-side) .dblk { touch-action: pan-y; cursor: grab; }
   :is(#soft-app, .ath-side) .dblk.dragging { z-index: 20; cursor: grabbing; box-shadow: 0 8px 22px rgba(0,0,0,.45); opacity: .95; }
-  html[data-theme="light"] :is(#soft-app, .ath-side) .dblk.dragging { box-shadow: 0 8px 22px rgba(70,66,58,.28); }
+  html[data-theme="light"] :is(#soft-app, .ath-side) .dblk.dragging { box-shadow: 0 8px 22px rgba(58,56,66,.28); }
   :is(#soft-app, .ath-side) .dblk.squat { padding: 2px 6px; gap: 6px; }
   :is(#soft-app, .ath-side) .dblk.squat .dtick { width: 14px; height: 14px; margin-top: 0; }
   :is(#soft-app, .ath-side) .dblk.squat .dtick svg { inset: 2px; }
@@ -923,24 +923,31 @@
   /* ===== Light theme =====
      JS resolves the choice (dark / light / match device) and stamps the result
      on <html>, so this one block covers every case. */
-  html[data-theme="light"], html[data-theme="light"] body { background: #E9E1D5; }
-  /* Warm paper, terracotta accent: the daylight form of the apricot the dark
-     theme runs on, darkened far enough to carry white text on a pale ground.
-     The category colours are still the only hues that mean anything; this one
-     means Athena, which is why it is the same colour in both themes.
+  html[data-theme="light"], html[data-theme="light"] body { background: #EAE9ED; }
+  /* Pearl ground, dusty rose accent. The accent is deliberately quiet: at 27%
+     saturation it is warm without competing with the category colours, which
+     are the only hues on the screen that carry meaning.
 
      warn is the accent, as it already is in dark. Three separate warm colours
      for accent, caution and delete is one more than can be told apart, and
-     caution is the one that gains least from its own. */
-  html[data-theme="light"] { --on-live: #FFFFFF; --pill-ink: #1E1D1A; --warn: #9E4E2B; --warn-soft: #F6E4D6; }
+     caution is the one that gains least from its own. It is darkened to
+     #915451 so it still reads as text on its own tint: at the accent itself
+     that pairing measures 4.04, under the 4.5 it needs, and at #915451 it
+     measures 4.83. */
+  html[data-theme="light"] { --on-live: #FFFFFF; --pill-ink: #1B1A1E; --warn: #915451; --warn-soft: #F5E6E5; }
   html[data-theme="light"] #soft-app {
-    --bg: #FBF8F3;
-    --raise: #F3EDE3;
-    --line: #E0D6C6;
-    --text: #221E18;
-    --dim: #5C554A;
-    --ghost: #8C8376;
-    --live: #A85732;
+    /* Plain white, not cream. A card is where the work is, and the one place
+       on the screen that should feel like nothing at all. */
+    --bg: #FFFFFF;
+    --raise: #F4F3F6;
+    --line: #E4E3E8;
+    /* Every neutral carries a few points of violet, the same lean the dark
+       theme has. Far too little to name as a colour, and enough that the
+       accent reads as the warm thing rather than one warm thing among many. */
+    --text: #1B1A1E;
+    --dim: #5B5A60;
+    --ghost: #8D8C93;
+    --live: #A05F5C;
     /* The one cool thing on the screen, and now a complement to the accent
        rather than a stranger beside a grey one. Still deliberately not one of
        yours: a booked hour is somebody else. */
@@ -954,12 +961,13 @@
     /* A tint of the accent now, not a deeper grey. With a charcoal accent the
        block you were in could not stand out by hue and had to do it by
        weight; it can do it by hue again. */
-    --live-soft: #F6E4D6;
-    background: linear-gradient(178deg, #FFFDF9 0%, #FBF8F3 300px);
+    --live-soft: #F5E6E5;
+    /* Flat white. The old gradient faded cream into cream, which was warmth
+       doing no work; against a pearl page the card edge is the separation. */
+    background: #FFFFFF;
   }
-  /* The accent at six percent, which is what it always was: 58,56,51 was the
-     old charcoal written out by hand. */
-  html[data-theme="light"] #soft-app .quote { background: rgba(168,87,50,.07); }
+  /* The accent at eight percent, written out by hand. */
+  html[data-theme="light"] #soft-app .quote { background: rgba(160,95,92,.08); }
   /* Soft fills: the category colours stay close to their pastel selves, so the
      wash across a block card carries more of the colour than it does in dark. */
   html[data-theme="light"] #soft-app .bcard::before { opacity: .2; }
@@ -967,12 +975,12 @@
   html[data-theme="light"] #soft-app .editdot:hover,
   html[data-theme="light"] .parked .parkdo:hover,
   html[data-theme="light"] :is(#soft-app, .ath-side) .taskchip:hover { background: rgba(0,0,0,.05); }
-  html[data-theme="light"] #soft-app .modal-back { background: rgba(45,43,38,.32); }
-  html[data-theme="light"] #soft-app .modal { box-shadow: 0 24px 60px rgba(70,66,58,.20); }
-  html[data-theme="light"] #soft-app .undobar { box-shadow: 0 12px 32px rgba(70,66,58,.20); }
-  html[data-theme="light"] #soft-app .cb.dragging { box-shadow: 0 8px 22px rgba(70,66,58,.25); }
-  html[data-theme="light"] #ath-update { background: #FFFFFF; color: #21201D; border-color: #DAD6D0; box-shadow: 0 12px 32px rgba(70,66,58,.20); }
-  html[data-theme="light"] #ath-update button { background: #A85732; color: #FFFFFF; }
+  html[data-theme="light"] #soft-app .modal-back { background: rgba(38,37,45,.34); }
+  html[data-theme="light"] #soft-app .modal { box-shadow: 0 24px 60px rgba(58,56,66,.20); }
+  html[data-theme="light"] #soft-app .undobar { box-shadow: 0 12px 32px rgba(58,56,66,.20); }
+  html[data-theme="light"] #soft-app .cb.dragging { box-shadow: 0 8px 22px rgba(58,56,66,.25); }
+  html[data-theme="light"] #ath-update { background: #FFFFFF; color: #1B1A1E; border-color: #E4E3E8; box-shadow: 0 12px 32px rgba(58,56,66,.20); }
+  html[data-theme="light"] #ath-update button { background: #A05F5C; color: #FFFFFF; }
 
   /* theme picker in settings */
   #soft-app .themerow { display: flex; gap: 8px; margin-bottom: 12px; }
@@ -1021,7 +1029,7 @@
   }
   #soft-app .hpr { position: relative; flex: 0 0 auto; width: 46px; height: 46px; display: block; }
   #soft-app .hpr svg { width: 100%; height: 100%; transform: rotate(-90deg); display: block; }
-  #soft-app .hpr circle { fill: none; stroke-width: 4; }
+  #soft-app .hpr circle { fill: none; stroke-width: 6; }
   #soft-app .hpr .rbg { stroke: var(--line); }
   #soft-app .hpr .rfg {
     stroke: var(--live); stroke-linecap: round;
@@ -2176,8 +2184,8 @@
     font-size: 16px; line-height: 1.5;
   }
   html[data-theme="light"] .ath-side {
-    --bg: #FBF8F3; --raise: #F3EDE3; --line: #E0D6C6; --text: #221E18;
-    --dim: #5C554A; --ghost: #8C8376; --live: #A85732; --live-soft: #F6E4D6;
+    --bg: #FFFFFF; --raise: #F4F3F6; --line: #E4E3E8; --text: #1B1A1E;
+    --dim: #5B5A60; --ghost: #8D8C93; --live: #A05F5C; --live-soft: #F5E6E5;
   }
   .ath-side *, .ath-side *::before, .ath-side *::after { box-sizing: border-box; }
   @media (min-width: 1000px) {
@@ -2230,7 +2238,7 @@
     transition: stroke-dashoffset .3s linear;
   }
   :is(#soft-app, .ath-side) .tmr.going .tmr-ring .trfg { stroke: #E5A87E; }
-  html[data-theme="light"] :is(#soft-app, .ath-side) .tmr.going .tmr-ring .trfg { stroke: #A85732; }
+  html[data-theme="light"] :is(#soft-app, .ath-side) .tmr.going .tmr-ring .trfg { stroke: #A05F5C; }
   /* A second is a second: easing it would make the last one look wrong. */
   @media (prefers-reduced-motion: reduce) { :is(#soft-app, .ath-side) .tmr-ring .trfg { transition: none; } }
   :is(#soft-app, .ath-side) .tmr-face {
@@ -2255,7 +2263,7 @@
   /* Running gets its own colour rather than the accent, so it still reads on a
      theme whose accent is deliberately quiet. */
   :is(#soft-app, .ath-side) .tmr.going .tmr-face { color: #E5A87E; }
-  html[data-theme="light"] :is(#soft-app, .ath-side) .tmr.going .tmr-face { color: #A85732; }
+  html[data-theme="light"] :is(#soft-app, .ath-side) .tmr.going .tmr-face { color: #A05F5C; }
   :is(#soft-app, .ath-side) .tmr.just .tmr-face { animation: pop .5s ease; }
   :is(#soft-app, .ath-side) .tmr-mins { display: flex; align-items: center; gap: 4px; justify-content: center; margin-bottom: 14px; flex-wrap: wrap; }
   :is(#soft-app, .ath-side) .tmr-mins button {
@@ -2576,7 +2584,7 @@
     box-shadow: 0 8px 24px rgba(0,0,0,.35);
     transition: opacity .2s, transform .2s;
   }
-  html[data-theme="light"] #soft-app .pickbar { box-shadow: 0 8px 24px rgba(70,66,58,.18); }
+  html[data-theme="light"] #soft-app .pickbar { box-shadow: 0 8px 24px rgba(58,56,66,.18); }
   #soft-app .pickbar.away { opacity: 0; pointer-events: none; transform: translate(-50%, 12px); }
   #soft-app .pb-t { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
   #soft-app .pb-t b { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

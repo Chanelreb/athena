@@ -17,7 +17,7 @@
   // KEEP IN STEP WITH version.json. The running copy compares itself against
   // that file on the server, so if the two drift the check either never fires
   // or fires forever. Both change together, every release.
-  const BUILD = '2026-11-11.2';
+  const BUILD = '2026-11-11.3';
 
   // --- Supabase client & auth ---------------------------------------------
   // The publishable key is public by design; row-level security is what keeps
@@ -1481,7 +1481,9 @@
     const pct = p.done / p.total;
     const dk = dayKey(clock());
     if (dk !== ringDay){ ringWas = null; ringDay = dk; }
-    const R = 15, C = 2 * Math.PI * R;
+    // 14 rather than 15: the stroke is 6 now and sits half outside the
+    // radius, so 15 would put its edge exactly on the edge of the box.
+    const R = 14, C = 2 * Math.PI * R;
     const all = p.done === p.total;
     const said = all ? 'All ' + p.total + ' kept today' : p.done + ' of ' + p.total + ' kept today';
     const out = '<div class="hprog' + (all ? ' full' : '') + '" role="img" title="' + esc(said) + '" ' +
