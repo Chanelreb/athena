@@ -923,28 +923,43 @@
   /* ===== Light theme =====
      JS resolves the choice (dark / light / match device) and stamps the result
      on <html>, so this one block covers every case. */
-  html[data-theme="light"], html[data-theme="light"] body { background: #E4E2DD; }
-  /* Stone paper, charcoal accent. Warmth without the yellow, and an accent quiet
-     enough that the category colours are the only real colour on the screen. */
-  html[data-theme="light"] { --on-live: #FFFFFF; --pill-ink: #1E1D1A; --warn: #9A5B1E; --warn-soft: #F7EBDC; }
+  html[data-theme="light"], html[data-theme="light"] body { background: #E9E1D5; }
+  /* Warm paper, terracotta accent: the daylight form of the apricot the dark
+     theme runs on, darkened far enough to carry white text on a pale ground.
+     The category colours are still the only hues that mean anything; this one
+     means Athena, which is why it is the same colour in both themes.
+
+     warn is the accent, as it already is in dark. Three separate warm colours
+     for accent, caution and delete is one more than can be told apart, and
+     caution is the one that gains least from its own. */
+  html[data-theme="light"] { --on-live: #FFFFFF; --pill-ink: #1E1D1A; --warn: #9E4E2B; --warn-soft: #F6E4D6; }
   html[data-theme="light"] #soft-app {
-    --bg: #FAF9F7;
-    --raise: #EFEDE9;
-    --line: #DAD6D0;
-    --text: #21201D;
-    --dim: #5A5751;
-    --ghost: #8A867F;
-    --live: #3A3833;
+    --bg: #FBF8F3;
+    --raise: #F3EDE3;
+    --line: #E0D6C6;
+    --text: #221E18;
+    --dim: #5C554A;
+    --ghost: #8C8376;
+    --live: #A85732;
+    /* The one cool thing on the screen, and now a complement to the accent
+       rather than a stranger beside a grey one. Still deliberately not one of
+       yours: a booked hour is somebody else. */
     --meet: #5E7495;
     --meet-wash: #5E74951A;
-    --danger: #A33B28;
+    /* Redder and darker than the accent on purpose. This is the one button
+       that destroys work, and beside a terracotta Ask button a terracotta
+       Delete would read as the same kind of thing. */
+    --danger: #8F2018;
     --on-danger: #FFFFFF;
-    /* Deeper than --raise on purpose. With a charcoal accent the block you are
-       in can no longer stand out by hue, so it stands out by weight instead. */
-    --live-soft: #E6E2D9;
-    background: linear-gradient(178deg, #FFFEFC 0%, #FAF9F7 300px);
+    /* A tint of the accent now, not a deeper grey. With a charcoal accent the
+       block you were in could not stand out by hue and had to do it by
+       weight; it can do it by hue again. */
+    --live-soft: #F6E4D6;
+    background: linear-gradient(178deg, #FFFDF9 0%, #FBF8F3 300px);
   }
-  html[data-theme="light"] #soft-app .quote { background: rgba(58,56,51,.06); }
+  /* The accent at six percent, which is what it always was: 58,56,51 was the
+     old charcoal written out by hand. */
+  html[data-theme="light"] #soft-app .quote { background: rgba(168,87,50,.07); }
   /* Soft fills: the category colours stay close to their pastel selves, so the
      wash across a block card carries more of the colour than it does in dark. */
   html[data-theme="light"] #soft-app .bcard::before { opacity: .2; }
@@ -957,7 +972,7 @@
   html[data-theme="light"] #soft-app .undobar { box-shadow: 0 12px 32px rgba(70,66,58,.20); }
   html[data-theme="light"] #soft-app .cb.dragging { box-shadow: 0 8px 22px rgba(70,66,58,.25); }
   html[data-theme="light"] #ath-update { background: #FFFFFF; color: #21201D; border-color: #DAD6D0; box-shadow: 0 12px 32px rgba(70,66,58,.20); }
-  html[data-theme="light"] #ath-update button { background: #3A3833; color: #FFFFFF; }
+  html[data-theme="light"] #ath-update button { background: #A85732; color: #FFFFFF; }
 
   /* theme picker in settings */
   #soft-app .themerow { display: flex; gap: 8px; margin-bottom: 12px; }
@@ -2161,8 +2176,8 @@
     font-size: 16px; line-height: 1.5;
   }
   html[data-theme="light"] .ath-side {
-    --bg: #FAF9F7; --raise: #EFEDE9; --line: #DAD6D0; --text: #21201D;
-    --dim: #5A5751; --ghost: #8A867F; --live: #3A3833; --live-soft: #E6E2D9;
+    --bg: #FBF8F3; --raise: #F3EDE3; --line: #E0D6C6; --text: #221E18;
+    --dim: #5C554A; --ghost: #8C8376; --live: #A85732; --live-soft: #F6E4D6;
   }
   .ath-side *, .ath-side *::before, .ath-side *::after { box-sizing: border-box; }
   @media (min-width: 1000px) {
@@ -2215,7 +2230,7 @@
     transition: stroke-dashoffset .3s linear;
   }
   :is(#soft-app, .ath-side) .tmr.going .tmr-ring .trfg { stroke: #E5A87E; }
-  html[data-theme="light"] :is(#soft-app, .ath-side) .tmr.going .tmr-ring .trfg { stroke: #9A5B1E; }
+  html[data-theme="light"] :is(#soft-app, .ath-side) .tmr.going .tmr-ring .trfg { stroke: #A85732; }
   /* A second is a second: easing it would make the last one look wrong. */
   @media (prefers-reduced-motion: reduce) { :is(#soft-app, .ath-side) .tmr-ring .trfg { transition: none; } }
   :is(#soft-app, .ath-side) .tmr-face {
@@ -2240,7 +2255,7 @@
   /* Running gets its own colour rather than the accent, so it still reads on a
      theme whose accent is deliberately quiet. */
   :is(#soft-app, .ath-side) .tmr.going .tmr-face { color: #E5A87E; }
-  html[data-theme="light"] :is(#soft-app, .ath-side) .tmr.going .tmr-face { color: #9A5B1E; }
+  html[data-theme="light"] :is(#soft-app, .ath-side) .tmr.going .tmr-face { color: #A85732; }
   :is(#soft-app, .ath-side) .tmr.just .tmr-face { animation: pop .5s ease; }
   :is(#soft-app, .ath-side) .tmr-mins { display: flex; align-items: center; gap: 4px; justify-content: center; margin-bottom: 14px; flex-wrap: wrap; }
   :is(#soft-app, .ath-side) .tmr-mins button {
